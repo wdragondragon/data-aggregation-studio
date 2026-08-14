@@ -1,5 +1,5 @@
 import type { FileTransferQueueEventView } from "@studio/api-sdk";
-import { buildStudioRequestHeaders, resolveStudioApiBaseUrl } from "@/api/studio";
+import { buildStudioRequestHeaders, getStoredProjectId, getStoredTenantId, resolveStudioApiBaseUrl } from "@/api/studio";
 
 const RECONNECT_DELAY_MS = 2_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -8,6 +8,7 @@ type FileTransferEventListener = (event: FileTransferQueueEventView) => void;
 type FileTransferEventErrorListener = (error: Error) => void;
 
 interface ParsedSseEvent {
+  id?: string;
   event: string;
   data: string;
 }
@@ -19,6 +20,8 @@ let reconnectTimer: number | null = null;
 let connecting = false;
 let connected = false;
 let reconnectAttempts = 0;
+let lastEventId: string | null = null;
+let lastEventScope: string | null = null;
 
 export function subscribeFileTransferEvents(
   listener: FileTransferEventListener,
@@ -44,11 +47,17 @@ async function connect() {
   connecting = true;
   abortController = new AbortController();
   const currentController = abortController;
+  const currentScope = eventScope();
+  if (currentScope !== lastEventScope) {
+    lastEventScope = currentScope;
+    lastEventId = null;
+  }
   try {
     const response = await fetch(resolveStudioApiBaseUrl("/file-transfer/runs/events"), {
       method: "GET",
       headers: {
         Accept: "text/event-stream",
+        ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}),
         ...buildStudioRequestHeaders(),
       },
       credentials: "include",
@@ -99,9 +108,12 @@ async function consumeStream(stream: ReadableStream<Uint8Array>, signal: AbortSi
 
 function handleEvent(event: ParsedSseEvent) {
   if (event.event === "heartbeat" || !event.data) return;
+  if (event.id && lastEventId && compareEventIds(event.id, lastEventId) <= 0) return;
   try {
     const payload = JSON.parse(event.data) as FileTransferQueueEventView;
+    if (event.id) payload.eventId = event.id;
     for (const listener of listeners) listener(payload);
+    if (event.id) lastEventId = event.id;
   } catch (error) {
     notifyError(error);
   }
@@ -153,15 +165,40 @@ function splitSsePayload(payload: string) {
 
 function parseSseEvent(block: string): ParsedSseEvent | null {
   if (!block.trim()) return null;
+  let eventId: string | undefined;
   let eventName = "message";
   const dataLines: string[] = [];
   for (const line of block.split(/\r?\n/)) {
     if (!line || line.startsWith(":")) continue;
     if (line.startsWith("event:")) {
       eventName = line.slice(6).trim() || "message";
+    } else if (line.startsWith("id:")) {
+      const value = line.slice(3).trim();
+      if (value && !value.includes("\0")) eventId = value;
     } else if (line.startsWith("data:")) {
       dataLines.push(line.slice(5).trim());
     }
   }
-  return { event: eventName, data: dataLines.join("\n") };
+  return { id: eventId, event: eventName, data: dataLines.join("\n") };
+}
+
+function compareEventIds(left: string, right: string) {
+  const normalizedLeft = normalizeNumericEventId(left);
+  const normalizedRight = normalizeNumericEventId(right);
+  if (normalizedLeft && normalizedRight) {
+    if (normalizedLeft.length !== normalizedRight.length) {
+      return normalizedLeft.length < normalizedRight.length ? -1 : 1;
+    }
+    return normalizedLeft === normalizedRight ? 0 : normalizedLeft < normalizedRight ? -1 : 1;
+  }
+  return left === right ? 0 : left < right ? -1 : 1;
+}
+
+function normalizeNumericEventId(value: string) {
+  if (!/^\d+$/.test(value)) return null;
+  return value.replace(/^0+(?=\d)/, "");
+}
+
+function eventScope() {
+  return `${getStoredTenantId() ?? ""}:${getStoredProjectId() ?? ""}`;
 }

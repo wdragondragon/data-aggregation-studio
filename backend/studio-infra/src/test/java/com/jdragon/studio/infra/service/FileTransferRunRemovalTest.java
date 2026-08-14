@@ -11,6 +11,7 @@ import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.FileTransferRunItemEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferMetricSampleMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -53,7 +54,7 @@ class FileTransferRunRemovalTest {
 
         fixture.service.removeManualRun(100L);
 
-        verify(fixture.runMapper).updateById(fixture.run);
+        verify(fixture.runMapper).update(isNull(), any(LambdaUpdateWrapper.class));
         verify(fixture.runMapper).deleteById(100L);
         verify(fixture.itemMapper).delete(any(LambdaQueryWrapper.class));
         @SuppressWarnings("unchecked")
@@ -88,6 +89,82 @@ class FileTransferRunRemovalTest {
         verify(fixture.itemMapper).update(isNull(), itemUpdate.capture());
         assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue("CANCELED"));
         assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue("Canceled by user"));
+    }
+
+    @Test
+    void pausingRunShouldPauseActiveItemsAndClearSpeeds() {
+        Fixture fixture = fixture("RUNNING");
+        FileTransferRunItemEntity item = new FileTransferRunItemEntity();
+        item.setId(200L);
+        item.setRunId(100L);
+        item.setTenantId("default");
+        item.setProjectId(10L);
+        item.setStatus("TRANSFERRING");
+        when(fixture.itemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(java.util.List.of(item));
+        when(fixture.itemMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        fixture.service.pause(100L);
+
+        assertEquals("PAUSED", fixture.run.getStatus());
+        assertEquals(0, fixture.run.getActiveFiles());
+        assertEquals(0L, fixture.run.getCurrentBytesPerSecond());
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunItemEntity>> itemUpdate =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(fixture.itemMapper).update(isNull(), itemUpdate.capture());
+        assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue("PAUSED"));
+        assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue(0L));
+    }
+
+    @Test
+    void pausedRunRecoveryShouldNormalizeStaleActiveItemsWithoutCreatingDispatch() {
+        Fixture fixture = fixture("PAUSED");
+        FileTransferRunItemEntity item = new FileTransferRunItemEntity();
+        item.setId(200L);
+        item.setRunId(100L);
+        item.setTenantId("default");
+        item.setProjectId(10L);
+        item.setStatus("TRANSFERRING");
+        item.setTransferredBytes(128L);
+        item.setCheckpointJson(Map.of("confirmedOffset", 128L));
+        when(fixture.itemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(java.util.List.of(item));
+        when(fixture.runMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(fixture.itemMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+                fixture.runMapper, fixture.itemMapper, mock(FileTransferMetricSampleMapper.class),
+                mock(FileTransferOutboxWriter.class));
+        mutationService.normalizePausedRunItemsAndEvent(fixture.run);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunItemEntity>> itemUpdate =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(fixture.itemMapper).update(isNull(), itemUpdate.capture());
+        assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue("PAUSED"));
+        assertTrue(itemUpdate.getValue().getParamNameValuePairs().containsValue(0L));
+        assertEquals(128L, item.getTransferredBytes());
+        assertEquals(128L, item.getCheckpointJson().get("confirmedOffset"));
+        verify(fixture.dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void pausedRunRecoveryShouldNotTouchItemsAfterConcurrentResumeWins() {
+        Fixture fixture = fixture("PAUSED");
+        FileTransferRunItemEntity item = new FileTransferRunItemEntity();
+        item.setId(200L);
+        item.setRunId(100L);
+        item.setTenantId("default");
+        item.setProjectId(10L);
+        item.setStatus("TRANSFERRING");
+        when(fixture.itemMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(java.util.List.of(item));
+        when(fixture.runMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(0);
+
+        FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+                fixture.runMapper, fixture.itemMapper, mock(FileTransferMetricSampleMapper.class),
+                mock(FileTransferOutboxWriter.class));
+
+        assertEquals(0, mutationService.normalizePausedRunItemsAndEvent(fixture.run));
+        verify(fixture.itemMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(fixture.dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
     }
 
     @Test
@@ -191,6 +268,10 @@ class FileTransferRunRemovalTest {
         when(runMapper.selectById(100L)).thenReturn(run);
         when(projectAccess.requireCurrentProjectId()).thenReturn(10L);
         when(securityService.currentTenantId()).thenReturn("default");
+        FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+                runMapper, itemMapper, mock(FileTransferMetricSampleMapper.class),
+                mock(FileTransferOutboxWriter.class));
+        mutationService.setDispatchTaskMapper(dispatchTaskMapper);
         FileTransferRunService service = new FileTransferRunService(
                 runMapper,
                 itemMapper,
@@ -202,7 +283,8 @@ class FileTransferRunRemovalTest {
                 securityService,
                 mock(UnstructuredManagementService.class),
                 mock(ClusterLockService.class),
-                new ObjectMapper());
+                new ObjectMapper(),
+                mutationService);
         return new Fixture(service, runMapper, itemMapper, dispatchTaskMapper,
                 runtimeClusterSelectionService, dataSourceService, run);
     }

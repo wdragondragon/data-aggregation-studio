@@ -8,6 +8,7 @@ import java.util.List;
 
 @Data
 public class FileTransferQueueEventView {
+    private Long eventId;
     private String type;
     private Long runId;
     private Long itemId;

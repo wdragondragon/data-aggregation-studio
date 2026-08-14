@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
@@ -22,6 +23,7 @@ import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -57,7 +59,9 @@ public class FileTransferRunService {
     private final UnstructuredManagementService unstructuredManagementService;
     private final ClusterLockService clusterLockService;
     private final ObjectMapper objectMapper;
+    private final FileTransferStateMutationService mutationService;
 
+    @Autowired
     public FileTransferRunService(FileTransferRunMapper runMapper,
                                   FileTransferRunItemMapper itemMapper,
                                   DispatchTaskMapper dispatchTaskMapper,
@@ -68,7 +72,8 @@ public class FileTransferRunService {
                                   StudioSecurityService securityService,
                                   UnstructuredManagementService unstructuredManagementService,
                                   ClusterLockService clusterLockService,
-                                  ObjectMapper objectMapper) {
+                                  ObjectMapper objectMapper,
+                                  FileTransferStateMutationService mutationService) {
         this.runMapper = runMapper;
         this.itemMapper = itemMapper;
         this.dispatchTaskMapper = dispatchTaskMapper;
@@ -80,6 +85,23 @@ public class FileTransferRunService {
         this.unstructuredManagementService = unstructuredManagementService;
         this.clusterLockService = clusterLockService;
         this.objectMapper = objectMapper;
+        this.mutationService = mutationService;
+    }
+
+    FileTransferRunService(FileTransferRunMapper runMapper,
+                           FileTransferRunItemMapper itemMapper,
+                           DispatchTaskMapper dispatchTaskMapper,
+                           FileTransferTaskService taskService,
+                           DataSourceService dataSourceService,
+                           RuntimeClusterSelectionService runtimeClusterSelectionService,
+                           ProjectResourceAccessService projectResourceAccessService,
+                           StudioSecurityService securityService,
+                           UnstructuredManagementService unstructuredManagementService,
+                           ClusterLockService clusterLockService,
+                           ObjectMapper objectMapper) {
+        this(runMapper, itemMapper, dispatchTaskMapper, taskService, dataSourceService,
+                runtimeClusterSelectionService, projectResourceAccessService, securityService,
+                unstructuredManagementService, clusterLockService, objectMapper, null);
     }
 
     @Transactional
@@ -98,7 +120,7 @@ public class FileTransferRunService {
         run.setTargetDatasourceId(commonTargetDatasource(request.getItems()));
         run.setChannel("LOCAL_WORKER");
         run.setResolvedSpecJson(manualSnapshot(request));
-        runMapper.insert(run);
+        insertRun(run);
         if (!Boolean.FALSE.equals(request.getAutoStart())) {
             insertDispatch(run, null, null);
         }
@@ -125,7 +147,10 @@ public class FileTransferRunService {
         }
         snapshot.put("manualItems", current);
         run.setResolvedSpecJson(snapshot);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .eq(FileTransferRunEntity::getId, run.getId()));
         ensureDispatch(run, null, null);
         return toRunView(run);
     }
@@ -167,7 +192,7 @@ public class FileTransferRunService {
             snapshot.put("scheduledFireTime", scheduledFireTime.toString());
         }
         run.setResolvedSpecJson(snapshot);
-        runMapper.insert(run);
+        insertRun(run);
         insertDispatch(run, task, scheduledFireTime);
         return toRunView(run);
     }
@@ -200,7 +225,7 @@ public class FileTransferRunService {
         run.setTargetDatasourceId(task.getTargetDatasourceId());
         run.setChannel("LOCAL_WORKER");
         run.setResolvedSpecJson(taskService.publishedSnapshot(taskId));
-        runMapper.insert(run);
+        insertRun(run);
         return run;
     }
 
@@ -267,22 +292,58 @@ public class FileTransferRunService {
         }
         run.setStatus("PAUSED");
         run.setMessage("Pause requested");
-        runMapper.updateById(run);
+        run.setCurrentBytesPerSecond(0L);
+        run.setActiveFiles(0);
+        mutationService().pauseRunAndItemsAndEvent(run, new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, run.getStatus())
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(FileTransferRunEntity::getId, run.getId())
+                .in(FileTransferRunEntity::getStatus, "RUNNING", "QUEUED"),
+                new LambdaUpdateWrapper<FileTransferRunItemEntity>()
+                        .set(FileTransferRunItemEntity::getStatus, "PAUSED")
+                        .set(FileTransferRunItemEntity::getCurrentBytesPerSecond, 0L)
+                        .set(FileTransferRunItemEntity::getUpdatedAt, LocalDateTime.now())
+                        .eq(FileTransferRunItemEntity::getTenantId, run.getTenantId())
+                        .eq(FileTransferRunItemEntity::getProjectId, run.getProjectId())
+                        .eq(FileTransferRunItemEntity::getRunId, run.getId())
+                        .in(FileTransferRunItemEntity::getStatus,
+                                "QUEUED", "DISCOVERING", "TRANSFERRING", "VERIFYING",
+                                "COMMITTING", "POST_ACTION", "PAUSED"));
         return toRunView(run);
     }
 
-    @Transactional
     public FileTransferRunView resume(Long runId) {
+        return clusterLockService.executeIfAcquiredNonReentrant(
+                "file-transfer-run-resume:" + runId, 30L, true,
+                () -> resumeLocked(runId),
+                () -> {
+                    throw bad("File transfer run resume is already in progress");
+                });
+    }
+
+    private FileTransferRunView resumeLocked(Long runId) {
         FileTransferRunEntity run = requireWritableRun(runId);
         assertSingleClusterExecutable(run);
-        if (!"PAUSED".equalsIgnoreCase(run.getStatus()) && !"FAILED".equalsIgnoreCase(run.getStatus())) {
-            throw bad("Only paused or failed file transfer runs can be resumed");
+        if (!"PAUSED".equalsIgnoreCase(run.getStatus())
+                && !"FAILED".equalsIgnoreCase(run.getStatus())
+                && !"QUEUED".equalsIgnoreCase(run.getStatus())) {
+            throw bad("Only paused, failed or queued file transfer runs can be resumed");
         }
-        run.setStatus("QUEUED");
-        run.setMessage("Resume requested");
-        run.setEndedAt(null);
-        runMapper.updateById(run);
-        ensureDispatch(run, null, null);
+        DispatchTaskEntity recoveryDispatch = newDispatch(run, null, null);
+        String resumedStatus = mutationService().resumeRunAndEnsureDispatchAndEvent(run, recoveryDispatch);
+        if (resumedStatus == null) {
+            FileTransferRunEntity latest = requireWritableRun(runId);
+            if (!"RUNNING".equalsIgnoreCase(latest.getStatus())
+                    && !"QUEUED".equalsIgnoreCase(latest.getStatus())) {
+                throw bad("File transfer run changed while resume was being requested");
+            }
+            run = latest;
+        } else {
+            run = requireWritableRun(runId);
+        }
         return toRunView(run);
     }
 
@@ -301,7 +362,13 @@ public class FileTransferRunService {
         run.setActiveFiles(0);
         run.setCurrentBytesPerSecond(0L);
         run.setEndedAt(canceledAt);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, run.getStatus())
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getEndedAt, canceledAt)
+                .eq(FileTransferRunEntity::getId, run.getId()));
         dispatchTaskMapper.update(null, new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .set(DispatchTaskEntity::getStatus, "CANCELED")
                 .eq(DispatchTaskEntity::getFileTransferRunId, runId)
@@ -330,7 +397,11 @@ public class FileTransferRunService {
         item.setStatus("QUEUED");
         item.setErrorCode(null);
         item.setErrorMessage(null);
-        itemMapper.updateById(item);
+        updateItem(run.getId(), item.getCoreItemId(), new LambdaUpdateWrapper<FileTransferRunItemEntity>()
+                .set(FileTransferRunItemEntity::getStatus, item.getStatus())
+                .set(FileTransferRunItemEntity::getErrorCode, null)
+                .set(FileTransferRunItemEntity::getErrorMessage, null)
+                .eq(FileTransferRunItemEntity::getId, item.getId()), false, true);
         run.setStatus("QUEUED");
         run.setEndedAt(null);
         run.setMessage("Item retry requested");
@@ -338,7 +409,13 @@ public class FileTransferRunService {
         snapshot.put("retryCoreItemId", item.getCoreItemId());
         snapshot.put("retryMode", postActionOnly ? "POST_ACTION_ONLY" : "TRANSFER");
         run.setResolvedSpecJson(snapshot);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, run.getStatus())
+                .set(FileTransferRunEntity::getEndedAt, null)
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .eq(FileTransferRunEntity::getId, run.getId()));
         ensureDispatch(run, null, null);
         return toRunView(run);
     }
@@ -359,16 +436,16 @@ public class FileTransferRunService {
             run.setStatus("CANCELED");
             run.setMessage("Removed from transfer queue");
             run.setEndedAt(LocalDateTime.now());
-            runMapper.updateById(run);
+            updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                    .set(FileTransferRunEntity::getStatus, run.getStatus())
+                    .set(FileTransferRunEntity::getMessage, run.getMessage())
+                    .set(FileTransferRunEntity::getEndedAt, run.getEndedAt())
+                    .eq(FileTransferRunEntity::getId, run.getId()));
         }
         if (hasClaimedDispatch(run)) {
             throw bad("Cancel the active file transfer run before removing it");
         }
-        itemMapper.delete(new LambdaQueryWrapper<FileTransferRunItemEntity>()
-                .eq(FileTransferRunItemEntity::getTenantId, run.getTenantId())
-                .eq(FileTransferRunItemEntity::getProjectId, run.getProjectId())
-                .eq(FileTransferRunItemEntity::getRunId, run.getId()));
-        runMapper.deleteById(run.getId());
+        mutationService().removeRunAndEvent(run);
     }
 
     @Transactional
@@ -392,7 +469,7 @@ public class FileTransferRunService {
                 && (!"CANCELED".equals(runStatus) || hasClaimedDispatch(run))) {
             throw bad("Only inactive file transfer items can be removed");
         }
-        itemMapper.deleteById(item.getId());
+        mutationService().removeItemAndEvent(run, item);
         Map<String, Object> snapshot = copy(run.getResolvedSpecJson());
         List<Map<String, Object>> manualItems = maps(snapshot.get("manualItems"));
         manualItems.removeIf(candidate -> sameTransferItem(candidate, item));
@@ -410,7 +487,18 @@ public class FileTransferRunService {
             run.setCurrentBytesPerSecond(0L);
             run.setEndedAt(LocalDateTime.now());
         }
-        runMapper.updateById(run);
+        LambdaUpdateWrapper<FileTransferRunEntity> runUpdate = new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .eq(FileTransferRunEntity::getId, run.getId());
+        if (remainingItems == null || remainingItems.longValue() == 0L) {
+            runUpdate.set(FileTransferRunEntity::getStatus, run.getStatus())
+                    .set(FileTransferRunEntity::getMessage, run.getMessage())
+                    .set(FileTransferRunEntity::getActiveFiles, 0)
+                    .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                    .set(FileTransferRunEntity::getEndedAt, run.getEndedAt());
+        }
+        updateRun(run.getId(), runUpdate);
     }
 
     private boolean sameTransferItem(Map<String, Object> candidate, FileTransferRunItemEntity item) {
@@ -419,6 +507,27 @@ public class FileTransferRunService {
         }
         return Objects.equals(text(candidate.get("sourcePath")), text(item.getSourcePath()))
                 && Objects.equals(text(candidate.get("targetPath")), text(item.getTargetPath()));
+    }
+
+    private void insertRun(FileTransferRunEntity run) {
+        mutationService().insertRunAndEvent(run);
+    }
+
+    private int updateRun(Long runId, LambdaUpdateWrapper<FileTransferRunEntity> update) {
+        return mutationService().updateRunAndEvent(runId, update, false, true);
+    }
+
+    private void updateItem(Long runId, String coreItemId,
+                            LambdaUpdateWrapper<FileTransferRunItemEntity> update,
+                            boolean progress, boolean force) {
+        mutationService().updateItemAndEvent(runId, coreItemId, update, progress, force);
+    }
+
+    private FileTransferStateMutationService mutationService() {
+        if (mutationService == null) {
+            throw new IllegalStateException("File transfer state mutation service is required");
+        }
+        return mutationService;
     }
 
     private String text(Object value) {
@@ -501,6 +610,8 @@ public class FileTransferRunService {
     private void ensureDispatch(FileTransferRunEntity run, FileTransferTaskDefinitionEntity task,
                                 LocalDateTime scheduledFireTime) {
         Long active = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, run.getTenantId())
+                .eq(DispatchTaskEntity::getProjectId, run.getProjectId())
                 .eq(DispatchTaskEntity::getFileTransferRunId, run.getId())
                 .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
         if (active == null || active.longValue() == 0L) {
@@ -510,6 +621,11 @@ public class FileTransferRunService {
 
     private void insertDispatch(FileTransferRunEntity run, FileTransferTaskDefinitionEntity task,
                                 LocalDateTime scheduledFireTime) {
+        dispatchTaskMapper.insert(newDispatch(run, task, scheduledFireTime));
+    }
+
+    private DispatchTaskEntity newDispatch(FileTransferRunEntity run, FileTransferTaskDefinitionEntity task,
+                                           LocalDateTime scheduledFireTime) {
         DispatchTaskEntity dispatch = new DispatchTaskEntity();
         dispatch.setTenantId(run.getTenantId());
         dispatch.setProjectId(run.getProjectId());
@@ -541,7 +657,7 @@ public class FileTransferRunService {
         payload.put("runtimeClusterId", runRuntimeClusterId(run));
         payload.put("config", config);
         dispatch.setPayloadJson(payload);
-        dispatchTaskMapper.insert(dispatch);
+        return dispatch;
     }
 
     private FileTransferRunEntity requireReadableRun(Long runId) {
@@ -778,7 +894,16 @@ public class FileTransferRunService {
     }
 
     private void cancelActiveItems(FileTransferRunEntity run, LocalDateTime canceledAt) {
-        itemMapper.update(null, new LambdaUpdateWrapper<FileTransferRunItemEntity>()
+        LambdaQueryWrapper<FileTransferRunItemEntity> activeQuery = new LambdaQueryWrapper<FileTransferRunItemEntity>()
+                .eq(FileTransferRunItemEntity::getTenantId, run.getTenantId())
+                .eq(FileTransferRunItemEntity::getProjectId, run.getProjectId())
+                .eq(FileTransferRunItemEntity::getRunId, run.getId())
+                .in(FileTransferRunItemEntity::getStatus, ACTIVE_ITEM_STATUSES);
+        List<Long> itemIds = itemMapper.selectList(activeQuery).stream()
+                .map(FileTransferRunItemEntity::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        LambdaUpdateWrapper<FileTransferRunItemEntity> update = new LambdaUpdateWrapper<FileTransferRunItemEntity>()
                 .set(FileTransferRunItemEntity::getStatus, "CANCELED")
                 .set(FileTransferRunItemEntity::getCurrentBytesPerSecond, 0L)
                 .set(FileTransferRunItemEntity::getErrorCode, "CANCELED")
@@ -788,7 +913,8 @@ public class FileTransferRunService {
                 .eq(FileTransferRunItemEntity::getTenantId, run.getTenantId())
                 .eq(FileTransferRunItemEntity::getProjectId, run.getProjectId())
                 .eq(FileTransferRunItemEntity::getRunId, run.getId())
-                .in(FileTransferRunItemEntity::getStatus, ACTIVE_ITEM_STATUSES));
+                .in(FileTransferRunItemEntity::getStatus, ACTIVE_ITEM_STATUSES);
+        mutationService().updateItemsAndEvents(run.getId(), update, itemIds);
     }
 
     private boolean hasClaimedDispatch(FileTransferRunEntity run) {

@@ -2,6 +2,7 @@ package com.jdragon.studio.worker.filetransfer;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.aggregation.commons.util.Configuration;
@@ -35,7 +36,9 @@ import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -58,15 +61,18 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     private final DatasourceClusterBindingService datasourceClusterBindingService;
     private final AggregationSourceCapabilityProvider sourceCapabilityProvider;
     private final ObjectMapper objectMapper;
+    private final FileTransferStateMutationService mutationService;
     private final TransferConfigurationMapper configurationMapper = new TransferConfigurationMapper();
 
+    @Autowired
     public FileTransferNodeExecutor(FileTransferRunMapper runMapper,
                                     FileTransferRunItemMapper itemMapper,
                                     FileTransferMetricSampleMapper metricMapper,
                                     DataSourceService dataSourceService,
                                     DatasourceClusterBindingService datasourceClusterBindingService,
                                     AggregationSourceCapabilityProvider sourceCapabilityProvider,
-                                    ObjectMapper objectMapper) {
+                                    ObjectMapper objectMapper,
+                                    FileTransferStateMutationService mutationService) {
         this.runMapper = runMapper;
         this.itemMapper = itemMapper;
         this.metricMapper = metricMapper;
@@ -74,6 +80,18 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         this.datasourceClusterBindingService = datasourceClusterBindingService;
         this.sourceCapabilityProvider = sourceCapabilityProvider;
         this.objectMapper = objectMapper;
+        this.mutationService = mutationService;
+    }
+
+    FileTransferNodeExecutor(FileTransferRunMapper runMapper,
+                             FileTransferRunItemMapper itemMapper,
+                             FileTransferMetricSampleMapper metricMapper,
+                             DataSourceService dataSourceService,
+                             DatasourceClusterBindingService datasourceClusterBindingService,
+                             AggregationSourceCapabilityProvider sourceCapabilityProvider,
+                             ObjectMapper objectMapper) {
+        this(runMapper, itemMapper, metricMapper, dataSourceService, datasourceClusterBindingService,
+                sourceCapabilityProvider, objectMapper, null);
     }
 
     @Override
@@ -103,14 +121,17 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         if (optionalLong(runSnapshot.get("plannedAtMillis")).isEmpty()) {
             runSnapshot.put("plannedAtMillis", Instant.now().toEpochMilli());
             run.setResolvedSpecJson(runSnapshot);
-            runMapper.updateById(run);
+            updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                    .set(FileTransferRunEntity::getResolvedSpecJson, runSnapshot,
+                            "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                    .eq(FileTransferRunEntity::getId, run.getId()), false, true);
         }
         String retryCoreItemId = text(runSnapshot.get("retryCoreItemId"), null);
         String retryMode = text(runSnapshot.get("retryMode"), "TRANSFER");
         boolean postActionOnly = "POST_ACTION_ONLY".equalsIgnoreCase(retryMode);
         List<TransferExecution> executions = buildExecutions(run, runSnapshot);
         StudioTransferEventListener listener = new StudioTransferEventListener(
-                run, runMapper, itemMapper, metricMapper);
+                run, runMapper, itemMapper, metricMapper, mutationService);
         List<TransferResult> results = new ArrayList<TransferResult>();
         try {
             try (PluginRuntimeSession pluginSession = PluginRuntimeSession.open()) {
@@ -173,9 +194,10 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                             : engine.execute(preparedExecution.prepared,
                                     preparedExecution.execution.sourceFactory,
                                     preparedExecution.execution.targetFactory,
-                                    new StudioTransferCheckpointStore(run.getId(), itemMapper, objectMapper),
-                                    listener,
-                                    new DatabaseTransferControl(run.getId(), runMapper));
+                                     new StudioTransferCheckpointStore(run.getId(), itemMapper,
+                                             mutationService, objectMapper),
+                                     listener,
+                                     new DatabaseTransferControl(run.getId(), runMapper));
                     results.add(result);
                     persistResults(run, preparedExecution.prepared, result);
                 }
@@ -481,7 +503,10 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         snapshot.put("plannedAtMillis", prepared.plan().plannedAt().toEpochMilli());
         snapshot.put("dynamicResolved", Boolean.TRUE);
         run.setResolvedSpecJson(snapshot);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .eq(FileTransferRunEntity::getId, run.getId()), false, true);
     }
 
     private Instant plannedAt(Map<String, Object> snapshot) {
@@ -535,9 +560,9 @@ public class FileTransferNodeExecutor implements NodeExecutor {
             item.setConflictAction(text(policy.get("conflictPolicy"), "FAIL"));
             item.setSourceAction(text(policy.get("sourceSuccessAction"), "KEEP"));
             if (created) {
-                itemMapper.insert(item);
+                insertOrUpdateItem(item, true);
             } else {
-                itemMapper.updateById(item);
+                insertOrUpdateItem(item, false);
             }
         }
     }
@@ -570,7 +595,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 update.set(FileTransferRunItemEntity::getFileSize, plan.sourceSnapshot().size());
             }
             update.set(FileTransferRunItemEntity::getUpdatedAt, LocalDateTime.now());
-            itemMapper.update(null, update);
+            updateItem(run.getId(), value.itemId(), update, false, true);
         }
     }
 
@@ -580,7 +605,14 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         run.setMessage("File transfer started");
         run.setStartedAt(LocalDateTime.now());
         run.setEndedAt(null);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getRunRecordId, runRecordId)
+                .set(FileTransferRunEntity::getStatus, "RUNNING")
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .set(FileTransferRunEntity::getStartedAt, run.getStartedAt())
+                .set(FileTransferRunEntity::getEndedAt, null)
+                .eq(FileTransferRunEntity::getId, run.getId())
+                .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING"), false, true);
     }
 
     private void updatePlanTotals(FileTransferRunEntity run, long totalFiles, long totalBytes) {
@@ -588,7 +620,12 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         run.setTotalBytes(totalBytes);
         run.setActiveFiles((int) Math.min(Integer.MAX_VALUE, totalFiles));
         run.setMessage("File discovery completed");
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getTotalFiles, totalFiles)
+                .set(FileTransferRunEntity::getTotalBytes, totalBytes)
+                .set(FileTransferRunEntity::getActiveFiles, run.getActiveFiles())
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .eq(FileTransferRunEntity::getId, run.getId()), false, true);
     }
 
     Map<String, Object> finish(FileTransferRunEntity run, List<TransferResult> results) {
@@ -644,7 +681,24 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         snapshot.remove("retryCoreItemId");
         snapshot.remove("retryMode");
         run.setResolvedSpecJson(snapshot);
-        runMapper.updateById(run);
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, finalStatus)
+                .set(FileTransferRunEntity::getSuccessFiles, success)
+                .set(FileTransferRunEntity::getSkippedFiles, skipped)
+                .set(FileTransferRunEntity::getFailedFiles, failed)
+                .set(FileTransferRunEntity::getConflictFiles, conflicts)
+                .set(FileTransferRunEntity::getResumedFiles, resumedFiles)
+                .set(FileTransferRunEntity::getPostActionFailedFiles, postActionFailed)
+                .set(FileTransferRunEntity::getTransferredBytes, transferred)
+                .set(FileTransferRunEntity::getFailedBytes, failedBytes)
+                .set(FileTransferRunEntity::getResumedBytes, resumed)
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getEndedAt, run.getEndedAt())
+                .set(FileTransferRunEntity::getMessage, run.getMessage())
+                .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .eq(FileTransferRunEntity::getId, run.getId()), false, true);
 
         Map<String, Object> summary = new LinkedHashMap<String, Object>();
         summary.put("fileTransferRunId", run.getId());
@@ -678,10 +732,10 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     }
 
     private void markFailed(FileTransferRunEntity run, String message) {
-        if (isCanceled(run.getId())) {
+        if (isPausedOrCanceled(run.getId())) {
             return;
         }
-        runMapper.update(null, new LambdaUpdateWrapper<FileTransferRunEntity>()
+        updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
                 .set(FileTransferRunEntity::getStatus, "FAILED")
                 .set(FileTransferRunEntity::getMessage,
                         message == null || message.isBlank() ? "File transfer failed" : message)
@@ -690,12 +744,41 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 .set(FileTransferRunEntity::getEndedAt, LocalDateTime.now())
                 .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
                 .eq(FileTransferRunEntity::getId, run.getId())
-                .ne(FileTransferRunEntity::getStatus, "CANCELED"));
+                .notIn(FileTransferRunEntity::getStatus, "CANCELED", "PAUSED"), false, true);
+    }
+
+    private boolean isPausedOrCanceled(Long runId) {
+        FileTransferRunEntity latest = runMapper.selectById(runId);
+        return latest == null
+                || "CANCELED".equalsIgnoreCase(latest.getStatus())
+                || "PAUSED".equalsIgnoreCase(latest.getStatus());
     }
 
     private boolean isCanceled(Long runId) {
         FileTransferRunEntity latest = runMapper.selectById(runId);
         return latest == null || "CANCELED".equalsIgnoreCase(latest.getStatus());
+    }
+
+    private void updateRun(Long runId, LambdaUpdateWrapper<FileTransferRunEntity> update,
+                           boolean progress, boolean force) {
+        mutationService().updateRunAndEvent(runId, update, progress, force);
+    }
+
+    private void insertOrUpdateItem(FileTransferRunItemEntity item, boolean created) {
+        mutationService().insertOrUpdatePlanItemAndEvent(item, created);
+    }
+
+    private void updateItem(Long runId, String coreItemId,
+                            LambdaUpdateWrapper<FileTransferRunItemEntity> update,
+                            boolean progress, boolean force) {
+        mutationService().updateItemAndEvent(runId, coreItemId, update, progress, force);
+    }
+
+    private FileTransferStateMutationService mutationService() {
+        if (mutationService == null) {
+            throw new IllegalStateException("File transfer state mutation service is required");
+        }
+        return mutationService;
     }
 
     private long countStatus(List<FileTransferRunItemEntity> items, String status) {

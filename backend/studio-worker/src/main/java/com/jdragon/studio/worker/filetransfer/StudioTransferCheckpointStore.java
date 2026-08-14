@@ -1,12 +1,15 @@
 package com.jdragon.studio.worker.filetransfer;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.aggregation.transfer.TransferCheckpointStore;
 import com.jdragon.aggregation.transfer.model.TransferCheckpoint;
 import com.jdragon.studio.infra.entity.FileTransferRunItemEntity;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 
 import java.io.IOException;
 import java.time.LocalDateTime;
@@ -18,12 +21,15 @@ final class StudioTransferCheckpointStore implements TransferCheckpointStore {
 
     private final Long studioRunId;
     private final FileTransferRunItemMapper itemMapper;
+    private final FileTransferStateMutationService mutationService;
     private final ObjectMapper objectMapper;
 
     StudioTransferCheckpointStore(Long studioRunId, FileTransferRunItemMapper itemMapper,
+                                  FileTransferStateMutationService mutationService,
                                   ObjectMapper objectMapper) {
         this.studioRunId = studioRunId;
         this.itemMapper = itemMapper;
+        this.mutationService = mutationService;
         this.objectMapper = objectMapper;
     }
 
@@ -56,10 +62,12 @@ final class StudioTransferCheckpointStore implements TransferCheckpointStore {
         if (item == null) {
             return;
         }
-        item.setCheckpointJson(values);
-        item.setTransferredBytes(checkpoint.confirmedOffset());
-        item.setUpdatedAt(LocalDateTime.now());
-        itemMapper.updateById(item);
+        update(item, new LambdaUpdateWrapper<FileTransferRunItemEntity>()
+                .set(FileTransferRunItemEntity::getCheckpointJson, values,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .set(FileTransferRunItemEntity::getTransferredBytes, checkpoint.confirmedOffset())
+                .set(FileTransferRunItemEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(FileTransferRunItemEntity::getId, item.getId()), true, false);
     }
 
     @Override
@@ -68,9 +76,11 @@ final class StudioTransferCheckpointStore implements TransferCheckpointStore {
         if (item == null) {
             return;
         }
-        item.setCheckpointJson(new LinkedHashMap<String, Object>());
-        item.setUpdatedAt(LocalDateTime.now());
-        itemMapper.updateById(item);
+        update(item, new LambdaUpdateWrapper<FileTransferRunItemEntity>()
+                .set(FileTransferRunItemEntity::getCheckpointJson, new LinkedHashMap<String, Object>(),
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .set(FileTransferRunItemEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(FileTransferRunItemEntity::getId, item.getId()), false, true);
     }
 
     private FileTransferRunItemEntity find(String itemId) {
@@ -78,5 +88,18 @@ final class StudioTransferCheckpointStore implements TransferCheckpointStore {
                 .eq(FileTransferRunItemEntity::getRunId, studioRunId)
                 .eq(FileTransferRunItemEntity::getCoreItemId, itemId)
                 .last("limit 1"));
+    }
+
+    private void update(FileTransferRunItemEntity item,
+                        LambdaUpdateWrapper<FileTransferRunItemEntity> update,
+                        boolean progress, boolean force) {
+        mutationService().updateItemAndEvent(studioRunId, item.getCoreItemId(), update, progress, force);
+    }
+
+    private FileTransferStateMutationService mutationService() {
+        if (mutationService == null) {
+            throw new IllegalStateException("File transfer state mutation service is required");
+        }
+        return mutationService;
     }
 }

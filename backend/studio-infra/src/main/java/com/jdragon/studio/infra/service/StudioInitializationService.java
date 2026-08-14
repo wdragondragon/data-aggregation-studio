@@ -67,6 +67,8 @@ public class StudioInitializationService {
             "data_service_request_param",
             "data_service_definition",
             "studio_project_runtime_cluster",
+            "file_transfer_event_outbox",
+            "file_transfer_event_consumer_cursor",
             "file_transfer_metric_sample",
             "file_transfer_run_item",
             "file_transfer_run",

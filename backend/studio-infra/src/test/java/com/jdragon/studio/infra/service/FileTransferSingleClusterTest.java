@@ -11,7 +11,9 @@ import com.jdragon.studio.dto.model.request.FileTransferManualItemRequest;
 import com.jdragon.studio.dto.model.request.FileTransferManualRunRequest;
 import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import com.jdragon.studio.infra.entity.FileTransferRunEntity;
+import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferMetricSampleMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import org.junit.jupiter.api.Test;
@@ -24,10 +26,13 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.isNull;
 
 class FileTransferSingleClusterTest {
 
@@ -96,6 +101,46 @@ class FileTransferSingleClusterTest {
     }
 
     @Test
+    void resumeContinuesTheExistingRunningDispatchWithoutCreatingAnotherOwner() {
+        Fixture fixture = fixture();
+        FileTransferRunEntity run = resumableRun("PAUSED");
+        FileTransferRunEntity resumedRun = resumableRun("RUNNING");
+        resumedRun.setMessage("Resume requested; active transfer continues");
+        when(fixture.runMapper.selectById(100L)).thenReturn(run, resumedRun, resumedRun);
+        when(fixture.dispatchTaskMapper.selectCount(any()))
+                .thenReturn(1L, 1L);
+        when(fixture.runMapper.update(isNull(), any())).thenReturn(1);
+
+        var resumed = fixture.service.resume(100L);
+
+        assertThat(resumed.getStatus()).isEqualTo("RUNNING");
+        assertThat(resumed.getMessage()).isEqualTo("Resume requested; active transfer continues");
+        verify(fixture.dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void resumeQueuedRunRepairsMissingDispatchIdempotently() {
+        Fixture fixture = fixture();
+        FileTransferRunEntity run = resumableRun("QUEUED");
+        FileTransferRunEntity resumedRun = resumableRun("QUEUED");
+        resumedRun.setMessage("Resume requested; checkpoint recovery queued");
+        when(fixture.runMapper.selectById(100L)).thenReturn(run, resumedRun, resumedRun);
+        when(fixture.dispatchTaskMapper.selectCount(any()))
+                .thenReturn(0L, 0L);
+        when(fixture.runMapper.update(isNull(), any())).thenReturn(1);
+
+        var resumed = fixture.service.resume(100L);
+
+        assertThat(resumed.getStatus()).isEqualTo("QUEUED");
+        assertThat(resumed.getMessage()).isEqualTo("Resume requested; checkpoint recovery queued");
+        ArgumentCaptor<DispatchTaskEntity> dispatch = ArgumentCaptor.forClass(DispatchTaskEntity.class);
+        verify(fixture.dispatchTaskMapper).insert(dispatch.capture());
+        assertThat(dispatch.getValue().getFileTransferRunId()).isEqualTo(100L);
+        assertThat(dispatch.getValue().getTargetClusterId()).isEqualTo(11L);
+        assertThat(dispatch.getValue().getStatus()).isEqualTo("QUEUED");
+    }
+
+    @Test
     void deniedSourceCannotBeAddedToManualQueue() {
         Fixture fixture = fixture();
         when(fixture.permissionService.assertPermission(11L, 21L,
@@ -148,6 +193,19 @@ class FileTransferSingleClusterTest {
         return item;
     }
 
+    private FileTransferRunEntity resumableRun(String status) {
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(100L);
+        run.setTenantId("default");
+        run.setProjectId(10L);
+        run.setTriggerType("MANUAL");
+        run.setStatus(status);
+        run.setRuntimeClusterId(11L);
+        run.setSourceRuntimeClusterId(11L);
+        run.setTargetRuntimeClusterId(11L);
+        return run;
+    }
+
     private Fixture fixture() {
         FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
         ProjectResourceAccessService projectAccess = mock(ProjectResourceAccessService.class);
@@ -156,19 +214,33 @@ class FileTransferSingleClusterTest {
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentUserId()).thenReturn(99L);
         UnstructuredManagementService permissionService = permissionService();
+        FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+                runMapper, itemMapper, mock(FileTransferMetricSampleMapper.class),
+                mock(FileTransferOutboxWriter.class));
+        mutationService.setDispatchTaskMapper(dispatchTaskMapper);
         FileTransferRunService service = new FileTransferRunService(
                 runMapper,
-                mock(FileTransferRunItemMapper.class),
-                mock(DispatchTaskMapper.class),
+                itemMapper,
+                dispatchTaskMapper,
                 mock(FileTransferTaskService.class),
                 mock(DataSourceService.class),
                 mock(RuntimeClusterSelectionService.class),
                 projectAccess,
                 securityService,
                 permissionService,
-                mock(ClusterLockService.class),
-                new ObjectMapper());
-        return new Fixture(service, runMapper, permissionService);
+                passThroughLockService(),
+                new ObjectMapper(),
+                mutationService);
+        return new Fixture(service, runMapper, dispatchTaskMapper, permissionService);
+    }
+
+    private ClusterLockService passThroughLockService() {
+        ClusterLockService lockService = mock(ClusterLockService.class);
+        when(lockService.executeIfAcquiredNonReentrant(any(), anyLong(), anyBoolean(), any(), any()))
+                .thenAnswer(invocation -> ((java.util.function.Supplier<?>) invocation.getArgument(3)).get());
+        return lockService;
     }
 
     private UnstructuredManagementService permissionService() {
@@ -179,6 +251,7 @@ class FileTransferSingleClusterTest {
     }
 
     private record Fixture(FileTransferRunService service, FileTransferRunMapper runMapper,
+                           DispatchTaskMapper dispatchTaskMapper,
                            UnstructuredManagementService permissionService) {
     }
 }

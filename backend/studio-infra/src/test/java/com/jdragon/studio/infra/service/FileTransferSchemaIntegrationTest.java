@@ -5,6 +5,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,13 +24,17 @@ class FileTransferSchemaIntegrationTest {
 
     private static final List<String> TABLES = List.of(
             "file_transfer_task_definition", "file_transfer_run",
-            "file_transfer_run_item", "file_transfer_metric_sample");
+            "file_transfer_run_item", "file_transfer_metric_sample",
+            "file_transfer_event_outbox", "file_transfer_event_consumer_cursor");
     private static final List<String> INDEXES = List.of(
             "uk_ft_task_project_code", "idx_ft_task_project_status", "idx_ft_task_schedule",
             "uk_ft_run_record", "idx_ft_run_project_created", "idx_ft_run_task_status",
             "idx_ft_run_target_status", "uk_ft_item_run_core", "idx_ft_item_run_status",
             "idx_ft_item_project_updated", "idx_ft_metric_project_time",
-            "idx_ft_metric_run_time", "idx_ft_metric_task_time");
+            "idx_ft_metric_run_time", "idx_ft_metric_task_time",
+            "idx_ft_outbox_scope_id", "idx_ft_outbox_run_id", "idx_ft_outbox_created",
+            "idx_ft_outbox_event_type", "uk_ft_event_cursor_scope",
+            "idx_ft_event_cursor_seen", "idx_ft_event_cursor_position");
 
     @Test
     void sqliteUpgradeCreatesFileTransferSchemaIdempotently() throws Exception {
@@ -89,8 +94,11 @@ class FileTransferSchemaIntegrationTest {
     void mysqlSqliteMigrationAndStartupUpgradeStayAligned() throws Exception {
         String mysql = backendFile("studio-server/src/main/resources/schema-mysql.sql");
         String sqlite = backendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
-        String migration = backendFile(
+        String baseMigration = backendFile(
                 "studio-server/src/main/resources/update/20260807/20260807-file-transfer.sql");
+        String outboxMigration = backendFile(
+                "studio-server/src/main/resources/update/20260812/20260812-file-transfer-event-outbox.sql");
+        String migration = baseMigration + "\n" + outboxMigration;
         String upgrade = Files.readString(Path.of(
                 "src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java"),
                 StandardCharsets.UTF_8);
@@ -98,7 +106,8 @@ class FileTransferSchemaIntegrationTest {
         for (String table : TABLES) {
             assertTrue(mysql.contains("create table if not exists " + table), table);
             assertTrue(sqlite.contains("create table if not exists " + table), table);
-            assertTrue(migration.contains("create table " + table), table);
+            assertTrue(migration.contains("create table " + table)
+                    || migration.contains("create table if not exists " + table), table);
             assertTrue(upgrade.contains("create table if not exists " + table), table);
         }
         for (String index : INDEXES) {
@@ -112,6 +121,76 @@ class FileTransferSchemaIntegrationTest {
             assertTrue(sqlite.contains(column));
             assertTrue(migration.contains(column));
             assertTrue(upgrade.contains(column));
+        }
+        assertTrue(outboxMigration.contains("FILE_TRANSFER_EVENT_OUTBOX_REQUIRES_MANUAL_BACKFILL"));
+        assertTrue(outboxMigration.contains("FILE_TRANSFER_EVENT_CURSOR_REQUIRES_MANUAL_BACKFILL"));
+        assertTrue(upgrade.contains("Cannot auto-repair non-empty"));
+    }
+
+    @Test
+    void sqliteUpgradeRepairsPartiallyCreatedOutboxTables() throws Exception {
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
+             Statement statement = connection.createStatement()) {
+            statement.execute("create table dispatch_task (id integer primary key, status text)");
+            statement.execute("create table run_record (id integer primary key)");
+            statement.execute("create table file_transfer_event_outbox (id integer primary key)");
+            statement.execute("create table file_transfer_event_consumer_cursor (id integer primary key)");
+            StudioSchemaUpgradeService upgrade = new StudioSchemaUpgradeService(
+                    new JdbcTemplate(new SingleConnectionDataSource(connection, true)));
+
+            invoke(upgrade, "ensureFileTransferTablesSqlite");
+            invoke(upgrade, "ensureFileTransferTablesSqlite");
+
+            for (String column : List.of("tenant_id", "project_id", "deleted", "created_at", "updated_at",
+                    "event_type", "run_id", "item_id", "occurred_at", "payload_version", "payload_json")) {
+                assertEquals(1, columnCount(statement, "file_transfer_event_outbox", column), column);
+            }
+            for (String column : List.of("instance_id", "tenant_id", "project_id", "last_event_id",
+                    "last_seen_at", "created_at", "updated_at")) {
+                assertEquals(1, columnCount(statement, "file_transfer_event_consumer_cursor", column), column);
+            }
+            for (String index : List.of("idx_ft_outbox_scope_id", "idx_ft_outbox_run_id",
+                    "idx_ft_outbox_created", "idx_ft_outbox_event_type", "uk_ft_event_cursor_scope",
+                    "idx_ft_event_cursor_seen", "idx_ft_event_cursor_position")) {
+                assertEquals(1, count(statement,
+                        "select count(*) from sqlite_master where type='index' and name='" + index + "'"), index);
+            }
+        }
+    }
+
+    @Test
+    void sqliteUpgradeRejectsNonemptyOutboxMissingIdentityColumns() throws Exception {
+        assertNonemptyPartialEventTableRejected(
+                "file_transfer_event_outbox",
+                "create table file_transfer_event_outbox (id integer primary key)",
+                "insert into file_transfer_event_outbox (id) values (1)");
+    }
+
+    @Test
+    void sqliteUpgradeRejectsNonemptyCursorMissingIdentityColumns() throws Exception {
+        assertNonemptyPartialEventTableRejected(
+                "file_transfer_event_consumer_cursor",
+                "create table file_transfer_event_consumer_cursor (id integer primary key)",
+                "insert into file_transfer_event_consumer_cursor (id) values (1)");
+    }
+
+    private void assertNonemptyPartialEventTableRejected(String tableName, String createSql,
+                                                         String insertSql) throws Exception {
+        try (Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
+             Statement statement = connection.createStatement()) {
+            statement.execute("create table dispatch_task (id integer primary key, status text)");
+            statement.execute("create table run_record (id integer primary key)");
+            statement.execute(createSql);
+            statement.executeUpdate(insertSql);
+            StudioSchemaUpgradeService upgrade = new StudioSchemaUpgradeService(
+                    new JdbcTemplate(new SingleConnectionDataSource(connection, true)));
+
+            InvocationTargetException failure = assertThrows(InvocationTargetException.class,
+                    () -> invoke(upgrade, "ensureFileTransferTablesSqlite"));
+            assertTrue(failure.getCause() instanceof IllegalStateException);
+            assertTrue(failure.getCause().getMessage().contains("Cannot auto-repair non-empty " + tableName));
+            assertTrue(failure.getCause().getMessage().contains("Back up and manually backfill or recreate"));
+            assertEquals(1, count(statement, "select count(*) from " + tableName));
         }
     }
 

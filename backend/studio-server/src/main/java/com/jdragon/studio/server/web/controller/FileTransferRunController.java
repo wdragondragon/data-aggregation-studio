@@ -8,7 +8,9 @@ import com.jdragon.studio.dto.model.request.FileTransferManualItemRequest;
 import com.jdragon.studio.dto.model.request.FileTransferManualRunRequest;
 import com.jdragon.studio.infra.service.FileTransferEventService;
 import com.jdragon.studio.infra.service.FileTransferRunService;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -109,8 +112,13 @@ public class FileTransferRunController {
     }
 
     @GetMapping(value = "/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter events() {
-        return eventService.connect();
+    public SseEmitter events(
+            @RequestHeader(value = "Last-Event-ID", required = false) String lastEventId,
+            HttpServletResponse response) {
+        response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache");
+        response.setHeader("X-Accel-Buffering", "no");
+        response.setHeader(HttpHeaders.CONNECTION, "keep-alive");
+        return eventService.connect(lastEventId);
     }
 
     private Result<FileTransferRunView> changed(FileTransferRunView run) {

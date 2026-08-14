@@ -1904,6 +1904,39 @@ create index if not exists idx_ft_metric_project_time on file_transfer_metric_sa
 create index if not exists idx_ft_metric_run_time on file_transfer_metric_sample(run_id, sampled_at);
 create index if not exists idx_ft_metric_task_time on file_transfer_metric_sample(task_id, sampled_at);
 
+create table if not exists file_transfer_event_outbox (
+    id integer primary key,
+    tenant_id text not null,
+    project_id integer not null,
+    deleted integer not null default 0,
+    created_at text not null,
+    updated_at text not null,
+    event_type text not null,
+    run_id integer not null,
+    item_id integer,
+    occurred_at text not null,
+    payload_version integer not null default 1,
+    payload_json text
+);
+create index if not exists idx_ft_outbox_scope_id on file_transfer_event_outbox(tenant_id, project_id, id);
+create index if not exists idx_ft_outbox_run_id on file_transfer_event_outbox(run_id, id);
+create index if not exists idx_ft_outbox_created on file_transfer_event_outbox(created_at, id);
+create index if not exists idx_ft_outbox_event_type on file_transfer_event_outbox(event_type, created_at, id);
+
+create table if not exists file_transfer_event_consumer_cursor (
+    id integer primary key,
+    instance_id text not null,
+    tenant_id text not null,
+    project_id integer not null,
+    last_event_id integer not null default 0,
+    last_seen_at text not null,
+    created_at text not null,
+    updated_at text not null
+);
+create unique index if not exists uk_ft_event_cursor_scope on file_transfer_event_consumer_cursor(instance_id, tenant_id, project_id);
+create index if not exists idx_ft_event_cursor_seen on file_transfer_event_consumer_cursor(instance_id, last_seen_at);
+create index if not exists idx_ft_event_cursor_position on file_transfer_event_consumer_cursor(tenant_id, project_id, last_event_id);
+
 create table if not exists data_model_lineage_relation (
     id integer primary key,
     tenant_id text default 'default',

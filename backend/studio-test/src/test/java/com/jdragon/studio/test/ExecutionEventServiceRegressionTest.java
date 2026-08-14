@@ -19,6 +19,7 @@ import com.jdragon.studio.infra.service.DataModelLineageService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.ExecutionEventService;
 import com.jdragon.studio.infra.service.FollowSubscriptionService;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.NotificationCommand;
 import com.jdragon.studio.infra.service.NotificationService;
 import com.jdragon.studio.infra.service.QualityIssueService;
@@ -28,7 +29,10 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.List;
@@ -42,7 +46,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 
 class ExecutionEventServiceRegressionTest {
@@ -54,6 +58,16 @@ class ExecutionEventServiceRegressionTest {
                     new MapperBuilderAssistant(new MybatisConfiguration(), "execution-event-file-transfer-test"),
                     FileTransferRunEntity.class);
         }
+    }
+
+    @Test
+    void shouldRequireFileTransferMutationServiceInSpringRuntime() throws Exception {
+        Method injectionPoint = ExecutionEventService.class.getDeclaredMethod(
+                "setFileTransferStateMutationService", FileTransferStateMutationService.class);
+
+        Autowired autowired = injectionPoint.getAnnotation(Autowired.class);
+
+        assertTrue(autowired != null && autowired.required());
     }
 
     @Test
@@ -189,7 +203,9 @@ class ExecutionEventServiceRegressionTest {
         existingRun.setStatus("RUNNING");
         when(runRecordMapper.selectById(eq(104L))).thenReturn(existingRun);
         FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
         ExecutionEventService service = service(runRecordMapper, fileTransferRunMapper);
+        ReflectionTestUtils.setField(service, "fileTransferStateMutationService", mutationService);
 
         ExecutionEvent event = new ExecutionEvent();
         event.setRunRecordId(104L);
@@ -205,10 +221,68 @@ class ExecutionEventServiceRegressionTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> captor =
                 ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
-        verify(fileTransferRunMapper, times(2)).update(isNull(), captor.capture());
-        assertTrue(captor.getAllValues().stream().anyMatch(update ->
-                update.getParamNameValuePairs().containsValue("FAILED")
-                        && update.getSqlSet().contains("status")));
+        verify(mutationService).updateRunAndEvent(eq(204L), captor.capture(), eq(false), eq(true));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("FAILED"));
+        assertTrue(captor.getValue().getSqlSet().contains("status"));
+        verify(fileTransferRunMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
+    }
+
+    @Test
+    void shouldWriteFileTransferExecutionFailureThroughOutboxMutationBoundary() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity existingRun = new RunRecordEntity();
+        existingRun.setId(105L);
+        when(runRecordMapper.selectById(105L)).thenReturn(existingRun);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        ExecutionEventService service = service(runRecordMapper, fileTransferRunMapper);
+        ReflectionTestUtils.setField(service, "fileTransferStateMutationService", mutationService);
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(105L);
+        event.setFileTransferRunId(205L);
+        event.setProjectId(10L);
+        event.setExecutionType(DispatchExecutionType.FILE_TRANSFER);
+        event.setEventType("FAILED");
+        event.setOccurredAt(LocalDateTime.of(2026, 8, 12, 14, 0));
+        event.getPayload().put("error", "Worker stopped before file executor startup");
+
+        service.publish(event);
+
+        verify(mutationService).updateRunAndEvent(eq(205L), any(LambdaUpdateWrapper.class),
+                eq(false), eq(true));
+        verify(fileTransferRunMapper, never()).update(isNull(), any(LambdaUpdateWrapper.class));
+    }
+
+    @Test
+    void shouldNotOverwriteQueuedFileTransferRestartWithPreviousDispatchFailure() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity existingRun = new RunRecordEntity();
+        existingRun.setId(106L);
+        when(runRecordMapper.selectById(106L)).thenReturn(existingRun);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        ExecutionEventService service = service(runRecordMapper, fileTransferRunMapper);
+        ReflectionTestUtils.setField(service, "fileTransferStateMutationService", mutationService);
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(106L);
+        event.setFileTransferRunId(206L);
+        event.setProjectId(10L);
+        event.setExecutionType(DispatchExecutionType.FILE_TRANSFER);
+        event.setEventType("FAILED");
+        event.setOccurredAt(LocalDateTime.of(2026, 8, 12, 15, 0));
+        event.getPayload().put("error", "Task was interrupted by worker restart before completion");
+        event.getPayload().put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+
+        service.publish(event);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> update =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(mutationService).updateRunAndEvent(eq(206L), update.capture(), eq(false), eq(true));
+        assertFalse(update.getValue().getSqlSet().contains("status"));
+        assertTrue(update.getValue().getSqlSet().contains("run_record_id"));
     }
 
     @Test

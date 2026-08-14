@@ -26,6 +26,11 @@ public class FileTransferRunItemView {
     private String status;
     private Long fileSize;
     private Long transferredBytes;
+    private Long observedBytes;
+    private Boolean live;
+    private String resumePhase;
+    private Long resumeCheckedBytes;
+    private Long resumeTotalBytes;
     private Long resumedBytes;
     private Long currentBytesPerSecond;
     private String sourceChecksum;

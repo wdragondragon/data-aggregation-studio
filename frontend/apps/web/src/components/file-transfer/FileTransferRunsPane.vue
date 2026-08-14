@@ -160,7 +160,13 @@
             </el-table-column>
             <el-table-column label="进度" width="180">
               <template #default="{ row }">
-                <el-progress :percentage="transferProgress(row.transferredBytes, row.fileSize)" :stroke-width="8" />
+                <div class="stack-cell run-progress-cell">
+                  <el-progress :percentage="transferProgress(displayTransferredBytes(row), row.fileSize)" :stroke-width="8" />
+                  <span>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
+                  <span v-if="isChecksumRebuilding(row)">
+                    恢复校验 {{ formatBytes(row.resumeCheckedBytes) }} / {{ formatBytes(row.resumeTotalBytes) }}
+                  </span>
+                </div>
               </template>
             </el-table-column>
             <el-table-column label="状态" width="142" align="center">
@@ -170,7 +176,8 @@
               <template #default="{ row }">
                 <div class="stack-cell">
                   <span>{{ formatTransferSpeed(row.currentBytesPerSecond) }}</span>
-                  <span>续传 {{ formatBytes(row.resumedBytes) }}</span>
+                  <span v-if="isChecksumRebuilding(row)">校验速度</span>
+                  <span v-else>续传 {{ formatBytes(row.resumedBytes) }}</span>
                 </div>
               </template>
             </el-table-column>
@@ -326,6 +333,15 @@ async function loadDetail(runId: EntityId) {
 
 function canPause(status?: string) {
   return ["QUEUED", "RUNNING"].includes(String(status ?? "").toUpperCase());
+}
+
+function displayTransferredBytes(item: FileTransferRunItemView) {
+  if (isChecksumRebuilding(item)) return item.transferredBytes;
+  return item.live ? item.observedBytes ?? item.transferredBytes : item.transferredBytes;
+}
+
+function isChecksumRebuilding(item: FileTransferRunItemView) {
+  return String(item.resumePhase ?? "").toUpperCase() === "REBUILDING_CHECKSUM";
 }
 
 function canResume(status?: string) {

@@ -4107,6 +4107,74 @@ public class StudioSchemaUpgradeService {
                 "alter table file_transfer_metric_sample add key idx_ft_metric_run_time (run_id, sampled_at)");
         ensureIndex("file_transfer_metric_sample", "idx_ft_metric_task_time",
                 "alter table file_transfer_metric_sample add key idx_ft_metric_task_time (task_id, sampled_at)");
+
+        prepareFileTransferEventTableForRepair("file_transfer_event_outbox",
+                "id", "tenant_id", "project_id", "event_type", "run_id", "occurred_at");
+        jdbcTemplate.execute("create table if not exists file_transfer_event_outbox (" +
+                "id bigint primary key, tenant_id varchar(64) not null, project_id bigint not null, " +
+                "deleted int not null default 0, created_at datetime not null default current_timestamp, " +
+                "updated_at datetime not null default current_timestamp, event_type varchar(32) not null, " +
+                "run_id bigint not null, item_id bigint, occurred_at datetime not null, " +
+                "payload_version int not null default 1, payload_json json)");
+        ensureColumn("file_transfer_event_outbox", "tenant_id",
+                "alter table file_transfer_event_outbox add column tenant_id varchar(64) not null");
+        ensureColumn("file_transfer_event_outbox", "project_id",
+                "alter table file_transfer_event_outbox add column project_id bigint not null");
+        ensureColumn("file_transfer_event_outbox", "deleted",
+                "alter table file_transfer_event_outbox add column deleted int not null default 0");
+        ensureColumn("file_transfer_event_outbox", "created_at",
+                "alter table file_transfer_event_outbox add column created_at datetime not null default current_timestamp");
+        ensureColumn("file_transfer_event_outbox", "updated_at",
+                "alter table file_transfer_event_outbox add column updated_at datetime not null default current_timestamp");
+        ensureColumn("file_transfer_event_outbox", "event_type",
+                "alter table file_transfer_event_outbox add column event_type varchar(32) not null");
+        ensureColumn("file_transfer_event_outbox", "run_id",
+                "alter table file_transfer_event_outbox add column run_id bigint not null");
+        ensureColumn("file_transfer_event_outbox", "item_id",
+                "alter table file_transfer_event_outbox add column item_id bigint");
+        ensureColumn("file_transfer_event_outbox", "occurred_at",
+                "alter table file_transfer_event_outbox add column occurred_at datetime not null");
+        ensureColumn("file_transfer_event_outbox", "payload_version",
+                "alter table file_transfer_event_outbox add column payload_version int not null default 1");
+        ensureColumn("file_transfer_event_outbox", "payload_json",
+                "alter table file_transfer_event_outbox add column payload_json json");
+        ensureIndex("file_transfer_event_outbox", "idx_ft_outbox_scope_id",
+                "alter table file_transfer_event_outbox add key idx_ft_outbox_scope_id (tenant_id, project_id, id)");
+        ensureIndex("file_transfer_event_outbox", "idx_ft_outbox_run_id",
+                "alter table file_transfer_event_outbox add key idx_ft_outbox_run_id (run_id, id)");
+        ensureIndex("file_transfer_event_outbox", "idx_ft_outbox_created",
+                "alter table file_transfer_event_outbox add key idx_ft_outbox_created (created_at, id)");
+        ensureIndex("file_transfer_event_outbox", "idx_ft_outbox_event_type",
+                "alter table file_transfer_event_outbox add key idx_ft_outbox_event_type (event_type, created_at, id)");
+
+        prepareFileTransferEventTableForRepair("file_transfer_event_consumer_cursor",
+                "id", "instance_id", "tenant_id", "project_id", "last_event_id", "last_seen_at");
+        jdbcTemplate.execute("create table if not exists file_transfer_event_consumer_cursor (" +
+                "id bigint primary key, instance_id varchar(255) not null, tenant_id varchar(64) not null, " +
+                "project_id bigint not null, last_event_id bigint not null default 0, last_seen_at datetime not null, " +
+                "created_at datetime not null default current_timestamp, updated_at datetime not null default current_timestamp)");
+        ensureColumn("file_transfer_event_consumer_cursor", "instance_id",
+                "alter table file_transfer_event_consumer_cursor add column instance_id varchar(255) not null");
+        ensureColumn("file_transfer_event_consumer_cursor", "tenant_id",
+                "alter table file_transfer_event_consumer_cursor add column tenant_id varchar(64) not null");
+        ensureColumn("file_transfer_event_consumer_cursor", "project_id",
+                "alter table file_transfer_event_consumer_cursor add column project_id bigint not null");
+        ensureColumn("file_transfer_event_consumer_cursor", "last_event_id",
+                "alter table file_transfer_event_consumer_cursor add column last_event_id bigint not null default 0");
+        ensureColumn("file_transfer_event_consumer_cursor", "last_seen_at",
+                "alter table file_transfer_event_consumer_cursor add column last_seen_at datetime not null");
+        ensureColumn("file_transfer_event_consumer_cursor", "created_at",
+                "alter table file_transfer_event_consumer_cursor add column created_at datetime not null default current_timestamp");
+        ensureColumn("file_transfer_event_consumer_cursor", "updated_at",
+                "alter table file_transfer_event_consumer_cursor add column updated_at datetime not null default current_timestamp");
+        ensureIndex("file_transfer_event_consumer_cursor", "uk_ft_event_cursor_scope",
+                "alter table file_transfer_event_consumer_cursor add unique key uk_ft_event_cursor_scope " +
+                        "(instance_id, tenant_id, project_id)");
+        ensureIndex("file_transfer_event_consumer_cursor", "idx_ft_event_cursor_seen",
+                "alter table file_transfer_event_consumer_cursor add key idx_ft_event_cursor_seen (instance_id, last_seen_at)");
+        ensureIndex("file_transfer_event_consumer_cursor", "idx_ft_event_cursor_position",
+                "alter table file_transfer_event_consumer_cursor add key idx_ft_event_cursor_position " +
+                        "(tenant_id, project_id, last_event_id)");
     }
 
     private void ensureFileTransferTablesSqlite() {
@@ -4180,6 +4248,68 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_ft_metric_project_time on file_transfer_metric_sample(project_id, sampled_at)");
         jdbcTemplate.execute("create index if not exists idx_ft_metric_run_time on file_transfer_metric_sample(run_id, sampled_at)");
         jdbcTemplate.execute("create index if not exists idx_ft_metric_task_time on file_transfer_metric_sample(task_id, sampled_at)");
+
+        prepareFileTransferEventTableForRepair("file_transfer_event_outbox",
+                "id", "tenant_id", "project_id", "event_type", "run_id", "occurred_at");
+        jdbcTemplate.execute("create table if not exists file_transfer_event_outbox (" +
+                "id integer primary key, tenant_id text not null, project_id integer not null, " +
+                "deleted integer not null default 0, created_at text not null, updated_at text not null, " +
+                "event_type text not null, run_id integer not null, item_id integer, occurred_at text not null, " +
+                "payload_version integer not null default 1, payload_json text)");
+        ensureColumn("file_transfer_event_outbox", "tenant_id",
+                "alter table file_transfer_event_outbox add column tenant_id text not null default 'default'");
+        ensureColumn("file_transfer_event_outbox", "project_id",
+                "alter table file_transfer_event_outbox add column project_id integer not null default 0");
+        ensureColumn("file_transfer_event_outbox", "deleted",
+                "alter table file_transfer_event_outbox add column deleted integer not null default 0");
+        ensureColumn("file_transfer_event_outbox", "created_at",
+                "alter table file_transfer_event_outbox add column created_at text not null default ''");
+        ensureColumn("file_transfer_event_outbox", "updated_at",
+                "alter table file_transfer_event_outbox add column updated_at text not null default ''");
+        ensureColumn("file_transfer_event_outbox", "event_type",
+                "alter table file_transfer_event_outbox add column event_type text not null default ''");
+        ensureColumn("file_transfer_event_outbox", "run_id",
+                "alter table file_transfer_event_outbox add column run_id integer not null default 0");
+        ensureColumn("file_transfer_event_outbox", "item_id",
+                "alter table file_transfer_event_outbox add column item_id integer");
+        ensureColumn("file_transfer_event_outbox", "occurred_at",
+                "alter table file_transfer_event_outbox add column occurred_at text not null default ''");
+        ensureColumn("file_transfer_event_outbox", "payload_version",
+                "alter table file_transfer_event_outbox add column payload_version integer not null default 1");
+        ensureColumn("file_transfer_event_outbox", "payload_json",
+                "alter table file_transfer_event_outbox add column payload_json text");
+        jdbcTemplate.execute("create index if not exists idx_ft_outbox_scope_id on " +
+                "file_transfer_event_outbox(tenant_id, project_id, id)");
+        jdbcTemplate.execute("create index if not exists idx_ft_outbox_run_id on file_transfer_event_outbox(run_id, id)");
+        jdbcTemplate.execute("create index if not exists idx_ft_outbox_created on file_transfer_event_outbox(created_at, id)");
+        jdbcTemplate.execute("create index if not exists idx_ft_outbox_event_type on " +
+                "file_transfer_event_outbox(event_type, created_at, id)");
+
+        prepareFileTransferEventTableForRepair("file_transfer_event_consumer_cursor",
+                "id", "instance_id", "tenant_id", "project_id", "last_event_id", "last_seen_at");
+        jdbcTemplate.execute("create table if not exists file_transfer_event_consumer_cursor (" +
+                "id integer primary key, instance_id text not null, tenant_id text not null, project_id integer not null, " +
+                "last_event_id integer not null default 0, last_seen_at text not null, created_at text not null, updated_at text not null)");
+        ensureColumn("file_transfer_event_consumer_cursor", "instance_id",
+                "alter table file_transfer_event_consumer_cursor add column instance_id text not null default ''");
+        ensureColumn("file_transfer_event_consumer_cursor", "tenant_id",
+                "alter table file_transfer_event_consumer_cursor add column tenant_id text not null default 'default'");
+        ensureColumn("file_transfer_event_consumer_cursor", "project_id",
+                "alter table file_transfer_event_consumer_cursor add column project_id integer not null default 0");
+        ensureColumn("file_transfer_event_consumer_cursor", "last_event_id",
+                "alter table file_transfer_event_consumer_cursor add column last_event_id integer not null default 0");
+        ensureColumn("file_transfer_event_consumer_cursor", "last_seen_at",
+                "alter table file_transfer_event_consumer_cursor add column last_seen_at text not null default ''");
+        ensureColumn("file_transfer_event_consumer_cursor", "created_at",
+                "alter table file_transfer_event_consumer_cursor add column created_at text not null default ''");
+        ensureColumn("file_transfer_event_consumer_cursor", "updated_at",
+                "alter table file_transfer_event_consumer_cursor add column updated_at text not null default ''");
+        jdbcTemplate.execute("create unique index if not exists uk_ft_event_cursor_scope on " +
+                "file_transfer_event_consumer_cursor(instance_id, tenant_id, project_id)");
+        jdbcTemplate.execute("create index if not exists idx_ft_event_cursor_seen on " +
+                "file_transfer_event_consumer_cursor(instance_id, last_seen_at)");
+        jdbcTemplate.execute("create index if not exists idx_ft_event_cursor_position on " +
+                "file_transfer_event_consumer_cursor(tenant_id, project_id, last_event_id)");
     }
 
     private void ensureUnstructuredManagementTablesMysql() {
@@ -4567,6 +4697,28 @@ public class StudioSchemaUpgradeService {
         if (tableExists(tableName)) {
             ensureColumn(tableName, columnName, ddl);
         }
+    }
+
+    private void prepareFileTransferEventTableForRepair(String tableName, String... requiredColumns) {
+        if (!tableExists(tableName)) {
+            return;
+        }
+        List<String> missingColumns = new ArrayList<>();
+        for (String requiredColumn : requiredColumns) {
+            if (!columnExists(tableName, requiredColumn)) {
+                missingColumns.add(requiredColumn);
+            }
+        }
+        if (missingColumns.isEmpty()) {
+            return;
+        }
+        Long rowCount = jdbcTemplate.queryForObject("select count(*) from " + tableName, Long.class);
+        if (rowCount != null && rowCount.longValue() > 0L) {
+            throw new IllegalStateException("Cannot auto-repair non-empty " + tableName
+                    + "; missing required columns: " + String.join(", ", missingColumns)
+                    + ". Back up and manually backfill or recreate the table before startup.");
+        }
+        jdbcTemplate.execute("drop table " + tableName);
     }
 
     private void ensureIndexIfTableExists(String tableName, String indexName, String ddl) {

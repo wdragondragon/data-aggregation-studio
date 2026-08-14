@@ -20,6 +20,7 @@ import com.jdragon.studio.infra.service.DispatchProtectedPayloadService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.RuntimeResourceRevisionService;
 import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.RunLogStorageService;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
@@ -94,6 +95,7 @@ public class WorkerLifecycleRunner {
     private final WorkflowDispatchNodeResolver workflowDispatchNodeResolver;
     private RuntimeClusterMapper runtimeClusterMapper;
     private FileTransferRunMapper fileTransferRunMapper;
+    private FileTransferStateMutationService fileTransferStateMutationService;
     private RuntimeResourceRevisionService runtimeResourceRevisionService;
     private RuntimeClusterHeartbeatService runtimeClusterHeartbeatService;
     private DispatchProtectedPayloadService dispatchProtectedPayloadService;
@@ -152,6 +154,11 @@ public class WorkerLifecycleRunner {
         this.fileTransferRunMapper = fileTransferRunMapper;
     }
 
+    @Autowired
+    void setFileTransferStateMutationService(FileTransferStateMutationService mutationService) {
+        this.fileTransferStateMutationService = mutationService;
+    }
+
     @Autowired(required = false)
     void setRuntimeResourceRevisionService(RuntimeResourceRevisionService runtimeResourceRevisionService) {
         this.runtimeResourceRevisionService = runtimeResourceRevisionService;
@@ -201,6 +208,7 @@ public class WorkerLifecycleRunner {
         for (DispatchTaskEntity task : runningTasks) {
             recoverInterruptedTask(task);
         }
+        reconcileInterruptedFileTransferRuns(runtimeClusterIds);
         reconcileOrphanedFileTransferRuns(runtimeClusterIds);
         reconcileInvalidFileTransferDispatches(runtimeClusterIds);
     }
@@ -209,44 +217,253 @@ public class WorkerLifecycleRunner {
         if (fileTransferRunMapper == null || runtimeClusterIds == null || runtimeClusterIds.isEmpty()) {
             return;
         }
-        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(1L);
+        LocalDateTime cutoff = LocalDateTime.now().minusSeconds(10L);
         List<FileTransferRunEntity> activeRuns = fileTransferRunMapper.selectList(
                 new LambdaQueryWrapper<FileTransferRunEntity>()
                         .in(FileTransferRunEntity::getTargetRuntimeClusterId, runtimeClusterIds)
                         .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED")
                         .and(wrapper -> wrapper.le(FileTransferRunEntity::getUpdatedAt, cutoff)
-                                .or().le(FileTransferRunEntity::getCreatedAt, cutoff))
+                                .or(nested -> nested.isNull(FileTransferRunEntity::getUpdatedAt)
+                                        .le(FileTransferRunEntity::getCreatedAt, cutoff)))
                         .orderByAsc(FileTransferRunEntity::getUpdatedAt)
                         .last("limit 200"));
         for (FileTransferRunEntity run : activeRuns) {
             if (run == null || run.getId() == null) {
                 continue;
             }
-            Long activeDispatches = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+            LocalDateTime now = LocalDateTime.now();
+            List<DispatchTaskEntity> activeDispatches = dispatchTaskMapper.selectList(
+                    new LambdaQueryWrapper<DispatchTaskEntity>()
+                    .eq(DispatchTaskEntity::getTenantId, run.getTenantId())
+                    .eq(DispatchTaskEntity::getProjectId, run.getProjectId())
                     .eq(DispatchTaskEntity::getFileTransferRunId, run.getId())
-                    .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
-            if (activeDispatches != null && activeDispatches.longValue() > 0L) {
+                    .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING")
+                    .orderByDesc(DispatchTaskEntity::getCreatedAt)
+                    .orderByDesc(DispatchTaskEntity::getId));
+            DispatchOwnershipState ownership = inspectDispatchOwnership(activeDispatches, now);
+            boolean paused = "PAUSED".equalsIgnoreCase(run.getStatus());
+            if (paused) {
+                fileTransferMutationService().normalizePausedRunItemsAndEvent(run);
+            }
+            if (ownership.active()) {
+                continue;
+            }
+            if (ownership.recoveryRaceLost()) {
+                log.debug("File transfer run {} ownership changed while reconciling; recovery will be retried",
+                        run.getId());
+                continue;
+            }
+            if (paused) {
                 continue;
             }
             DispatchTaskEntity latestDispatch = dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
+                    .eq(DispatchTaskEntity::getTenantId, run.getTenantId())
+                    .eq(DispatchTaskEntity::getProjectId, run.getProjectId())
                     .eq(DispatchTaskEntity::getFileTransferRunId, run.getId())
                     .orderByDesc(DispatchTaskEntity::getCreatedAt)
                     .orderByDesc(DispatchTaskEntity::getId)
                     .last("limit 1"));
-            String reason = latestDispatch != null && "FAILED".equalsIgnoreCase(latestDispatch.getStatus())
-                    ? "File transfer dispatch failed before execution; retry or remove the queue item"
-                    : "File transfer run has no active dispatch; it was closed during worker recovery";
-            fileTransferRunMapper.update(null, new LambdaUpdateWrapper<FileTransferRunEntity>()
-                    .set(FileTransferRunEntity::getStatus, "FAILED")
-                    .set(FileTransferRunEntity::getMessage, reason)
-                    .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
-                    .set(FileTransferRunEntity::getActiveFiles, 0)
-                    .set(FileTransferRunEntity::getEndedAt, LocalDateTime.now())
-                    .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
-                    .eq(FileTransferRunEntity::getId, run.getId())
-                    .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED"));
-            log.warn("Closed orphaned file transfer run {} during worker recovery: {}", run.getId(), reason);
+            if (latestDispatch == null || latestDispatch.getTargetClusterId() == null) {
+                if ("RUNNING".equalsIgnoreCase(run.getStatus())) {
+                    String reason = "File transfer run has no recoverable dispatch metadata";
+                    updateFailedFileTransferRun(run.getId(), reason, LocalDateTime.now());
+                    log.warn("Closed unrecoverable file transfer run {} during worker reconciliation: {}",
+                            run.getId(), reason);
+                }
+                continue;
+            }
+            requeueOrphanedFileTransfer(run, latestDispatch, now);
         }
+    }
+
+    private DispatchOwnershipState inspectDispatchOwnership(List<DispatchTaskEntity> dispatches,
+                                                            LocalDateTime now) {
+        if (dispatches == null || dispatches.isEmpty()) {
+            return DispatchOwnershipState.ORPHANED;
+        }
+        boolean recoveryRaceLost = false;
+        for (DispatchTaskEntity dispatch : dispatches) {
+            if (dispatch == null) {
+                continue;
+            }
+            if ("QUEUED".equalsIgnoreCase(dispatch.getStatus())) {
+                return DispatchOwnershipState.ACTIVE;
+            }
+            if (!"RUNNING".equalsIgnoreCase(dispatch.getStatus())) {
+                continue;
+            }
+            if (isDispatchOwnerActive(dispatch, now)) {
+                return DispatchOwnershipState.ACTIVE;
+            }
+            if (!fenceInactiveFileTransferDispatch(dispatch, now)) {
+                recoveryRaceLost = true;
+            }
+        }
+        return recoveryRaceLost ? DispatchOwnershipState.RACE_LOST : DispatchOwnershipState.ORPHANED;
+    }
+
+    private boolean isDispatchOwnerActive(DispatchTaskEntity dispatch, LocalDateTime now) {
+        LocalDateTime effectiveNow = now == null ? LocalDateTime.now() : now;
+        String ownerInstanceId = dispatch.getWorkerInstanceId();
+        String ownerBootId = dispatch.getWorkerBootId();
+        if (hasText(ownerInstanceId)
+                && ownerInstanceId.equals(clusterInstanceIdentity.instanceId())) {
+            return hasText(ownerBootId) && ownerBootId.equals(clusterInstanceIdentity.bootId());
+        }
+        if (!hasText(ownerInstanceId)) {
+            return dispatch.getLeaseExpiresAt() != null
+                    && dispatch.getLeaseExpiresAt().isAfter(effectiveNow);
+        }
+        LambdaQueryWrapper<WorkerLeaseEntity> leaseQuery = new LambdaQueryWrapper<WorkerLeaseEntity>()
+                .eq(WorkerLeaseEntity::getTenantId, dispatch.getTenantId())
+                .eq(dispatch.getTargetClusterId() != null, WorkerLeaseEntity::getRuntimeClusterId,
+                        dispatch.getTargetClusterId())
+                .eq(WorkerLeaseEntity::getInstanceId, ownerInstanceId);
+        if (hasText(dispatch.getWorkerGroupCode())) {
+            leaseQuery.eq(WorkerLeaseEntity::getWorkerGroupCode, dispatch.getWorkerGroupCode());
+        }
+        if (hasText(ownerBootId)) {
+            leaseQuery.eq(WorkerLeaseEntity::getBootId, ownerBootId);
+        }
+        List<WorkerLeaseEntity> leases = workerLeaseMapper.selectList(leaseQuery
+                .orderByDesc(WorkerLeaseEntity::getLastHeartbeatAt));
+        LocalDateTime heartbeatThreshold = effectiveNow.minusSeconds(StudioConstants.WORKER_HEARTBEAT_TIMEOUT_SECONDS);
+        if (leases == null || leases.isEmpty()) {
+            return dispatch.getLeaseExpiresAt() != null
+                    && dispatch.getLeaseExpiresAt().isAfter(effectiveNow);
+        }
+        for (WorkerLeaseEntity lease : leases) {
+            if (lease == null || !StudioConstants.WORKER_STATUS_ONLINE.equalsIgnoreCase(lease.getStatus())) {
+                continue;
+            }
+            boolean leaseValid = lease.getLeaseExpiresAt() != null
+                    && lease.getLeaseExpiresAt().isAfter(effectiveNow);
+            boolean heartbeatRecent = lease.getLastHeartbeatAt() != null
+                    && lease.getLastHeartbeatAt().isAfter(heartbeatThreshold);
+            if (leaseValid || heartbeatRecent) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean fenceInactiveFileTransferDispatch(DispatchTaskEntity dispatch, LocalDateTime now) {
+        if (dispatch == null || dispatch.getId() == null) {
+            return false;
+        }
+        LocalDateTime fencedAt = now == null ? LocalDateTime.now() : now;
+        Map<String, Object> payload = dispatch.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(dispatch.getPayloadJson());
+        payload.put("error", "File transfer dispatch owner is inactive; checkpoint recovery was queued");
+        payload.put("exceptionType", "FILE_TRANSFER_DISPATCH_OWNER_LOST");
+        payload.put("recovered", Boolean.TRUE);
+        payload.put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+        DispatchTaskEntity update = new DispatchTaskEntity();
+        update.setStatus("FAILED");
+        update.setPayloadJson(payload);
+        update.setLeaseExpiresAt(fencedAt);
+        LambdaUpdateWrapper<DispatchTaskEntity> cas = new LambdaUpdateWrapper<DispatchTaskEntity>()
+                .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
+                .eq(DispatchTaskEntity::getId, dispatch.getId())
+                .eq(DispatchTaskEntity::getStatus, "RUNNING");
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getClaimToken, dispatch.getClaimToken());
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getWorkerBootId, dispatch.getWorkerBootId());
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getWorkerGroupCode, dispatch.getWorkerGroupCode());
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getLeaseOwner, dispatch.getLeaseOwner());
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getWorkerInstanceId, dispatch.getWorkerInstanceId());
+        appendNullableDispatchCondition(cas, DispatchTaskEntity::getLeaseExpiresAt, dispatch.getLeaseExpiresAt());
+        if (dispatchTaskMapper.update(update, cas) != 1) {
+            return false;
+        }
+        dispatch.setStatus("FAILED");
+        dispatch.setPayloadJson(payload);
+        dispatch.setLeaseExpiresAt(fencedAt);
+        closeInactiveDispatchRunRecord(dispatch, payload, fencedAt);
+        log.warn("Fenced inactive file transfer dispatch {} owned by instance {} boot {}; checkpoint recovery is eligible",
+                dispatch.getId(), dispatch.getWorkerInstanceId(), dispatch.getWorkerBootId());
+        return true;
+    }
+
+    private void closeInactiveDispatchRunRecord(DispatchTaskEntity dispatch,
+                                                Map<String, Object> payload,
+                                                LocalDateTime endedAt) {
+        if (dispatch.getRunRecordId() == null) {
+            return;
+        }
+        RunRecordEntity runRecord = runRecordMapper.selectById(dispatch.getRunRecordId());
+        if (runRecord == null || !"RUNNING".equalsIgnoreCase(runRecord.getStatus())) {
+            return;
+        }
+        LocalDateTime startedAt = runRecord.getStartedAt() == null
+                ? (dispatch.getCreatedAt() == null ? endedAt : dispatch.getCreatedAt())
+                : runRecord.getStartedAt();
+        RunLogFileService.RunLogStorageResult logStorageResult = runLogFileService.syncExistingLog(
+                runRecord.getLogFilePath(), runRecord.getLogCharset());
+        applyRunLogStorageResult(runRecord, logStorageResult);
+        runRecord.setStatus("FAILED");
+        runRecord.setEndedAt(endedAt);
+        runRecord.setMessage("File transfer dispatch owner became inactive; checkpoint recovery was queued");
+        runRecord.setPayloadJson(payload);
+        runRecord.setResultJson(payload);
+        if (runRecordMapper.update(runRecord, new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, runRecord.getId())
+                .eq(RunRecordEntity::getStatus, "RUNNING")) == 1) {
+            publishEvent("FAILED", dispatch, runRecord, startedAt, endedAt, logStorageResult, payload);
+        }
+    }
+
+    private enum DispatchOwnershipState {
+        ACTIVE,
+        ORPHANED,
+        RACE_LOST;
+
+        private boolean active() {
+            return this == ACTIVE;
+        }
+
+        private boolean recoveryRaceLost() {
+            return this == RACE_LOST;
+        }
+    }
+
+    @Scheduled(initialDelay = 15000L, fixedDelay = 10000L)
+    public void reconcileFileTransferDispatchOwnership() {
+        if (!acceptingTasks || !hasCurrentActiveLease(LocalDateTime.now())) {
+            return;
+        }
+        List<Long> runtimeClusterIds = currentRuntimeClusterIds();
+        if (runtimeClusterIds.isEmpty()) {
+            return;
+        }
+        reconcileInterruptedFileTransferRuns(runtimeClusterIds);
+        reconcileOrphanedFileTransferRuns(runtimeClusterIds);
+        reconcileInvalidFileTransferDispatches(runtimeClusterIds);
+    }
+
+    private void requeueOrphanedFileTransfer(FileTransferRunEntity run,
+                                             DispatchTaskEntity previousDispatch,
+                                             LocalDateTime occurredAt) {
+        LocalDateTime queuedAt = occurredAt == null ? LocalDateTime.now() : occurredAt;
+        LambdaUpdateWrapper<FileTransferRunEntity> runUpdate = new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, "QUEUED")
+                .set(FileTransferRunEntity::getMessage,
+                        "File transfer dispatch ownership was recovered; checkpoint resume is queued")
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getEndedAt, null)
+                .set(FileTransferRunEntity::getUpdatedAt, queuedAt)
+                .eq(FileTransferRunEntity::getTenantId, run.getTenantId())
+                .eq(FileTransferRunEntity::getProjectId, run.getProjectId())
+                .eq(FileTransferRunEntity::getId, run.getId())
+                .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING");
+        appendNullableFileTransferRunCondition(runUpdate, FileTransferRunEntity::getUpdatedAt, run.getUpdatedAt());
+        DispatchTaskEntity recoveryDispatch = newFileTransferRecoveryDispatch(previousDispatch, run.getId());
+        if (requeueFileTransferRun(run.getId(), runUpdate, recoveryDispatch) <= 0) {
+            return;
+        }
+        log.info("Recovered orphaned file transfer run {} with new dispatch {} from dispatch {}",
+                run.getId(), recoveryDispatch.getId(), previousDispatch.getId());
     }
 
     private void reconcileInvalidFileTransferDispatches(List<Long> runtimeClusterIds) {
@@ -409,6 +626,9 @@ public class WorkerLifecycleRunner {
                 continue;
             }
             boolean fileTransfer = isFileTransferTask(task);
+            if (fileTransfer && !isFileTransferDispatchRunnable(task)) {
+                continue;
+            }
             if (fileTransfer && !fileTransferSlots.tryAcquire()) {
                 continue;
             }
@@ -435,6 +655,22 @@ public class WorkerLifecycleRunner {
 
     private boolean isFileTransferTask(DispatchTaskEntity task) {
         return task != null && DispatchExecutionType.FILE_TRANSFER.name().equalsIgnoreCase(task.getExecutionType());
+    }
+
+    private boolean isFileTransferDispatchRunnable(DispatchTaskEntity task) {
+        if (fileTransferRunMapper == null) {
+            return false;
+        }
+        Long runId = resolveFileTransferRunId(task);
+        if (runId == null) {
+            return true;
+        }
+        FileTransferRunEntity run = fileTransferRunMapper.selectById(runId);
+        if (run == null) {
+            return false;
+        }
+        String status = run.getStatus();
+        return "QUEUED".equalsIgnoreCase(status) || "RUNNING".equalsIgnoreCase(status);
     }
 
     private void executeClaimedTask(DispatchTaskEntity claimedTask) {
@@ -527,6 +763,9 @@ public class WorkerLifecycleRunner {
                         : task.getPayloadJson();
                 payload.put("error", e.getMessage());
                 payload.put("exceptionType", e.getClass().getName());
+                if (isFileTransferInterruption(task, e)) {
+                    payload.put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+                }
                 payload.put("stackTrace", stackTraceOf(e));
                 copyPluginRevisions(payload, runtimeContext);
                 task.setPayloadJson(payload);
@@ -534,12 +773,16 @@ public class WorkerLifecycleRunner {
                 if (!failureCommitted) {
                     log.warn("Dispatch task {} lost its claim; failure event is suppressed", task.getId());
                 } else {
-                    markFailedFileTransferRun(task, failureMessage(e), LocalDateTime.now());
+                    markInterruptedOrFailedFileTransferRun(task, e, LocalDateTime.now());
                 }
                 if (failureCommitted && runRecord != null) {
                     RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
                     publishEvent("FAILED", task, runRecord, startedAt, LocalDateTime.now(),
                             logStorageResult, payload);
+                }
+                if (failureCommitted && isFileTransferInterruption(task, e)) {
+                    requeueInterruptedFileTransfer(task, LocalDateTime.now(),
+                            "File transfer execution was interrupted; checkpoint recovery was queued automatically");
                 }
             } finally {
                 closeRunLogScope(runLogScope);
@@ -812,6 +1055,9 @@ public class WorkerLifecycleRunner {
         payload.put("error", "Task was interrupted by worker restart before completion");
         payload.put("exceptionType", "WORKER_RESTART_INTERRUPTED");
         payload.put("recovered", Boolean.TRUE);
+        if (isFileTransferTask(task)) {
+            payload.put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+        }
         DispatchTaskEntity dispatchUpdate = new DispatchTaskEntity();
         dispatchUpdate.setStatus("FAILED");
         dispatchUpdate.setPayloadJson(payload);
@@ -832,7 +1078,6 @@ public class WorkerLifecycleRunner {
         task.setStatus("FAILED");
         task.setPayloadJson(payload);
         task.setLeaseExpiresAt(endedAt);
-        markInterruptedFileTransferRun(task, endedAt);
         if (runRecord != null) {
             RunLogFileService.RunLogStorageResult logStorageResult = runLogFileService.syncExistingLog(
                     runRecord.getLogFilePath(), runRecord.getLogCharset());
@@ -852,12 +1097,203 @@ public class WorkerLifecycleRunner {
                         runRecord.getId(), task.getId());
             }
         }
+        if (isFileTransferTask(task)) {
+            requeueInterruptedFileTransfer(task, endedAt,
+                    "File transfer was interrupted by worker restart; checkpoint recovery was queued automatically");
+        }
         log.warn("Recovered interrupted dispatch task {} owned by worker group {}", task.getId(), workerGroupCode());
     }
 
-    private void markInterruptedFileTransferRun(DispatchTaskEntity task, LocalDateTime endedAt) {
+    private void reconcileInterruptedFileTransferRuns(List<Long> runtimeClusterIds) {
+        if (fileTransferRunMapper == null || runtimeClusterIds == null || runtimeClusterIds.isEmpty()) {
+            return;
+        }
+        List<DispatchTaskEntity> interrupted = dispatchTaskMapper.selectList(
+                new LambdaQueryWrapper<DispatchTaskEntity>()
+                        .eq(DispatchTaskEntity::getExecutionType, DispatchExecutionType.FILE_TRANSFER.name())
+                        .eq(DispatchTaskEntity::getStatus, "FAILED")
+                        .in(DispatchTaskEntity::getTargetClusterId, runtimeClusterIds)
+                        .orderByAsc(DispatchTaskEntity::getUpdatedAt)
+                        .last("limit 200"));
+        for (DispatchTaskEntity task : interrupted) {
+            if (!restartRecoveryEligible(task) || !isLatestFileTransferDispatch(task)) {
+                continue;
+            }
+            requeueInterruptedFileTransfer(task, LocalDateTime.now(),
+                    "File transfer restart recovery was resumed from a retained checkpoint");
+        }
+    }
+
+    private boolean restartRecoveryEligible(DispatchTaskEntity task) {
+        if (!isFileTransferTask(task) || task.getPayloadJson() == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(task.getPayloadJson().get("fileTransferRestartRecoveryEligible"));
+    }
+
+    private boolean isLatestFileTransferDispatch(DispatchTaskEntity task) {
+        Long runId = resolveFileTransferRunId(task);
+        if (runId == null) {
+            return false;
+        }
+        DispatchTaskEntity latest = dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getFileTransferRunId, runId)
+                .orderByDesc(DispatchTaskEntity::getCreatedAt)
+                .orderByDesc(DispatchTaskEntity::getId)
+                .last("limit 1"));
+        return latest != null && task.getId() != null && task.getId().equals(latest.getId());
+    }
+
+    /**
+     * A Dispatch is execution ownership, not the transfer itself. Closing the old
+     * owner before scheduling a new one prevents two Worker processes from writing
+     * the same temporary target after a restart. The transfer engine validates the
+     * persisted checkpoint and the temporary file length before it resumes.
+     */
+    private void requeueInterruptedFileTransfer(DispatchTaskEntity interrupted,
+                                                LocalDateTime occurredAt,
+                                                String message) {
+        if (fileTransferRunMapper == null || interrupted == null) {
+            return;
+        }
+        Long runId = resolveFileTransferRunId(interrupted);
+        if (runId == null || interrupted.getTargetClusterId() == null) {
+            return;
+        }
+        FileTransferRunEntity run = fileTransferRunMapper.selectById(runId);
+        if (run == null || isCompletedFileTransferStatus(run.getStatus())
+                || "CANCELED".equalsIgnoreCase(run.getStatus())) {
+            return;
+        }
+        if ("PAUSED".equalsIgnoreCase(run.getStatus())) {
+            updatePausedInterruptedFileTransfer(run, occurredAt, message);
+            return;
+        }
+        Long active = dispatchTaskMapper.selectCount(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTenantId, run.getTenantId())
+                .eq(DispatchTaskEntity::getProjectId, run.getProjectId())
+                .eq(DispatchTaskEntity::getFileTransferRunId, runId)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING"));
+        if (active != null && active.longValue() > 0L) {
+            return;
+        }
+        LocalDateTime queuedAt = occurredAt == null ? LocalDateTime.now() : occurredAt;
+        LambdaUpdateWrapper<FileTransferRunEntity> runUpdate = new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getStatus, "QUEUED")
+                .set(FileTransferRunEntity::getMessage, message)
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getEndedAt, null)
+                .set(FileTransferRunEntity::getUpdatedAt, queuedAt)
+                .eq(FileTransferRunEntity::getTenantId, run.getTenantId())
+                .eq(FileTransferRunEntity::getProjectId, run.getProjectId())
+                .eq(FileTransferRunEntity::getId, runId)
+                .in(FileTransferRunEntity::getStatus, "FAILED", "RUNNING", "QUEUED");
+        appendNullableFileTransferRunCondition(runUpdate, FileTransferRunEntity::getUpdatedAt, run.getUpdatedAt());
+        DispatchTaskEntity retry = newFileTransferRecoveryDispatch(interrupted, runId);
+        int updated = requeueFileTransferRun(runId, runUpdate, retry);
+        if (updated <= 0) {
+            return;
+        }
+        log.info("Queued file transfer run {} for automatic checkpoint recovery after dispatch {}",
+                runId, interrupted.getId());
+    }
+
+    private void updatePausedInterruptedFileTransfer(FileTransferRunEntity run,
+                                                     LocalDateTime occurredAt,
+                                                     String message) {
+        LocalDateTime now = occurredAt == null ? LocalDateTime.now() : occurredAt;
+        updateFileTransferRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getMessage, message)
+                .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
+                .set(FileTransferRunEntity::getActiveFiles, 0)
+                .set(FileTransferRunEntity::getUpdatedAt, now)
+                .eq(FileTransferRunEntity::getId, run.getId())
+                .eq(FileTransferRunEntity::getStatus, "PAUSED"));
+        fileTransferMutationService().normalizePausedRunItemsAndEvent(run);
+    }
+
+    private int updateFileTransferRun(Long runId, LambdaUpdateWrapper<FileTransferRunEntity> update) {
+        return fileTransferMutationService().updateRunAndEvent(runId, update, false, true);
+    }
+
+    private int requeueFileTransferRun(Long runId,
+                                       LambdaUpdateWrapper<FileTransferRunEntity> update,
+                                       DispatchTaskEntity recoveryDispatch) {
+        return fileTransferMutationService().requeueRunAndDispatchAndEvent(runId, update, recoveryDispatch);
+    }
+
+    private DispatchTaskEntity newFileTransferRecoveryDispatch(DispatchTaskEntity interrupted, Long runId) {
+        DispatchTaskEntity retry = new DispatchTaskEntity();
+        retry.setTenantId(interrupted.getTenantId());
+        retry.setProjectId(interrupted.getProjectId());
+        retry.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        retry.setFileTransferTaskId(interrupted.getFileTransferTaskId());
+        retry.setFileTransferRunId(runId);
+        retry.setTriggeredByUserId(interrupted.getTriggeredByUserId());
+        retry.setNodeCode(hasText(interrupted.getNodeCode())
+                ? interrupted.getNodeCode() : "file_transfer_run_" + runId);
+        retry.setStatus("QUEUED");
+        retry.setTargetClusterId(interrupted.getTargetClusterId());
+        retry.setResourceRevision(interrupted.getResourceRevision());
+        retry.setScheduledFireTime(null);
+        retry.setAttempts(0);
+        retry.setMaxRetries(interrupted.getMaxRetries() == null ? 3 : interrupted.getMaxRetries());
+        Map<String, Object> config = new LinkedHashMap<String, Object>();
+        config.put("fileTransferRunId", runId);
+        if (interrupted.getFileTransferTaskId() != null) {
+            config.put("fileTransferTaskId", interrupted.getFileTransferTaskId());
+        }
+        Map<String, Object> payload = new LinkedHashMap<String, Object>();
+        payload.put("executionType", DispatchExecutionType.FILE_TRANSFER.name());
+        payload.put("nodeType", com.jdragon.studio.dto.enums.NodeType.FILE_TRANSFER.name());
+        payload.put("fileTransferRunId", runId);
+        if (interrupted.getFileTransferTaskId() != null) {
+            payload.put("fileTransferTaskId", interrupted.getFileTransferTaskId());
+        }
+        payload.put("projectId", interrupted.getProjectId());
+        payload.put("runtimeClusterId", interrupted.getTargetClusterId());
+        payload.put("recoveredFromDispatchId", interrupted.getId());
+        payload.put("config", config);
+        retry.setPayloadJson(payload);
+        return retry;
+    }
+
+    private boolean isFileTransferInterruption(DispatchTaskEntity task, Throwable error) {
+        if (!isFileTransferTask(task)) {
+            return false;
+        }
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof InterruptedException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private boolean isCompletedFileTransferStatus(String status) {
+        return "SUCCESS".equalsIgnoreCase(status) || "PARTIAL_SUCCESS".equalsIgnoreCase(status);
+    }
+
+    private void markInterruptedOrFailedFileTransferRun(DispatchTaskEntity task,
+                                                         Throwable error,
+                                                         LocalDateTime endedAt) {
+        if (!isFileTransferInterruption(task, error)) {
+            markFailedFileTransferRun(task, failureMessage(error), endedAt);
+            return;
+        }
+        Long runId = resolveFileTransferRunId(task);
+        FileTransferRunEntity run = runId == null || fileTransferRunMapper == null
+                ? null : fileTransferRunMapper.selectById(runId);
+        if (run != null && "PAUSED".equalsIgnoreCase(run.getStatus())) {
+            updatePausedInterruptedFileTransfer(run, endedAt,
+                    "File transfer remains paused after Worker interruption");
+            return;
+        }
         markFailedFileTransferRun(task,
-                "File transfer was interrupted by worker restart; resume can reuse valid checkpoints", endedAt);
+                "File transfer execution was interrupted; checkpoint recovery is pending", endedAt);
     }
 
     private void markFailedFileTransferRun(DispatchTaskEntity task, String reason, LocalDateTime endedAt) {
@@ -869,16 +1305,28 @@ public class WorkerLifecycleRunner {
             return;
         }
         LocalDateTime completedAt = endedAt == null ? LocalDateTime.now() : endedAt;
-        fileTransferRunMapper.update(null, new LambdaUpdateWrapper<FileTransferRunEntity>()
+        updateFailedFileTransferRun(runId,
+                hasText(reason) ? reason : "File transfer dispatch failed before execution", completedAt);
+    }
+
+    private void updateFailedFileTransferRun(Long runId, String reason, LocalDateTime completedAt) {
+        LambdaUpdateWrapper<FileTransferRunEntity> update = new LambdaUpdateWrapper<FileTransferRunEntity>()
                 .set(FileTransferRunEntity::getStatus, "FAILED")
-                .set(FileTransferRunEntity::getMessage,
-                        hasText(reason) ? reason : "File transfer dispatch failed before execution")
+                .set(FileTransferRunEntity::getMessage, reason)
                 .set(FileTransferRunEntity::getCurrentBytesPerSecond, 0L)
                 .set(FileTransferRunEntity::getActiveFiles, 0)
                 .set(FileTransferRunEntity::getEndedAt, completedAt)
                 .set(FileTransferRunEntity::getUpdatedAt, completedAt)
                 .eq(FileTransferRunEntity::getId, runId)
-                .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED"));
+                .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED");
+        fileTransferMutationService().updateRunAndEvent(runId, update, false, true);
+    }
+
+    private FileTransferStateMutationService fileTransferMutationService() {
+        if (fileTransferStateMutationService == null) {
+            throw new IllegalStateException("File transfer state mutation service is required");
+        }
+        return fileTransferStateMutationService;
     }
 
     private Long resolveFileTransferRunId(DispatchTaskEntity task) {
@@ -917,6 +1365,16 @@ public class WorkerLifecycleRunner {
     private <T> void appendNullableDispatchCondition(LambdaUpdateWrapper<DispatchTaskEntity> wrapper,
                                                       SFunction<DispatchTaskEntity, T> column,
                                                       T value) {
+        if (value == null) {
+            wrapper.isNull(column);
+        } else {
+            wrapper.eq(column, value);
+        }
+    }
+
+    private <T> void appendNullableFileTransferRunCondition(LambdaUpdateWrapper<FileTransferRunEntity> wrapper,
+                                                             SFunction<FileTransferRunEntity, T> column,
+                                                             T value) {
         if (value == null) {
             wrapper.isNull(column);
         } else {

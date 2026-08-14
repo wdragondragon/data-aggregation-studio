@@ -26,6 +26,7 @@ import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.QualityTaskService;
 import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
@@ -35,8 +36,10 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.lang.reflect.Method;
 import java.time.LocalDateTime;
 import java.nio.file.Path;
 import java.util.Collections;
@@ -48,6 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -69,6 +73,16 @@ class WorkerLifecycleRunnerClusterTest {
         if (TableInfoHelper.getTableInfo(FileTransferRunEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), FileTransferRunEntity.class);
         }
+    }
+
+    @Test
+    void shouldRequireFileTransferMutationServiceInSpringRuntime() throws Exception {
+        Method injectionPoint = WorkerLifecycleRunner.class.getDeclaredMethod(
+                "setFileTransferStateMutationService", FileTransferStateMutationService.class);
+
+        Autowired autowired = injectionPoint.getAnnotation(Autowired.class);
+
+        assertTrue(autowired != null && autowired.required());
     }
 
     @Test
@@ -310,35 +324,306 @@ class WorkerLifecycleRunnerClusterTest {
     }
 
     @Test
-    void shouldFailInterruptedFileTransferRunWithoutTouchingItemCheckpoints() {
+    void shouldRequeueInterruptedFileTransferRunWithoutTouchingItemCheckpoints() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
         ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
         when(identity.instanceId()).thenReturn("instance-50");
         when(identity.bootId()).thenReturn("boot-new");
 
         DispatchTaskEntity task = interruptedTask();
+        task.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
         task.setFileTransferRunId(3001L);
         RunRecordEntity runRecord = new RunRecordEntity();
         runRecord.setId(2001L);
         runRecord.setStatus("RUNNING");
-        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task), Collections.emptyList());
         when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
         when(runRecordMapper.selectById(2001L)).thenReturn(runRecord);
         when(runRecordMapper.update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        FileTransferRunEntity transferRun = new FileTransferRunEntity();
+        transferRun.setId(3001L);
+        transferRun.setStatus("RUNNING");
+        when(fileTransferRunMapper.selectById(3001L)).thenReturn(transferRun);
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(mutationService.requeueRunAndDispatchAndEvent(eq(3001L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class))).thenReturn(1);
 
         WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
                 runRecordMapper, mock(ExecutionEventPublisher.class), mock(RunLogFileService.class), identity);
         ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
         runner.recoverLeasedRunningTasks();
 
         ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
-        verify(fileTransferRunMapper).update(eq(null), update.capture());
+        ArgumentCaptor<DispatchTaskEntity> recoveryDispatch = ArgumentCaptor.forClass(DispatchTaskEntity.class);
+        verify(mutationService).requeueRunAndDispatchAndEvent(eq(3001L), update.capture(),
+                recoveryDispatch.capture());
         assertTrue(update.getValue().getSqlSegment().contains("id"));
         assertTrue(update.getValue().getSqlSegment().contains("status"));
         assertTrue(update.getValue().getParamNameValuePairs().containsValue(3001L));
-        assertTrue(update.getValue().getParamNameValuePairs().containsValue("FAILED"));
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("QUEUED"));
+        assertEquals("QUEUED", recoveryDispatch.getValue().getStatus());
+        assertEquals(3001L, recoveryDispatch.getValue().getFileTransferRunId());
+        assertEquals(task.getId(), recoveryDispatch.getValue().getPayloadJson().get("recoveredFromDispatchId"));
+        verify(fileTransferRunMapper, never()).update(eq(null), any(LambdaUpdateWrapper.class));
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldRequeueInterruptedFileTransferThroughStateMutationBoundary() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        ClusterInstanceIdentity identity = mock(ClusterInstanceIdentity.class);
+        when(identity.instanceId()).thenReturn("instance-50");
+        when(identity.bootId()).thenReturn("boot-new");
+
+        DispatchTaskEntity task = interruptedTask();
+        task.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        task.setFileTransferRunId(3002L);
+        RunRecordEntity runRecord = new RunRecordEntity();
+        runRecord.setId(2001L);
+        runRecord.setStatus("RUNNING");
+        FileTransferRunEntity transferRun = new FileTransferRunEntity();
+        transferRun.setId(3002L);
+        transferRun.setStatus("RUNNING");
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task), Collections.emptyList());
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(runRecordMapper.selectById(2001L)).thenReturn(runRecord);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(fileTransferRunMapper.selectById(3002L)).thenReturn(transferRun);
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(mutationService.requeueRunAndDispatchAndEvent(eq(3002L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class))).thenReturn(1);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                runRecordMapper, mock(ExecutionEventPublisher.class), mock(RunLogFileService.class), identity);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+        runner.recoverLeasedRunningTasks();
+
+        verify(mutationService).requeueRunAndDispatchAndEvent(eq(3002L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class));
+        verify(fileTransferRunMapper, never()).update(eq(null), any(LambdaUpdateWrapper.class));
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldKeepUserPausedFileTransferPausedDuringRestartRecovery() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3003L);
+        run.setStatus("PAUSED");
+        when(fileTransferRunMapper.selectById(3003L)).thenReturn(run);
+        when(mutationService.updateRunAndEvent(eq(3003L), any(LambdaUpdateWrapper.class),
+                eq(false), eq(true))).thenReturn(1);
+        DispatchTaskEntity task = interruptedTask();
+        task.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        task.setFileTransferRunId(3003L);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+        ReflectionTestUtils.invokeMethod(runner, "requeueInterruptedFileTransfer", task,
+                LocalDateTime.now(), "restart recovery");
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> update =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(mutationService).updateRunAndEvent(eq(3003L), update.capture(), eq(false), eq(true));
+        assertTrue(update.getValue().getSqlSegment().contains("status"));
+        assertFalse(update.getValue().getSqlSet().contains("status"));
+        verify(fileTransferRunMapper, never()).update(eq(null), any(LambdaUpdateWrapper.class));
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldRepairQueuedFileTransferWhoseDispatchOwnerAlreadyExited() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3010L);
+        run.setTenantId("tenant-a");
+        run.setProjectId(10L);
+        run.setStatus("QUEUED");
+        run.setTargetRuntimeClusterId(50L);
+        run.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+        run.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        DispatchTaskEntity previous = interruptedTask();
+        previous.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        previous.setFileTransferRunId(3010L);
+        previous.setTenantId("tenant-a");
+        previous.setProjectId(10L);
+        previous.setStatus("FAILED");
+        when(fileTransferRunMapper.selectList(any())).thenReturn(List.of(run));
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+        when(dispatchTaskMapper.selectOne(any())).thenReturn(previous);
+        when(mutationService.requeueRunAndDispatchAndEvent(eq(3010L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class))).thenReturn(1);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+
+        ReflectionTestUtils.invokeMethod(runner, "reconcileOrphanedFileTransferRuns", List.of(50L));
+
+        ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunEntity>> update = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        ArgumentCaptor<DispatchTaskEntity> recovery = ArgumentCaptor.forClass(DispatchTaskEntity.class);
+        verify(mutationService).requeueRunAndDispatchAndEvent(eq(3010L), update.capture(), recovery.capture());
+        assertTrue(update.getValue().getParamNameValuePairs().containsValue("QUEUED"));
+        assertTrue(update.getValue().getSqlSegment().contains("updated_at"));
+        assertEquals(3010L, recovery.getValue().getFileTransferRunId());
+        assertEquals("QUEUED", recovery.getValue().getStatus());
+    }
+
+    @Test
+    void shouldFenceExpiredForeignWorkerDispatchBeforeCheckpointRecovery() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3012L);
+        run.setTenantId("tenant-a");
+        run.setProjectId(10L);
+        run.setStatus("RUNNING");
+        run.setTargetRuntimeClusterId(50L);
+        run.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+        run.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        DispatchTaskEntity previous = interruptedTask();
+        previous.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        previous.setFileTransferRunId(3012L);
+        previous.setTenantId("tenant-a");
+        previous.setProjectId(10L);
+        previous.setLeaseExpiresAt(LocalDateTime.now().minusMinutes(1));
+        when(fileTransferRunMapper.selectList(any())).thenReturn(List.of(run));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(List.of(previous));
+        when(dispatchTaskMapper.selectOne(any())).thenReturn(previous);
+        when(workerLeaseMapper.selectList(any())).thenReturn(Collections.emptyList());
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(mutationService.requeueRunAndDispatchAndEvent(eq(3012L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class))).thenReturn(1);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, workerLeaseMapper,
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+
+        ReflectionTestUtils.invokeMethod(runner, "reconcileOrphanedFileTransferRuns", List.of(50L));
+
+        verify(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class));
+        verify(mutationService).requeueRunAndDispatchAndEvent(eq(3012L), any(LambdaUpdateWrapper.class),
+                any(DispatchTaskEntity.class));
+    }
+
+    @Test
+    void shouldNotFenceForeignWorkerDispatchWithLiveLease() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3013L);
+        run.setTenantId("tenant-a");
+        run.setProjectId(10L);
+        run.setStatus("RUNNING");
+        run.setTargetRuntimeClusterId(50L);
+        run.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+        run.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        DispatchTaskEntity previous = interruptedTask();
+        previous.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        previous.setFileTransferRunId(3013L);
+        previous.setTenantId("tenant-a");
+        previous.setProjectId(10L);
+        previous.setWorkerInstanceId("instance-other");
+        previous.setWorkerBootId("boot-other");
+        previous.setLeaseExpiresAt(LocalDateTime.now().minusMinutes(1));
+        WorkerLeaseEntity lease = activeLease();
+        lease.setTenantId("tenant-a");
+        lease.setRuntimeClusterId(50L);
+        lease.setWorkerGroupCode("group-50");
+        lease.setInstanceId("instance-other");
+        lease.setBootId("boot-other");
+        when(fileTransferRunMapper.selectList(any())).thenReturn(List.of(run));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(List.of(previous));
+        when(workerLeaseMapper.selectList(any())).thenReturn(List.of(lease));
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, workerLeaseMapper,
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+
+        ReflectionTestUtils.invokeMethod(runner, "reconcileOrphanedFileTransferRuns", List.of(50L));
+
+        verify(dispatchTaskMapper, never()).update(any(DispatchTaskEntity.class), any(LambdaUpdateWrapper.class));
+        verify(mutationService, never()).requeueRunAndDispatchAndEvent(any(), any(), any());
+    }
+
+    @Test
+    void shouldLeavePausedFileTransferWithoutDispatchWaitingForExplicitResume() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3011L);
+        run.setStatus("PAUSED");
+        run.setTargetRuntimeClusterId(50L);
+        run.setCreatedAt(LocalDateTime.now().minusMinutes(2));
+        run.setUpdatedAt(LocalDateTime.now().minusMinutes(1));
+        when(fileTransferRunMapper.selectList(any())).thenReturn(List.of(run));
+        when(dispatchTaskMapper.selectCount(any())).thenReturn(0L);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferStateMutationService", mutationService);
+
+        ReflectionTestUtils.invokeMethod(runner, "reconcileOrphanedFileTransferRuns", List.of(50L));
+
+        verify(mutationService).normalizePausedRunItemsAndEvent(run);
+        verify(mutationService, never()).requeueRunAndDispatchAndEvent(any(), any(), any());
+        verify(mutationService, never()).updateRunAndEvent(any(), any(), anyBoolean(), anyBoolean());
+    }
+
+    @Test
+    void shouldNotRequeueCanceledOrCompletedFileTransfer() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
+        DispatchTaskEntity task = interruptedTask();
+        task.setExecutionType(DispatchExecutionType.FILE_TRANSFER.name());
+        task.setFileTransferRunId(3004L);
+        FileTransferRunEntity run = new FileTransferRunEntity();
+        run.setId(3004L);
+        when(fileTransferRunMapper.selectById(3004L)).thenReturn(run);
+
+        WorkerLifecycleRunner runner = enforcedRunner(dispatchTaskMapper, mock(WorkerLeaseMapper.class),
+                mock(RunRecordMapper.class), mock(ExecutionEventPublisher.class),
+                mock(RunLogFileService.class), mock(ClusterInstanceIdentity.class));
+        ReflectionTestUtils.invokeMethod(runner, "setFileTransferRunMapper", fileTransferRunMapper);
+
+        run.setStatus("CANCELED");
+        ReflectionTestUtils.invokeMethod(runner, "requeueInterruptedFileTransfer", task,
+                LocalDateTime.now(), "restart recovery");
+        run.setStatus("SUCCESS");
+        ReflectionTestUtils.invokeMethod(runner, "requeueInterruptedFileTransfer", task,
+                LocalDateTime.now(), "restart recovery");
+
+        verify(fileTransferRunMapper, never()).update(eq(null), any(LambdaUpdateWrapper.class));
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
     }
 
     @Test

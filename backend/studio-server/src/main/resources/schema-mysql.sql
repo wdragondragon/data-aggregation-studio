@@ -1867,6 +1867,39 @@ create table if not exists file_transfer_metric_sample (
     key idx_ft_metric_task_time (task_id, sampled_at)
 );
 
+create table if not exists file_transfer_event_outbox (
+    id bigint primary key,
+    tenant_id varchar(64) not null,
+    project_id bigint not null,
+    deleted int not null default 0,
+    created_at datetime not null default current_timestamp,
+    updated_at datetime not null default current_timestamp,
+    event_type varchar(32) not null,
+    run_id bigint not null,
+    item_id bigint,
+    occurred_at datetime not null,
+    payload_version int not null default 1,
+    payload_json json,
+    key idx_ft_outbox_scope_id (tenant_id, project_id, id),
+    key idx_ft_outbox_run_id (run_id, id),
+    key idx_ft_outbox_created (created_at, id),
+    key idx_ft_outbox_event_type (event_type, created_at, id)
+);
+
+create table if not exists file_transfer_event_consumer_cursor (
+    id bigint primary key,
+    instance_id varchar(255) not null,
+    tenant_id varchar(64) not null,
+    project_id bigint not null,
+    last_event_id bigint not null default 0,
+    last_seen_at datetime not null,
+    created_at datetime not null default current_timestamp,
+    updated_at datetime not null default current_timestamp,
+    unique key uk_ft_event_cursor_scope (instance_id, tenant_id, project_id),
+    key idx_ft_event_cursor_seen (instance_id, last_seen_at),
+    key idx_ft_event_cursor_position (tenant_id, project_id, last_event_id)
+);
+
 create table if not exists data_model_lineage_relation (
     id bigint primary key,
     tenant_id varchar(64) default 'default',

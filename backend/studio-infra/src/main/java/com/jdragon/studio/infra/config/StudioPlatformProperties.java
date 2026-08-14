@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.config;
 
+import com.jdragon.studio.infra.model.FileTransferEventMode;
 import lombok.Data;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -313,6 +314,18 @@ public class StudioPlatformProperties {
     @Data
     public static class FileTransferProperties {
         private boolean enabled = true;
+        private Integer downloadTicketTtlSeconds = 120;
+        private Integer downloadReadIdleTimeoutMillis = 30 * 60 * 1000;
+        private FileTransferEventMode eventMode = FileTransferEventMode.OUTBOX;
+        private Integer eventPollDelayMillis = 250;
+        private Integer eventBatchSize = 500;
+        private Integer progressEventIntervalMillis = 1000;
+        private Integer replayMaxEvents = 5000;
+        private Integer eventRetentionDays = 7;
+        private Integer cursorStaleHours = 48;
+        private Integer cleanupIntervalMillis = 3600000;
+        private Integer cleanupBatchSize = 1000;
+        private Integer cleanupMaxBatches = 20;
     }
 
     @Data

@@ -1,6 +1,7 @@
 package com.jdragon.studio.worker.filetransfer;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
@@ -31,6 +32,8 @@ import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
+import com.jdragon.studio.infra.service.FileTransferOutboxWriter;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -50,6 +53,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -59,6 +63,10 @@ class FileTransferNodeExecutorRetryTest {
 
     @BeforeAll
     static void initTableInfo() {
+        if (TableInfoHelper.getTableInfo(FileTransferRunEntity.class) == null) {
+            TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                    FileTransferRunEntity.class);
+        }
         if (TableInfoHelper.getTableInfo(FileTransferRunItemEntity.class) == null) {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                     FileTransferRunItemEntity.class);
@@ -67,10 +75,13 @@ class FileTransferNodeExecutorRetryTest {
 
     private final FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
     private final FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+    private final FileTransferMetricSampleMapper metricMapper = mock(FileTransferMetricSampleMapper.class);
+    private final FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+            runMapper, itemMapper, metricMapper, mock(FileTransferOutboxWriter.class));
     private final FileTransferNodeExecutor executor = new FileTransferNodeExecutor(
-            runMapper, itemMapper, mock(FileTransferMetricSampleMapper.class),
+            runMapper, itemMapper, metricMapper,
             mock(DataSourceService.class), mock(DatasourceClusterBindingService.class),
-            mock(AggregationSourceCapabilityProvider.class), new ObjectMapper());
+            mock(AggregationSourceCapabilityProvider.class), new ObjectMapper(), mutationService);
 
     @Test
     void transferRetrySelectsOnlyTheRequestedCoreItem() {
@@ -170,7 +181,7 @@ class FileTransferNodeExecutorRetryTest {
         assertThat(persisted.getPeakBytesPerSecond()).isEqualTo(8_192L);
         assertThat(persisted.getCurrentBytesPerSecond()).isEqualTo(0L);
         assertThat(summary).containsEntry("fileTransferStatus", "SUCCESS");
-        verify(runMapper).updateById(persisted);
+        verify(runMapper).update(isNull(), any(LambdaUpdateWrapper.class));
     }
 
     @Test

@@ -6,6 +6,7 @@ import com.jdragon.studio.dto.model.FileTransferRunView;
 import com.jdragon.studio.infra.entity.FileTransferTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
+import com.jdragon.studio.infra.mapper.FileTransferMetricSampleMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import org.junit.jupiter.api.Test;
@@ -77,11 +78,17 @@ class FileTransferRunTriggerLockTest {
         when(runMapper.selectCount(any())).thenReturn(0L);
         when(securityService.currentTenantId()).thenReturn("default");
 
+        FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
+                runMapper, itemMapper, mock(FileTransferMetricSampleMapper.class),
+                mock(FileTransferOutboxWriter.class));
+        mutationService.setDispatchTaskMapper(dispatchTaskMapper);
         FileTransferRunService service = new FileTransferRunService(
-                runMapper, mock(FileTransferRunItemMapper.class), mock(DispatchTaskMapper.class),
+                runMapper, itemMapper, dispatchTaskMapper,
                 taskService, mock(DataSourceService.class), mock(RuntimeClusterSelectionService.class),
                 mock(ProjectResourceAccessService.class), securityService,
-                mock(UnstructuredManagementService.class), clusterLock, new ObjectMapper());
+                mock(UnstructuredManagementService.class), clusterLock, new ObjectMapper(), mutationService);
         return new Fixture(service, runMapper, taskService, clusterLock);
     }
 

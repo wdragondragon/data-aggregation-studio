@@ -156,15 +156,26 @@
           </el-table-column>
           <el-table-column label="进度" width="180">
             <template #default="{ row }">
-              <el-progress
-                :percentage="transferProgress(row.transferredBytes, row.fileSize)"
-                :status="row.status === 'FAILED' || row.status === 'CONFLICT' ? 'exception' : row.status === 'SUCCESS' || row.status === 'SKIPPED' ? 'success' : undefined"
-                :stroke-width="8"
-              />
+              <div class="queue-progress-cell">
+                <el-progress
+                  :percentage="transferProgress(displayTransferredBytes(row), row.fileSize)"
+                  :status="row.status === 'FAILED' || row.status === 'CONFLICT' ? 'exception' : row.status === 'SUCCESS' || row.status === 'SKIPPED' ? 'success' : undefined"
+                  :stroke-width="8"
+                />
+                <span>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
+                <span v-if="isChecksumRebuilding(row)">
+                  恢复校验 {{ formatBytes(row.resumeCheckedBytes) }} / {{ formatBytes(row.resumeTotalBytes) }}
+                </span>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="速度" width="112" align="right">
-            <template #default="{ row }">{{ formatTransferSpeed(row.currentBytesPerSecond) }}</template>
+            <template #default="{ row }">
+              <div class="queue-speed-cell">
+                <span>{{ formatTransferSpeed(row.currentBytesPerSecond) }}</span>
+                <small v-if="isChecksumRebuilding(row)">校验速度</small>
+              </div>
+            </template>
           </el-table-column>
           <el-table-column label="状态" width="142" align="center">
             <template #default="{ row }">
@@ -656,6 +667,15 @@ function toQueueRow(run: FileTransferRunView, item: FileTransferRunItemView): Qu
   };
 }
 
+function displayTransferredBytes(item: FileTransferRunItemView) {
+  if (isChecksumRebuilding(item)) return item.transferredBytes;
+  return item.live ? item.observedBytes ?? item.transferredBytes : item.transferredBytes;
+}
+
+function isChecksumRebuilding(item: FileTransferRunItemView) {
+  return String(item.resumePhase ?? "").toUpperCase() === "REBUILDING_CHECKSUM";
+}
+
 function manualSnapshotRows(run: FileTransferRunView): QueueRow[] {
   if (Number(run.totalFiles ?? 0) > 0) return [];
   const manualItems = Array.isArray(run.resolvedSpec?.manualItems)
@@ -956,10 +976,28 @@ onBeforeUnmount(() => unsubscribeEvents?.());
 }
 
 .queue-file-cell,
-.queue-route-cell {
+.queue-route-cell,
+.queue-progress-cell {
   display: grid;
   gap: 3px;
   min-width: 0;
+}
+
+.queue-progress-cell span {
+  color: var(--studio-text-soft);
+  font-size: 11px;
+  text-align: right;
+}
+
+.queue-speed-cell {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+}
+
+.queue-speed-cell small {
+  color: var(--studio-text-soft);
+  font-size: 11px;
 }
 
 .queue-file-cell span,

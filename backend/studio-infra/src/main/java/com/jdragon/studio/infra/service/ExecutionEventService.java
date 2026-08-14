@@ -47,6 +47,7 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private final QualityIssueService qualityIssueService;
     private final CollectionTaskIncrementalStateService collectionTaskIncrementalStateService;
     private final StaleExecutionRecoveryService staleExecutionRecoveryService;
+    private FileTransferStateMutationService fileTransferStateMutationService;
     private AlertSignalPublisher alertSignalPublisher;
     private QualityTaskDefinitionMapper qualityTaskDefinitionMapper;
 
@@ -155,15 +156,10 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         if (event.getProjectId() != null) {
             identityUpdate.eq(FileTransferRunEntity::getProjectId, event.getProjectId());
         }
-        fileTransferRunMapper.update(null, identityUpdate);
-
-        if (!"FAILED".equalsIgnoreCase(event.getEventType())
-                && !"ERROR".equalsIgnoreCase(event.getEventType())) {
-            return;
-        }
-        LambdaUpdateWrapper<FileTransferRunEntity> failureUpdate =
-                new LambdaUpdateWrapper<FileTransferRunEntity>()
-                        .set(FileTransferRunEntity::getStatus, "FAILED")
+        if (("FAILED".equalsIgnoreCase(event.getEventType())
+                || "ERROR".equalsIgnoreCase(event.getEventType()))
+                && !isAutomaticFileTransferRestart(event)) {
+            identityUpdate.set(FileTransferRunEntity::getStatus, "FAILED")
                         .set(FileTransferRunEntity::getMessage,
                                 message == null || message.trim().isEmpty()
                                         ? "File transfer execution failed" : message)
@@ -171,13 +167,29 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                         .set(FileTransferRunEntity::getActiveFiles, 0)
                         .set(FileTransferRunEntity::getEndedAt,
                                 event.getEndedAt() == null ? event.getOccurredAt() : event.getEndedAt())
-                        .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
-                        .eq(FileTransferRunEntity::getId, event.getFileTransferRunId())
                         .in(FileTransferRunEntity::getStatus, "QUEUED", "RUNNING", "PAUSED");
-        if (event.getProjectId() != null) {
-            failureUpdate.eq(FileTransferRunEntity::getProjectId, event.getProjectId());
         }
-        fileTransferRunMapper.update(null, failureUpdate);
+        requireFileTransferMutationService().updateRunAndEvent(
+                event.getFileTransferRunId(), identityUpdate, false, true);
+    }
+
+    private boolean isAutomaticFileTransferRestart(ExecutionEvent event) {
+        if (event == null || event.getPayload() == null) {
+            return false;
+        }
+        return Boolean.TRUE.equals(event.getPayload().get("fileTransferRestartRecoveryEligible"));
+    }
+
+    @Autowired
+    void setFileTransferStateMutationService(FileTransferStateMutationService mutationService) {
+        this.fileTransferStateMutationService = mutationService;
+    }
+
+    private FileTransferStateMutationService requireFileTransferMutationService() {
+        if (fileTransferStateMutationService == null) {
+            throw new IllegalStateException("File transfer state mutation service is required");
+        }
+        return fileTransferStateMutationService;
     }
 
     @Autowired(required = false)

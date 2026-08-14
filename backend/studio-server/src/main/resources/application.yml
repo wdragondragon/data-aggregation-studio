@@ -82,6 +82,15 @@ management:
     web:
       exposure:
         include: health,info
+  endpoint:
+    health:
+      # The schema-upgrade application shares this file but deliberately does not scan Server web contributors.
+      validate-group-membership: false
+      group:
+        studio-ha:
+          include: studioServerHa
+          show-components: always
+          show-details: always
 
 studio:
   schema:
@@ -101,6 +110,18 @@ studio:
   internal-api-token: ${STUDIO_INTERNAL_API_TOKEN:}
   file-transfer:
     enabled: ${STUDIO_FILE_TRANSFER_ENABLED:true}
+    download-ticket-ttl-seconds: ${STUDIO_DOWNLOAD_TICKET_TTL_SECONDS:120}
+    download-read-idle-timeout-millis: ${STUDIO_DOWNLOAD_READ_IDLE_TIMEOUT_MILLIS:1800000}
+    event-mode: ${STUDIO_FILE_TRANSFER_EVENT_MODE:OUTBOX}
+    event-poll-delay-millis: ${STUDIO_FILE_TRANSFER_EVENT_POLL_DELAY_MILLIS:250}
+    event-batch-size: ${STUDIO_FILE_TRANSFER_EVENT_BATCH_SIZE:500}
+    progress-event-interval-millis: ${STUDIO_FILE_TRANSFER_PROGRESS_EVENT_INTERVAL_MILLIS:1000}
+    replay-max-events: ${STUDIO_FILE_TRANSFER_REPLAY_MAX_EVENTS:5000}
+    event-retention-days: ${STUDIO_FILE_TRANSFER_EVENT_RETENTION_DAYS:7}
+    cursor-stale-hours: ${STUDIO_FILE_TRANSFER_CURSOR_STALE_HOURS:48}
+    cleanup-interval-millis: ${STUDIO_FILE_TRANSFER_CLEANUP_INTERVAL_MILLIS:3600000}
+    cleanup-batch-size: ${STUDIO_FILE_TRANSFER_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_FILE_TRANSFER_CLEANUP_MAX_BATCHES:20}
   runtime-invocation-max-body-bytes: ${STUDIO_RUNTIME_INVOCATION_MAX_BODY_BYTES:10485760}
   runtime-invocation-idempotency:
     mode: ${STUDIO_RUNTIME_INVOCATION_IDEMPOTENCY_MODE:OPTIONAL}
