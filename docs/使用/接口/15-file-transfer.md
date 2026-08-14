@@ -307,9 +307,11 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
   ],
   "policy": {
     "conflictPolicy": "FAIL",
-    "sourceSuccessAction": "KEEP",
     "checksumAlgorithm": "SHA-256",
-    "skipIdentical": true
+    "verificationMode": "PARTIAL",
+    "verificationFrameCount": 16,
+    "verificationFrameSizeBytes": 1048576,
+    "sourceSuccessAction": "KEEP"
   },
   "runtime": {
     "concurrency": 4,
@@ -320,11 +322,30 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 }
 ```
 
-已确认的固定语义：
+校验策略语义：
 
-- 摘要算法为 SHA-256。
-- 正式目标摘要一致时统一跳过。
-- 源端默认保留；删除或备份只能在目标校验和正式提交成功后发生。
+- `verificationMode` 可取 `NONE`、`PARTIAL`、`STRONG`。历史任务和历史运行快照缺少该字段时按 `STRONG` 执行，保持原有全文件 SHA-256 行为。
+- `PARTIAL` 默认 `16` 帧、每帧 `1 MiB`。帧数范围为 `1..64`；帧大小范围为 `64 KiB..4 MiB`，且必须是 `64 KiB` 的整数倍。摘要算法仍固定为 `SHA-256`。
+- `PARTIAL` 根据运行 ID、文件项、源身份、源快照和采样参数生成稳定种子，将文件等分为 n 个区段并在每个区段内选择一个不重叠随机帧。同一运行的正常执行、重试和 Worker 重启使用相同位置，不同运行使用不同位置。
+- 部分摘要格式为 `PARTIAL-SHA256-V1:<64 位十六进制>`，保存到现有 `sourceChecksum/targetChecksum` 字段。它是概率性完整性检查，不等价于全文件 SHA-256。
+- 空文件或 `verificationFrameCount * verificationFrameSizeBytes >= fileSize` 时，配置为 `PARTIAL` 的该文件自动提升为有效模式 `STRONG`。
+- `STRONG` 对源和目标计算全文件 SHA-256；`PARTIAL` 对源、目标读取相同帧并比较采样指纹；`NONE` 不生成内容摘要，但仍检查文件长度、源快照、目标并发变化和 checkpoint 边界指纹。
+- 正式目标已存在时，`STRONG` 全摘要一致或 `PARTIAL` 在大小一致时采样指纹一致均返回 `SKIPPED`。`NONE` 不判断内容相同，直接执行 `FAIL/OVERWRITE/BACKUP_THEN_OVERWRITE` 冲突策略。
+- `NONE` 只允许 `sourceSuccessAction=KEEP`；Server 保存、任务发布、即时入队和 Worker 核心都会拒绝 `NONE + DELETE/BACKUP`。`PARTIAL/STRONG` 的删除或备份只能在目标校验和正式提交成功后发生。
+- `PARTIAL` 要求源端和目标端的 `TransferFileSystem.capabilities().rangeRead()` 均为 `true`；不支持时明确失败并返回 `FILE_TRANSFER_PARTIAL_VERIFY_UNSUPPORTED`，不会静默降级。
+
+当前 Studio 开放的数据源均支持范围读取：
+
+| 数据源 | 范围读取实现 | 部分校验说明 |
+|---|---|---|
+| Local | `FileChannel.position(offset)` 和长度限制 | 完整支持 |
+| FTP | `REST/restartOffset` 后执行 `RETR` | 每帧一次范围读取；关闭帧流时完成或中止 pending command，往返成本高于其他类型 |
+| SFTP | `ChannelSftp.get(..., skip)` 和长度限制 | 完整支持 |
+| MinIO | `GetObjectArgs.offset/length` | 正式对象和 multipart 临时对象均支持 |
+| OSS | `GetObjectRequest.setRange(start,end)` | 完整支持 |
+
+其他固定语义：
+
 - 单文件选择的 `targetPath` 是最终目标文件完整路径；目录选择的 `targetPath` 是目标目录路径，目录下发现的文件会继续保留相对路径。
 - 目录执行时展开为叶子文件项；当前文件传输不复制空目录本身。手工选择的路径没有发现任何可传输文件时，运行进入 `FAILED` 并返回 `FILE_TRANSFER_NO_FILES_DISCOVERED`，不得报告零文件成功。
 - 一个运行的 `runtimeClusterId` 固定，源和目标数据源必须适用于同一个集群。跨集群请求统一返回 `FILE_TRANSFER_CROSS_CLUSTER_DISABLED`，历史跨集群记录仅可查询。
@@ -352,7 +373,7 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 
 Worker 意外退出或重启时，旧 Dispatch 的终态只表示旧执行所有权已经关闭，不表示 Run 或 checkpoint 不可恢复。对非 `PAUSED`、非 `CANCELED`、非完成的运行，Worker 自动创建新 Dispatch；新执行验证 checkpoint、源快照和临时目标长度后从确认偏移继续。用户主动暂停的运行必须显式调用 `POST /api/v1/file-transfer/runs/{runId}/resume`，不会被 Worker 重启自动恢复。
 
-恢复运行的 `transferredBytes` 保留确认偏移。schema v2 checkpoint 同时保存可恢复 SHA-256 状态、文件头和确认边界各最多 64 KiB 的 SHA-256 指纹；默认 `runtime.checkpointRecoveryMode=FAST` 只读取这两个小范围验证源身份，然后直接从 `confirmedOffset` 续传，不再完整重读源文件前缀。旧版 checkpoint、摘要状态损坏、指纹不一致、临时目标长度不一致时，FAST 模式会安全删除旧临时目标和 checkpoint，并从零重新传输；只有显式 `STRICT` 才对旧 checkpoint 重读前缀重建摘要。最终摘要仍不一致时会先清理无效断点，再自动进行且仅进行一次从零完整重传。
+恢复运行的 `transferredBytes` 保留确认偏移。schema v2 checkpoint 在所有校验模式下都保存文件头和确认边界各最多 64 KiB 的 SHA-256 指纹；`NONE/PARTIAL` 只使用这些轻量指纹验证断点身份，不维护完整文件的可恢复摘要状态。`STRONG` 继续保存可恢复 SHA-256 状态，默认 `runtime.checkpointRecoveryMode=FAST` 读取两个小范围后从 `confirmedOffset` 续传。旧版 checkpoint、摘要状态损坏、指纹不一致或临时目标长度不一致时会安全删除旧临时目标和 checkpoint，并从零传输；显式 `STRICT` 仅用于强校验旧 checkpoint 的前缀摘要重建。内容校验不一致时仍会清理无效断点，并按现有策略最多执行一次从零完整重传。
 
 运行视图和文件项视图除保留内部定位所需的 ID 外，还返回以下展示字段：
 
@@ -432,9 +453,11 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
   },
   "policy": {
     "conflictPolicy": "BACKUP_THEN_OVERWRITE",
-    "sourceSuccessAction": "KEEP",
     "checksumAlgorithm": "SHA-256",
-    "skipIdentical": true
+    "verificationMode": "PARTIAL",
+    "verificationFrameCount": 16,
+    "verificationFrameSizeBytes": 1048576,
+    "sourceSuccessAction": "KEEP"
   },
   "runtime": {
     "concurrency": 4,
@@ -503,9 +526,12 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
   "observedBytes": 8650752,
   "live": true,
   "currentBytesPerSecond": 131072,
-  "verificationPhase": "TARGET_CHECKSUM",
+  "verificationModeConfigured": "PARTIAL",
+  "verificationModeEffective": "PARTIAL",
+  "verificationPhase": "TARGET_SAMPLE",
   "verificationBytes": 4194304,
-  "verificationTotalBytes": 8388608
+  "verificationTotalBytes": 16777216,
+  "verificationComplete": false
 }
 ```
 
@@ -514,8 +540,10 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
 - `currentBytesPerSecond`：文件项按相邻实时样本计算；运行级当前速度和峰值也可使用实时观测增量。首个样本可能为 `0 B/s`，后续样本形成有效速度。
 - `activityBytes`：后端事件中的可选活动累计值，用于计算当前/峰值速度。严格模式兼容旧 checkpoint 时，它可以包含重新读取源端断点前缀的校验活动；它不推进确认进度、不写入 checkpoint。
 - `resumePhase/resumeCheckedBytes/resumeTotalBytes`：严格恢复校验时分别表示阶段、已校验字节和待校验前缀总量；页面把速度标为“校验速度”，确认传输进度保持不变。新版 FAST checkpoint 正常恢复时使用 `RESUMING_TRANSFER`，无需展示长时间校验。
-- `verificationPhase/verificationBytes/verificationTotalBytes`：文件写入完成后，Worker 在 `VERIFYING` 阶段从目标临时文件回读并计算 SHA-256；`TARGET_CHECKSUM` 表示目标校验阶段，页面应显示独立的“目标校验”进度和校验速度。该回读活动不增加 `transferredBytes`，也不推进 checkpoint。
-- FTP 等不能直接返回远程 SHA-256 的数据源需要完整回读目标文件，因此大文件的 `VERIFYING` 会持续一段时间；进度默认约每秒经 Outbox/SSE 更新。校验完成后才进入 `COMMITTING`，摘要不一致则终止提交并按既有重试策略处理。
+- `verificationModeConfigured/verificationModeEffective`：分别表示任务配置模式和该文件按大小计算后的有效模式。`PARTIAL` 自动提升时返回 `configured=PARTIAL/effective=STRONG`，页面显示“强校验（采样范围已覆盖文件）”。
+- `verificationPhase/verificationBytes/verificationTotalBytes/verificationComplete`：文件写入完成后目标端独立校验进度。`TARGET_CHECKSUM` 表示全文件 SHA-256，校验总量为文件大小；`TARGET_SAMPLE` 表示部分采样，总量为实际采样字节数。该读取只增加 `activityBytes`，不增加 `transferredBytes`，也不推进 checkpoint。
+- `NONE` 只短暂执行源快照和临时目标长度检查，不产生持续内容校验进度，不返回源/目标摘要。
+- FTP 强校验需要完整回读目标文件；部分校验为每帧一次 `REST/RETR`，可显著减少读取总量，但帧数较多时仍受网络往返时延影响。进度默认约每秒经 Outbox/SSE 更新。校验完成后才进入 `COMMITTING`，不一致时终止提交并按既有重试策略处理。
 - 前端应优先显示 `live=true` 时的 `observedBytes`，否则显示 `transferredBytes`。终态和迟到事件不得继续显示实时字节。
 - SSE 默认约每秒产生一次非终态进度事件，Server 约每 250 ms 检查 Outbox；页面不应增加轮询。实际显示延迟还包括数据库提交、SSE 推送和浏览器渲染时间。
 

@@ -325,3 +325,16 @@ GET    /api/v1/unstructured-management/users/options
 - 2026-08-14 最终目标校验进度：`TransferFileSystem.checksum` 增加兼容的进度回调重载，仍使用固定 64 KiB 缓冲回读目标文件。`TransferEngine` 在 `VERIFYING` 阶段按 `checkpointIntervalMillis` 发布 `verificationPhase=TARGET_CHECKSUM`、`verificationBytes`、`verificationTotalBytes` 和累计 `activityBytes`；完成事件不受 Studio 一秒持久化节流。`transferredBytes` 和 checkpoint 保持已确认写入值，不把目标回读误计为再次传输。Worker、Outbox/SSE、SDK、队列和运行详情沿用可选字段展示独立“目标校验”进度及校验速度；Server 只给仍为 `VERIFYING` 的文件项叠加实时值，迟到事件不能覆盖 `COMMITTING` 或终态。
 - 2026-08-14 FTP 根目录双斜杠修复：问题不是纯展示。旧 `TransferPaths.join("/", "file")` 生成 `//file`，该值会进入传输计划、`file_transfer_run_item.target_path`、`.part` 临时路径和 FTP 插件逻辑入参；FTP 适配器在解析远程物理路径时会再次规范化，所以历史任务通常仍写入正确物理文件。现从公共路径拼接源头对结果重新规范化，根目录文件统一为 `/file`，Local、FTP、SFTP、MinIO、OSS 共用该修复，并补充公共路径与 FTP 登录目录映射回归测试。无数据库表、字段、索引、SQL 或 Liquibase 变化。
 - 2026-08-14 校验进度与根目录路径自动化：Java 17 下核心、Local 和 file-transfer 插件全链路 40 项通过；目标校验、路径大小写和 FTP 登录目录定向套件 32 项通过；Studio Infra/Worker 定向套件 36 项通过。Web 文件传输队列回归、`vue-tsc --noEmit` 和 4331 模块生产构建通过，两层仓库 `git diff --check` 通过。真实 FTP 页面复验需要在发布新版 Worker、Server 和 Web 后执行，未把尚未运行的真实环境用例表述为通过。
+
+## 16. W9：文件传输分级校验策略
+
+- 实施时间：2026-08-15；状态：代码和定向自动化已完成，五类真实数据源矩阵待发布后复验。
+- 策略模型：即时运行和预设任务统一在既有 `policy` 中增加 `verificationMode`、`verificationFrameCount`、`verificationFrameSizeBytes`。模式为 `NONE/PARTIAL/STRONG`，历史缺失字段固定补为 `STRONG`；默认部分校验为 `16 × 1 MiB`，帧数限制 `1..64`，帧大小限制为 `64 KiB..4 MiB` 且按 `64 KiB` 对齐。
+- 采样算法：按运行 ID、文件项、源身份、源快照和采样配置生成稳定种子，将文件划分为 n 个区段，每区段选择一个不重叠随机帧。相同运行在重试和 Worker 重启后位置稳定，不同运行位置变化；摘要使用 `PARTIAL-SHA256-V1:<hex>` 并复用现有摘要字段。采样配置总量覆盖文件或文件为空时自动提升为强校验。
+- 执行语义：`STRONG` 保持全文件 SHA-256；`PARTIAL` 在传输前读取源样本、传输后读取目标临时文件相同样本；`NONE` 不比较内容摘要，但继续执行长度、源快照、目标并发变化和断点身份检查。已有正式目标仅在强摘要一致或同大小采样指纹一致时跳过；不校验直接执行冲突策略。`NONE` 只允许保留源文件，Server 与 Worker 均拒绝删除或备份。
+- 并发与后处理：所有模式保存并复查原目标 size、mtime、etag；强校验和部分校验还按对应计划复查原目标内容指纹。`POST_ACTION_FAILED` 重试复用原运行的完整摘要或稳定采样计划，不重复写入或提交目标。
+- 断点安全：所有模式继续保存并验证 checkpoint 文件头和确认边界的轻量 SHA-256 指纹；只有强校验维护可恢复的完整摘要状态。部分校验和不校验不会因关闭完整摘要而削弱断点身份检查，也不会把采样读取计入确认传输字节。
+- 数据源覆盖：Local、FTP、SFTP、MinIO、OSS 均已具备 `openRead(path, offset, length)` 且声明 `rangeRead=true`，本次没有修改五类插件生产代码。未来数据源不支持范围读取时，部分校验明确返回 `FILE_TRANSFER_PARTIAL_VERIFY_UNSUPPORTED`，不静默降级；FTP 每帧使用一次 `REST/RETR`，需单独关注往返成本。
+- Studio 与 Web：任务保存、校验、发布、触发和即时入队共用策略规范化；运行文件项返回配置/有效模式和采样参数。Outbox/SSE 新增 `TARGET_SAMPLE` 与模式字段，迟到事件仍不能覆盖提交中或终态。即时策略弹窗、预设任务编辑器、任务列表、队列和运行详情均支持三档选择、参数联动、自动提升提示与采样指纹展示。
+- 数据库与发布：不新增表、字段、索引、SQL 或 Liquibase，继续使用 `policy_json`、`resolved_spec_json` 和现有摘要字段。生产发布需要更新 `studio-worker`、`studio-server` 和 Studio Web；Local、FTP、SFTP、MinIO、OSS 插件包无需因本功能重新发布。
+- 定向自动化：Java 17 下文件传输核心 41 项通过；Studio 策略规范化、运行 DTO 推导、Outbox/SSE、Worker 事件和后处理重试共 43 项通过，均为 0 失败、0 错误。Web 文件传输队列静态回归、`vue-tsc --noEmit` 和 4331 模块生产构建通过。真实五类数据源互传、FTP 采样成本和 MinIO multipart 临时目标采样仍需在发布环境执行，未表述为已通过。
