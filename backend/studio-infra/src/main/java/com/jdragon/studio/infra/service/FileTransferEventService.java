@@ -386,8 +386,10 @@ public class FileTransferEventService {
         long confirmedBytes = number(payload.get("confirmedBytes"), value(item.getTransferredBytes()));
         long observedBytes = number(payload.get("observedBytes"), confirmedBytes);
         boolean transferring = "TRANSFERRING".equalsIgnoreCase(item.getStatus());
+        String verificationPhase = String.valueOf(payload.get("verificationPhase"));
         boolean verifying = "VERIFYING".equalsIgnoreCase(item.getStatus())
-                && "TARGET_CHECKSUM".equalsIgnoreCase(String.valueOf(payload.get("verificationPhase")));
+                && ("TARGET_CHECKSUM".equalsIgnoreCase(verificationPhase)
+                || "TARGET_SAMPLE".equalsIgnoreCase(verificationPhase));
         if ((!transferring && !verifying)
                 || value(item.getTransferredBytes()) > confirmedBytes
                 || observedBytes < value(item.getTransferredBytes())) {
@@ -409,7 +411,9 @@ public class FileTransferEventService {
         if (verifying) {
             long totalBytes = number(payload.get("verificationTotalBytes"), value(item.getFileSize()));
             long verifiedBytes = number(payload.get("verificationBytes"), 0L);
-            item.setVerificationPhase("TARGET_CHECKSUM");
+            item.setVerificationPhase(verificationPhase.toUpperCase(java.util.Locale.ROOT));
+            item.setVerificationModeConfigured(string(payload.get("verificationModeConfigured")));
+            item.setVerificationModeEffective(string(payload.get("verificationModeEffective")));
             item.setVerificationBytes(Math.min(verifiedBytes, totalBytes));
             item.setVerificationTotalBytes(totalBytes);
         }
@@ -424,6 +428,10 @@ public class FileTransferEventService {
         } catch (RuntimeException ignored) {
             return Math.max(0L, fallback);
         }
+    }
+
+    private String string(Object raw) {
+        return raw == null ? null : String.valueOf(raw);
     }
 
     private Map<Long, FileTransferRunView> loadRunViews(ScopeKey scope, Set<Long> runIds) {

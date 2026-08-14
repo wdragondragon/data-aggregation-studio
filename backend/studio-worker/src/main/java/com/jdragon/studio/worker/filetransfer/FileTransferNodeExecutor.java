@@ -13,6 +13,8 @@ import com.jdragon.aggregation.transfer.DynamicTemplateResolver;
 import com.jdragon.aggregation.transfer.TransferEngine;
 import com.jdragon.aggregation.transfer.TransferFileSystemFactory;
 import com.jdragon.aggregation.transfer.TransferPaths;
+import com.jdragon.aggregation.transfer.TransferVerificationPlan;
+import com.jdragon.aggregation.transfer.TransferVerifier;
 import com.jdragon.aggregation.transfer.TransferPlanner;
 import com.jdragon.aggregation.transfer.model.SourceSnapshot;
 import com.jdragon.aggregation.transfer.model.SourceSuccessAction;
@@ -417,14 +419,18 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         try (TransferFileSystem source = sourceFactory.open();
              TransferFileSystem target = targetFactory.open()) {
             TransferPolicy policy = prepared.resolvedSpec().policy();
+            TransferVerifier verifier = new TransferVerifier();
+            TransferVerificationPlan verificationPlan = verifier.plan(
+                    prepared.plan(), planItem, policy);
+            verifier.ensureSupported(source, target, verificationPlan);
             if (policy.sourceSuccessAction() == SourceSuccessAction.KEEP) {
                 throw new IllegalStateException("KEEP has no source post-action to retry");
             }
             if (targetChecksum == null || !target.transferExists(planItem.targetPath())) {
                 throw new IllegalStateException("Committed target cannot be verified for post-action retry");
             }
-            String currentTargetChecksum = target.checksum(
-                    planItem.targetPath(), policy.checksumAlgorithm());
+            String currentTargetChecksum = verifier.checksum(target, planItem.targetPath(),
+                    verificationPlan, policy.checksumAlgorithm(), ignored -> { });
             if (!targetChecksum.equals(currentTargetChecksum)) {
                 throw new IllegalStateException("Committed target changed before post-action retry");
             }
@@ -433,15 +439,17 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 if (!planItem.sourceSnapshot().matches(source.stat(planItem.sourcePath()))) {
                     throw new IllegalStateException("Source changed before post-action retry");
                 }
-                String currentSourceChecksum = source.checksum(
-                        planItem.sourcePath(), policy.checksumAlgorithm());
+                String currentSourceChecksum = verifier.checksum(source, planItem.sourcePath(),
+                        verificationPlan, policy.checksumAlgorithm(), ignored -> { });
                 if (sourceChecksum == null || !sourceChecksum.equals(currentSourceChecksum)
                         || !currentTargetChecksum.equals(currentSourceChecksum)) {
                     throw new IllegalStateException("Source or target checksum changed before post-action retry");
                 }
-                applyPostAction(source, planItem, policy, currentSourceChecksum);
+                applyPostAction(source, planItem, policy, verificationPlan,
+                        verifier, currentSourceChecksum);
             } else if (policy.sourceSuccessAction() == SourceSuccessAction.BACKUP) {
-                verifyCompletedBackup(source, planItem, policy, currentTargetChecksum);
+                verifyCompletedBackup(source, planItem, policy, verificationPlan,
+                        verifier, currentTargetChecksum);
             }
             itemResult = new TransferItemResult(planItem.itemId(), TransferItemStatus.SUCCESS,
                     planItem.sourceSnapshot().size(), planItem.sourceSnapshot().size(), 0L, attempts,
@@ -463,14 +471,19 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     }
 
     private void applyPostAction(TransferFileSystem source, TransferPlanItem item,
-                                 TransferPolicy policy, String checksum) throws Exception {
+                                 TransferPolicy policy,
+                                 TransferVerificationPlan verificationPlan,
+                                 TransferVerifier verifier,
+                                 String checksum) throws Exception {
         if (policy.sourceSuccessAction() == SourceSuccessAction.DELETE) {
             source.delete(item.sourcePath());
             return;
         }
         String backupPath = TransferPaths.join(policy.sourceBackupRootPath(), item.relativePath());
         if (source.transferExists(backupPath)) {
-            if (!checksum.equals(source.checksum(backupPath, policy.checksumAlgorithm()))) {
+            String backupChecksum = verifier.checksum(source, backupPath, verificationPlan,
+                    policy.checksumAlgorithm(), ignored -> { });
+            if (!checksum.equals(backupChecksum)) {
                 throw new IllegalStateException("Source backup path contains different content");
             }
             source.delete(item.sourcePath());
@@ -480,10 +493,14 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     }
 
     private void verifyCompletedBackup(TransferFileSystem source, TransferPlanItem item,
-                                       TransferPolicy policy, String targetChecksum) throws Exception {
+                                       TransferPolicy policy,
+                                       TransferVerificationPlan verificationPlan,
+                                       TransferVerifier verifier,
+                                       String targetChecksum) throws Exception {
         String backupPath = TransferPaths.join(policy.sourceBackupRootPath(), item.relativePath());
         if (!source.transferExists(backupPath)
-                || !targetChecksum.equals(source.checksum(backupPath, policy.checksumAlgorithm()))) {
+                || !targetChecksum.equals(verifier.checksum(source, backupPath, verificationPlan,
+                        policy.checksumAlgorithm(), ignored -> { }))) {
             throw new IllegalStateException("Source backup cannot be verified for post-action retry");
         }
     }

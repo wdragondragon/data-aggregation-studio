@@ -1,4 +1,10 @@
-import type { FileTransferFileEntryView, FileTransferRunView } from "@studio/api-sdk";
+import type {
+  FileTransferFileEntryView,
+  FileTransferPolicy,
+  FileTransferRunItemView,
+  FileTransferRunView,
+  FileTransferVerificationMode,
+} from "@studio/api-sdk";
 
 export type FileTransferStatusTone = "primary" | "success" | "warning" | "danger" | "neutral";
 
@@ -70,6 +76,35 @@ export function formatBytes(value: unknown) {
 
 export function formatTransferSpeed(value: unknown) {
   return `${formatBytes(value)}/s`;
+}
+
+export function fileTransferVerificationModeLabel(mode?: string | null) {
+  return ({
+    NONE: "不校验",
+    PARTIAL: "部分校验",
+    STRONG: "强校验",
+  } as Record<string, string>)[String(mode ?? "STRONG").toUpperCase()] || "强校验";
+}
+
+export function fileTransferVerificationSummary(policy?: FileTransferPolicy | null) {
+  const mode = String(policy?.verificationMode ?? "STRONG").toUpperCase() as FileTransferVerificationMode;
+  if (mode !== "PARTIAL") return fileTransferVerificationModeLabel(mode);
+  return `部分校验 · ${policy?.verificationFrameCount ?? 16} 帧 × ${formatBytes(policy?.verificationFrameSizeBytes ?? 1024 * 1024)}`;
+}
+
+export function fileTransferItemVerificationLabel(item: FileTransferRunItemView) {
+  const configured = String(item.verificationModeConfigured ?? "STRONG").toUpperCase();
+  const effective = String(item.verificationModeEffective ?? configured).toUpperCase();
+  if (configured === "PARTIAL" && effective === "STRONG") {
+    return "强校验（采样范围已覆盖文件）";
+  }
+  return fileTransferVerificationModeLabel(effective);
+}
+
+export function fileTransferVerificationPhaseLabel(item: FileTransferRunItemView) {
+  return String(item.verificationPhase ?? "").toUpperCase() === "TARGET_SAMPLE"
+    ? "目标采样"
+    : "目标校验";
 }
 
 export function formatDurationSeconds(value: unknown) {

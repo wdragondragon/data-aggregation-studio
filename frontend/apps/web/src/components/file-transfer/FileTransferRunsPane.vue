@@ -163,7 +163,7 @@
                 <div class="stack-cell run-progress-cell">
                   <el-progress :percentage="transferProgress(displayProgressBytes(row), displayProgressTotalBytes(row))" :stroke-width="8" />
                   <span v-if="isTargetChecksumVerifying(row)">
-                    目标校验 {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
+                    {{ fileTransferVerificationPhaseLabel(row) }} {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
                   </span>
                   <span v-else>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
                   <span v-if="isChecksumRebuilding(row)">
@@ -184,11 +184,14 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="SHA-256" min-width="220">
+            <el-table-column label="内容校验" min-width="250">
               <template #default="{ row }">
                 <div class="stack-cell studio-mono checksum-cell">
-                  <span :title="row.sourceChecksum">源 {{ row.sourceChecksum || '--' }}</span>
-                  <span :title="row.targetChecksum">目标 {{ row.targetChecksum || '--' }}</span>
+                  <span>{{ fileTransferItemVerificationLabel(row) }}</span>
+                  <template v-if="showsContentFingerprint(row)">
+                    <span :title="row.sourceChecksum">源{{ fingerprintLabel(row) }} {{ row.sourceChecksum || '--' }}</span>
+                    <span :title="row.targetChecksum">目标{{ fingerprintLabel(row) }} {{ row.targetChecksum || '--' }}</span>
+                  </template>
                 </div>
               </template>
             </el-table-column>
@@ -235,6 +238,8 @@ import {
   fileTransferRunTriggerName,
   fileTransferStatusLabel,
   fileTransferStatusTone,
+  fileTransferItemVerificationLabel,
+  fileTransferVerificationPhaseLabel,
   formatBytes,
   formatTransferDate,
   formatTransferNumber,
@@ -361,6 +366,16 @@ function isTargetChecksumVerifying(item: FileTransferRunItemView) {
 
 function isValidationProgress(item: FileTransferRunItemView) {
   return isChecksumRebuilding(item) || isTargetChecksumVerifying(item);
+}
+
+function showsContentFingerprint(item: FileTransferRunItemView) {
+  return String(item.verificationModeEffective ?? "STRONG").toUpperCase() !== "NONE";
+}
+
+function fingerprintLabel(item: FileTransferRunItemView) {
+  return String(item.verificationModeEffective ?? "STRONG").toUpperCase() === "PARTIAL"
+    ? "采样指纹"
+    : " SHA-256";
 }
 
 function canResume(status?: string) {

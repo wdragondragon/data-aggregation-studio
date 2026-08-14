@@ -53,6 +53,7 @@
           <template #default="{ row }">
             <div class="stack-cell">
               <span>{{ conflictLabel(row.policy?.conflictPolicy) }}</span>
+              <span>{{ fileTransferVerificationSummary(row.policy) }}</span>
               <span>{{ sourceActionLabel(row.policy?.sourceSuccessAction) }} · {{ row.runtime?.concurrency || 4 }} 文件</span>
             </div>
           </template>
@@ -211,20 +212,39 @@
               <el-option label="备份后覆盖" value="BACKUP_THEN_OVERWRITE" />
             </el-select>
           </el-form-item>
-          <el-form-item label="摘要算法">
-            <el-input model-value="SHA-256" disabled />
+          <el-form-item class="editor-wide-field" label="校验方式">
+            <el-radio-group v-model="form.verificationMode" @change="handleVerificationModeChange">
+              <el-radio-button value="NONE">不校验</el-radio-button>
+              <el-radio-button value="PARTIAL">部分校验</el-radio-button>
+              <el-radio-button value="STRONG">强校验</el-radio-button>
+            </el-radio-group>
           </el-form-item>
+          <template v-if="form.verificationMode === 'PARTIAL'">
+            <el-form-item label="采样帧数">
+              <el-input-number v-model="form.verificationFrameCount" :min="1" :max="64" controls-position="right" />
+            </el-form-item>
+            <el-form-item label="每帧大小">
+              <el-select v-model="form.verificationFrameSizeBytes">
+                <el-option v-for="option in verificationFrameSizeOptions" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
+            </el-form-item>
+          </template>
           <el-form-item label="目标成功后的源端动作">
             <el-select v-model="form.sourceSuccessAction">
               <el-option label="保留源文件" value="KEEP" />
-              <el-option label="删除源文件" value="DELETE" />
-              <el-option label="备份源文件" value="BACKUP" />
+              <el-option label="删除源文件" value="DELETE" :disabled="form.verificationMode === 'NONE'" />
+              <el-option label="备份源文件" value="BACKUP" :disabled="form.verificationMode === 'NONE'" />
             </el-select>
           </el-form-item>
           <el-form-item v-if="form.sourceSuccessAction === 'BACKUP'" label="源端备份根路径" required>
             <el-input v-model="form.sourceBackupRootPath" class="studio-mono" />
           </el-form-item>
-          <el-alert class="editor-wide-alert" type="info" :closable="false" title="目标 SHA-256 与源文件一致时固定跳过，不受冲突策略影响。" />
+          <el-alert
+            class="editor-wide-alert"
+            type="info"
+            :closable="false"
+            :title="verificationPolicyHint"
+          />
         </div>
 
         <div v-show="editorStep === 5" class="editor-step-grid columns-2">
@@ -308,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from "vue";
+import { computed, onMounted, reactive, ref } from "vue";
 import { Plus, Refresh } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
@@ -317,6 +337,7 @@ import type {
   FileTransferSelectionPreviewView,
   FileTransferTaskDefinitionView,
   FileTransferTaskSaveRequest,
+  FileTransferVerificationMode,
   RuntimeClusterView,
 } from "@studio/api-sdk";
 import { OverflowActionGroup, StatusPill, StudioTableShell, type OverflowActionItem } from "@studio/ui";
@@ -324,6 +345,7 @@ import { studioApi } from "@/api/studio";
 import {
   fileTransferStatusLabel,
   fileTransferStatusTone,
+  fileTransferVerificationSummary,
   formatBytes,
   formatTransferDate,
   formatTransferNumber,
@@ -353,6 +375,9 @@ interface TaskEditorForm {
   preserveRelativePath: boolean;
   targetPathTemplate: string;
   conflictPolicy: "FAIL" | "OVERWRITE" | "BACKUP_THEN_OVERWRITE";
+  verificationMode: FileTransferVerificationMode;
+  verificationFrameCount: number;
+  verificationFrameSizeBytes: number;
   sourceSuccessAction: "KEEP" | "DELETE" | "BACKUP";
   sourceBackupRootPath: string;
   concurrency: number;
@@ -403,6 +428,9 @@ function emptyForm(): TaskEditorForm {
     preserveRelativePath: true,
     targetPathTemplate: "",
     conflictPolicy: "FAIL",
+    verificationMode: "STRONG",
+    verificationFrameCount: 16,
+    verificationFrameSizeBytes: 1024 * 1024,
     sourceSuccessAction: "KEEP",
     sourceBackupRootPath: "",
     concurrency: 4,
@@ -416,6 +444,21 @@ function emptyForm(): TaskEditorForm {
     timezone: "Asia/Shanghai",
   };
 }
+
+const verificationFrameSizeOptions = [
+  { label: "64 KiB", value: 64 * 1024 },
+  { label: "256 KiB", value: 256 * 1024 },
+  { label: "512 KiB", value: 512 * 1024 },
+  { label: "1 MiB", value: 1024 * 1024 },
+  { label: "2 MiB", value: 2 * 1024 * 1024 },
+  { label: "4 MiB", value: 4 * 1024 * 1024 },
+];
+
+const verificationPolicyHint = computed(() => {
+  if (form.verificationMode === "NONE") return "不比较内容摘要；目标已存在时直接执行冲突策略，源文件只能保留。";
+  if (form.verificationMode === "PARTIAL") return "源目标采样指纹一致时自动跳过；采样范围覆盖文件时自动提升为强校验。";
+  return "源目标全文件 SHA-256 一致时自动跳过，不受冲突策略影响。";
+});
 
 async function loadReferenceData() {
   runtimeClusters.value = (await studioApi.runtimeClusters.options()).filter((item) => item.enabled !== false);
@@ -488,6 +531,9 @@ function applyTaskToForm(task: FileTransferTaskDefinitionView) {
   form.preserveRelativePath = task.mapping?.preserveRelativePath !== false;
   form.targetPathTemplate = String(task.mapping?.targetPathTemplate ?? "");
   form.conflictPolicy = String(task.policy?.conflictPolicy ?? "FAIL") as TaskEditorForm["conflictPolicy"];
+  form.verificationMode = String(task.policy?.verificationMode ?? "STRONG") as FileTransferVerificationMode;
+  form.verificationFrameCount = optionalNumber(task.policy?.verificationFrameCount) ?? 16;
+  form.verificationFrameSizeBytes = optionalNumber(task.policy?.verificationFrameSizeBytes) ?? 1024 * 1024;
   form.sourceSuccessAction = String(task.policy?.sourceSuccessAction ?? "KEEP") as TaskEditorForm["sourceSuccessAction"];
   form.sourceBackupRootPath = String(task.policy?.sourceBackupRootPath ?? "");
   form.concurrency = optionalNumber(task.runtime?.concurrency) ?? 4;
@@ -499,6 +545,13 @@ function applyTaskToForm(task: FileTransferTaskDefinitionView) {
   form.scheduleEnabled = Boolean(task.schedule?.enabled);
   form.cronExpression = task.schedule?.cronExpression || "0 0 * * * ?";
   form.timezone = task.schedule?.timezone || "Asia/Shanghai";
+}
+
+function handleVerificationModeChange() {
+  if (form.verificationMode === "NONE") {
+    form.sourceSuccessAction = "KEEP";
+    form.sourceBackupRootPath = "";
+  }
 }
 
 async function loadSourceDatasources() {
@@ -566,6 +619,9 @@ function buildPayload(): FileTransferTaskSaveRequest {
     policy: compact({
       conflictPolicy: form.conflictPolicy,
       checksumAlgorithm: "SHA-256",
+      verificationMode: form.verificationMode,
+      verificationFrameCount: form.verificationFrameCount,
+      verificationFrameSizeBytes: form.verificationFrameSizeBytes,
       sourceSuccessAction: form.sourceSuccessAction,
       sourceBackupRootPath: form.sourceSuccessAction === "BACKUP" ? normalizeTransferPath(form.sourceBackupRootPath) : undefined,
     }),
@@ -817,6 +873,7 @@ onMounted(async () => {
   margin: 0 0 12px;
 }
 
+.editor-wide-field,
 .editor-wide-alert,
 .editor-final-actions {
   grid-column: 1 / -1;
@@ -888,6 +945,7 @@ onMounted(async () => {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .editor-wide-field,
   .editor-wide-alert,
   .editor-final-actions {
     grid-column: 1;

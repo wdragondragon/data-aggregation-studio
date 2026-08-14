@@ -240,7 +240,9 @@ public class FileTransferTaskService {
 
     public Map<String, Object> publishedSnapshot(Long id) {
         FileTransferTaskDefinitionEntity entity = requireOnlineForExecution(id);
-        return new LinkedHashMap<String, Object>(entity.getPublishedSnapshotJson());
+        Map<String, Object> snapshot = new LinkedHashMap<String, Object>(entity.getPublishedSnapshotJson());
+        snapshot.put("policy", FileTransferPolicyNormalizer.normalize(map(snapshot.get("policy"))));
+        return snapshot;
     }
 
     private void validateRequest(Long projectId, FileTransferTaskSaveRequest request) {
@@ -274,6 +276,7 @@ public class FileTransferTaskService {
         }
         requireSingleCluster(request.getRuntimeClusterId(), request.getSourceRuntimeClusterId(),
                 request.getTargetRuntimeClusterId());
+        request.setPolicy(FileTransferPolicyNormalizer.normalize(request.getPolicy()));
     }
 
     private DataSourceDefinition requireFileDatasource(Long projectId, Long datasourceId) {
@@ -382,7 +385,7 @@ public class FileTransferTaskService {
         view.setTargetDatasourceType(entity.getTargetDatasourceTypeSnapshot());
         view.setSelection(copy(entity.getSelectionJson()));
         view.setMapping(copy(entity.getMappingJson()));
-        view.setPolicy(copy(entity.getPolicyJson()));
+        view.setPolicy(FileTransferPolicyNormalizer.normalize(entity.getPolicyJson()));
         view.setRuntime(copy(entity.getRuntimeJson()));
         FileTransferScheduleDefinition schedule = new FileTransferScheduleDefinition();
         schedule.setEnabled(Integer.valueOf(1).equals(entity.getScheduleEnabled()));
@@ -437,18 +440,14 @@ public class FileTransferTaskService {
         result.put("targetPlugin", entity.getTargetDatasourceTypeSnapshot());
         result.put("selection", copy(entity.getSelectionJson()));
         result.put("mapping", copy(entity.getMappingJson()));
-        result.put("policy", copy(entity.getPolicyJson()));
+        result.put("policy", FileTransferPolicyNormalizer.normalize(entity.getPolicyJson()));
         result.put("runtime", copy(entity.getRuntimeJson()));
         result.put("timeZone", entity.getTimezone());
         return result;
     }
 
     private Map<String, Object> withPolicyDefaults(Map<String, Object> values) {
-        Map<String, Object> result = copy(values);
-        result.putIfAbsent("conflictPolicy", "FAIL");
-        result.putIfAbsent("checksumAlgorithm", "SHA-256");
-        result.putIfAbsent("sourceSuccessAction", "KEEP");
-        return result;
+        return FileTransferPolicyNormalizer.normalize(values);
     }
 
     private Map<String, Object> withRuntimeDefaults(Map<String, Object> values) {
@@ -467,6 +466,13 @@ public class FileTransferTaskService {
             return new LinkedHashMap<String, Object>();
         }
         return objectMapper.convertValue(value, new TypeReference<LinkedHashMap<String, Object>>() { });
+    }
+
+    private Map<String, Object> map(Object value) {
+        if (!(value instanceof Map<?, ?> raw)) {
+            return new LinkedHashMap<String, Object>();
+        }
+        return objectMapper.convertValue(raw, new TypeReference<LinkedHashMap<String, Object>>() { });
     }
 
     private String asString(Object value) {

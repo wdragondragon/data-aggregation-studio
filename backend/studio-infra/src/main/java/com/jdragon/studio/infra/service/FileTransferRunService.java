@@ -110,6 +110,7 @@ public class FileTransferRunService {
             throw bad("At least one transfer item is required");
         }
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
+        request.setPolicy(FileTransferPolicyNormalizer.normalize(request.getPolicy()));
         Long runtimeClusterId = validateManualItems(projectId, request.getRuntimeClusterId(), request.getItems());
         request.setRuntimeClusterId(runtimeClusterId);
         FileTransferRunEntity run = newRun(projectId, "MANUAL", runtimeClusterId);
@@ -740,14 +741,16 @@ public class FileTransferRunService {
 
     List<FileTransferRunItemView> toItemViews(List<FileTransferRunItemEntity> entities) {
         NameContext names = namesForItems(entities);
+        Map<Long, VerificationPolicyView> verificationPolicies = verificationPolicies(entities);
         List<FileTransferRunItemView> views = new ArrayList<FileTransferRunItemView>();
         for (FileTransferRunItemEntity entity : entities) {
-            views.add(toItemView(entity, names));
+            views.add(toItemView(entity, names, verificationPolicies.get(entity.getRunId())));
         }
         return views;
     }
 
-    private FileTransferRunItemView toItemView(FileTransferRunItemEntity entity, NameContext names) {
+    private FileTransferRunItemView toItemView(FileTransferRunItemEntity entity, NameContext names,
+                                               VerificationPolicyView verificationPolicy) {
         FileTransferRunItemView view = new FileTransferRunItemView();
         view.setId(entity.getId());
         view.setRunId(entity.getRunId());
@@ -771,6 +774,13 @@ public class FileTransferRunService {
         view.setTransferredBytes(entity.getTransferredBytes());
         view.setResumedBytes(entity.getResumedBytes());
         view.setCurrentBytesPerSecond(entity.getCurrentBytesPerSecond());
+        if (verificationPolicy != null) {
+            view.setVerificationModeConfigured(verificationPolicy.configuredMode());
+            view.setVerificationModeEffective(verificationPolicy.effectiveMode(
+                    entity.getFileSize() == null ? 0L : Math.max(0L, entity.getFileSize())));
+            view.setVerificationFrameCount(verificationPolicy.frameCount());
+            view.setVerificationFrameSizeBytes(verificationPolicy.frameSizeBytes());
+        }
         view.setSourceChecksum(entity.getSourceChecksum());
         view.setTargetChecksum(entity.getTargetChecksum());
         view.setAttempts(entity.getAttempts());
@@ -783,6 +793,32 @@ public class FileTransferRunService {
         view.setEndedAt(entity.getEndedAt());
         view.setUpdatedAt(entity.getUpdatedAt());
         return view;
+    }
+
+    private Map<Long, VerificationPolicyView> verificationPolicies(List<FileTransferRunItemEntity> entities) {
+        Map<Long, VerificationPolicyView> result = new LinkedHashMap<Long, VerificationPolicyView>();
+        for (FileTransferRunItemEntity entity : entities) {
+            Long runId = entity.getRunId();
+            if (runId == null || result.containsKey(runId)) {
+                continue;
+            }
+            FileTransferRunEntity run = runMapper.selectById(runId);
+            if (run == null) {
+                continue;
+            }
+            Object rawPolicy = run.getResolvedSpecJson() == null
+                    ? null : run.getResolvedSpecJson().get("policy");
+            Map<String, Object> policy = rawPolicy instanceof Map<?, ?> raw
+                    ? objectMapper.convertValue(raw,
+                            new TypeReference<LinkedHashMap<String, Object>>() { })
+                    : new LinkedHashMap<String, Object>();
+            Map<String, Object> normalized = FileTransferPolicyNormalizer.normalize(policy);
+            result.put(runId, new VerificationPolicyView(
+                    String.valueOf(normalized.get("verificationMode")),
+                    ((Number) normalized.get("verificationFrameCount")).intValue(),
+                    ((Number) normalized.get("verificationFrameSizeBytes")).longValue()));
+        }
+        return result;
     }
 
     private NameContext namesForRuns(List<FileTransferRunEntity> entities) {
@@ -834,6 +870,18 @@ public class FileTransferRunService {
                                Map<Long, String> datasourceNames) {
     }
 
+    private record VerificationPolicyView(String configuredMode,
+                                          int frameCount,
+                                          long frameSizeBytes) {
+        private String effectiveMode(long fileSize) {
+            if (!"PARTIAL".equals(configuredMode)) {
+                return configuredMode;
+            }
+            long sampleBytes = Math.multiplyExact((long) frameCount, frameSizeBytes);
+            return fileSize <= 0L || sampleBytes >= fileSize ? "STRONG" : "PARTIAL";
+        }
+    }
+
     private Map<String, Object> manualSnapshot(FileTransferManualRunRequest request) {
         Map<String, Object> snapshot = new LinkedHashMap<String, Object>();
         snapshot.put("schemaVersion", 1);
@@ -843,7 +891,7 @@ public class FileTransferRunService {
             items.add(objectMapper.convertValue(item, new TypeReference<LinkedHashMap<String, Object>>() { }));
         }
         snapshot.put("manualItems", items);
-        snapshot.put("policy", copy(request.getPolicy()));
+        snapshot.put("policy", FileTransferPolicyNormalizer.normalize(request.getPolicy()));
         snapshot.put("runtime", copy(request.getRuntime()));
         snapshot.put("parameters", request.getParameters() == null
                 ? new LinkedHashMap<String, String>() : new LinkedHashMap<String, String>(request.getParameters()));

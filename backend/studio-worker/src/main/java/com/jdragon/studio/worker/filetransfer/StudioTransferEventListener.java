@@ -210,6 +210,8 @@ final class StudioTransferEventListener implements TransferEventListener {
             payload.put("resumePhase", resumePhase);
         }
         copyDetail(event, payload, "verificationPhase");
+        copyDetail(event, payload, "verificationModeConfigured");
+        copyDetail(event, payload, "verificationModeEffective");
         copyDetail(event, payload, "verificationBytes");
         copyDetail(event, payload, "verificationTotalBytes");
         copyDetail(event, payload, "verificationComplete");

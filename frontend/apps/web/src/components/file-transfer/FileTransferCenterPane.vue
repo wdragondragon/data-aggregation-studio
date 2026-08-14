@@ -163,7 +163,7 @@
                   :stroke-width="8"
                 />
                 <span v-if="isTargetChecksumVerifying(row)">
-                  目标校验 {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
+                  {{ fileTransferVerificationPhaseLabel(row) }} {{ formatBytes(row.verificationBytes) }} / {{ formatBytes(row.verificationTotalBytes ?? row.fileSize) }}
                 </span>
                 <span v-else>{{ formatBytes(displayTransferredBytes(row)) }} / {{ formatBytes(row.fileSize) }}</span>
                 <span v-if="isChecksumRebuilding(row)">
@@ -180,9 +180,12 @@
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="状态" width="142" align="center">
+          <el-table-column label="状态 / 校验" width="190" align="center">
             <template #default="{ row }">
-              <StatusPill :label="fileTransferStatusLabel(row.status)" :tone="fileTransferStatusTone(row.status)" />
+              <div class="queue-status-cell">
+                <StatusPill :label="fileTransferStatusLabel(row.status)" :tone="fileTransferStatusTone(row.status)" />
+                <small>{{ fileTransferItemVerificationLabel(row) }}</small>
+              </div>
             </template>
           </el-table-column>
           <el-table-column label="重试" width="70" align="center">
@@ -259,16 +262,28 @@
             <el-radio-button value="BACKUP_THEN_OVERWRITE">备份后覆盖</el-radio-button>
           </el-radio-group>
         </el-form-item>
-        <div class="policy-fixed-rule">
-          <span>摘要算法</span>
-          <strong>SHA-256</strong>
-          <span>摘要一致时自动跳过</span>
+        <el-form-item label="校验方式">
+          <el-radio-group v-model="policyForm.verificationMode" @change="handleVerificationModeChange">
+            <el-radio-button value="NONE">不校验</el-radio-button>
+            <el-radio-button value="PARTIAL">部分校验</el-radio-button>
+            <el-radio-button value="STRONG">强校验</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+        <div v-if="policyForm.verificationMode === 'PARTIAL'" class="verification-frame-grid">
+          <el-form-item label="采样帧数">
+            <el-input-number v-model="policyForm.verificationFrameCount" :min="1" :max="64" controls-position="right" />
+          </el-form-item>
+          <el-form-item label="每帧大小">
+            <el-select v-model="policyForm.verificationFrameSizeBytes">
+              <el-option v-for="option in verificationFrameSizeOptions" :key="option.value" :label="option.label" :value="option.value" />
+            </el-select>
+          </el-form-item>
         </div>
         <el-form-item label="目标成功后的源端动作">
           <el-select v-model="policyForm.sourceSuccessAction">
             <el-option label="保留源文件" value="KEEP" />
-            <el-option label="删除源文件" value="DELETE" />
-            <el-option label="备份源文件" value="BACKUP" />
+            <el-option label="删除源文件" value="DELETE" :disabled="policyForm.verificationMode === 'NONE'" />
+            <el-option label="备份源文件" value="BACKUP" :disabled="policyForm.verificationMode === 'NONE'" />
           </el-select>
         </el-form-item>
         <el-form-item v-if="policyForm.sourceSuccessAction === 'BACKUP'" label="源端备份根路径">
@@ -281,7 +296,7 @@
           v-if="policyForm.sourceSuccessAction === 'DELETE'"
           type="warning"
           :closable="false"
-          title="仅在目标提交和 SHA-256 校验成功后删除源文件"
+          :title="policyForm.verificationMode === 'PARTIAL' ? '仅在目标提交和采样指纹校验成功后删除源文件' : '仅在目标提交和全文件 SHA-256 校验成功后删除源文件'"
         />
       </el-form>
       <template #footer>
@@ -315,6 +330,7 @@ import type {
   FileTransferQueueEventView,
   FileTransferRunItemView,
   FileTransferRunView,
+  FileTransferVerificationMode,
   RuntimeClusterView,
 } from "@studio/api-sdk";
 import { StatusPill, StudioTableShell } from "@studio/ui";
@@ -326,6 +342,8 @@ import {
   fileTransferRunTriggerName,
   fileTransferStatusLabel,
   fileTransferStatusTone,
+  fileTransferItemVerificationLabel,
+  fileTransferVerificationPhaseLabel,
   formatBytes,
   formatTransferSpeed,
   isFileTransferDatasourceType,
@@ -385,11 +403,22 @@ const queueSubmitting = ref(false);
 const queueLoading = ref(false);
 const pendingDirection = ref<FileTransferDirection>("LEFT_TO_RIGHT");
 const policyForm = reactive({
-  conflictPolicy: "FAIL",
-  sourceSuccessAction: "KEEP",
+  conflictPolicy: "FAIL" as "FAIL" | "OVERWRITE" | "BACKUP_THEN_OVERWRITE",
+  verificationMode: "STRONG" as FileTransferVerificationMode,
+  verificationFrameCount: 16,
+  verificationFrameSizeBytes: 1024 * 1024,
+  sourceSuccessAction: "KEEP" as "KEEP" | "DELETE" | "BACKUP",
   sourceBackupRootPath: "",
   concurrency: 4,
 });
+const verificationFrameSizeOptions = [
+  { label: "64 KiB", value: 64 * 1024 },
+  { label: "256 KiB", value: 256 * 1024 },
+  { label: "512 KiB", value: 512 * 1024 },
+  { label: "1 MiB", value: 1024 * 1024 },
+  { label: "2 MiB", value: 2 * 1024 * 1024 },
+  { label: "4 MiB", value: 4 * 1024 * 1024 },
+];
 const recentRuns = ref<FileTransferRunView[]>([]);
 const queueRows = ref<QueueRow[]>([]);
 const queueTab = ref<QueueTab>("active");
@@ -544,6 +573,13 @@ function openTransferDialog(direction: FileTransferDirection) {
   transferDialogVisible.value = true;
 }
 
+function handleVerificationModeChange() {
+  if (policyForm.verificationMode === "NONE") {
+    policyForm.sourceSuccessAction = "KEEP";
+    policyForm.sourceBackupRootPath = "";
+  }
+}
+
 async function submitTransfer() {
   const source = pendingDirection.value === "RIGHT_TO_LEFT" ? right : left;
   const target = pendingDirection.value === "RIGHT_TO_LEFT" ? left : right;
@@ -581,6 +617,9 @@ async function submitTransfer() {
       policy: {
         conflictPolicy: policyForm.conflictPolicy,
         checksumAlgorithm: "SHA-256",
+        verificationMode: policyForm.verificationMode,
+        verificationFrameCount: policyForm.verificationFrameCount,
+        verificationFrameSizeBytes: policyForm.verificationFrameSizeBytes,
         sourceSuccessAction: policyForm.sourceSuccessAction,
         sourceBackupRootPath: policyForm.sourceSuccessAction === "BACKUP"
           ? policyForm.sourceBackupRootPath.trim()
@@ -700,6 +739,11 @@ function manualSnapshotRows(run: FileTransferRunView): QueueRow[] {
   const manualItems = Array.isArray(run.resolvedSpec?.manualItems)
     ? run.resolvedSpec.manualItems as Array<Record<string, unknown>>
     : [];
+  const rawPolicy = run.resolvedSpec?.policy;
+  const policy = rawPolicy && typeof rawPolicy === "object"
+    ? rawPolicy as Record<string, unknown>
+    : {};
+  const verificationMode = String(policy.verificationMode ?? "STRONG").toUpperCase() as FileTransferVerificationMode;
   return manualItems.map((item, index) => {
     const sourcePath = String(item.sourcePath ?? "--");
     return {
@@ -726,6 +770,10 @@ function manualSnapshotRows(run: FileTransferRunView): QueueRow[] {
       status: run.status === "RUNNING" ? "DISCOVERING" : run.status,
       transferredBytes: 0,
       currentBytesPerSecond: run.currentBytesPerSecond,
+      verificationModeConfigured: verificationMode,
+      verificationModeEffective: verificationMode,
+      verificationFrameCount: Number(policy.verificationFrameCount ?? 16),
+      verificationFrameSizeBytes: Number(policy.verificationFrameSizeBytes ?? 1024 * 1024),
       synthetic: true,
     };
   });
@@ -1051,21 +1099,20 @@ onBeforeUnmount(() => unsubscribeEvents?.());
   gap: 2px;
 }
 
-.policy-fixed-rule {
+.queue-status-cell {
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  margin: 0 0 18px;
-  padding: 10px 12px;
-  border: 1px solid var(--studio-border);
-  border-radius: 6px;
-  color: var(--studio-text-soft);
-  font-size: 13px;
+  gap: 5px;
+  justify-items: center;
 }
 
-.policy-fixed-rule strong {
-  color: var(--studio-text);
+.queue-status-cell small {
+  color: var(--studio-text-soft);
+}
+
+.verification-frame-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 
 @media (max-width: 1100px) {
@@ -1109,12 +1156,8 @@ onBeforeUnmount(() => unsubscribeEvents?.());
     margin-left: 0;
   }
 
-  .policy-fixed-rule {
-    grid-template-columns: 1fr auto;
-  }
-
-  .policy-fixed-rule span:last-child {
-    grid-column: 1 / -1;
+  .verification-frame-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

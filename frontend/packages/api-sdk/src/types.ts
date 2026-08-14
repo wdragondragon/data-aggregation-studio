@@ -2054,10 +2054,22 @@ export interface FileTransferManualItemRequest {
   recursive?: boolean;
 }
 
+export type FileTransferVerificationMode = "NONE" | "PARTIAL" | "STRONG";
+
+export interface FileTransferPolicy {
+  conflictPolicy?: "FAIL" | "OVERWRITE" | "BACKUP_THEN_OVERWRITE";
+  checksumAlgorithm?: "SHA-256";
+  verificationMode?: FileTransferVerificationMode;
+  verificationFrameCount?: number;
+  verificationFrameSizeBytes?: number;
+  sourceSuccessAction?: "KEEP" | "DELETE" | "BACKUP";
+  sourceBackupRootPath?: string | null;
+}
+
 export interface FileTransferManualRunRequest {
   runtimeClusterId?: EntityId;
   items: FileTransferManualItemRequest[];
-  policy?: Record<string, unknown>;
+  policy?: FileTransferPolicy;
   runtime?: Record<string, unknown>;
   parameters?: Record<string, string>;
   autoStart?: boolean;
@@ -2080,7 +2092,7 @@ export interface FileTransferTaskSaveRequest {
   targetDatasourceId: EntityId;
   selection?: Record<string, unknown>;
   mapping?: Record<string, unknown>;
-  policy?: Record<string, unknown>;
+  policy?: FileTransferPolicy;
   runtime?: Record<string, unknown>;
   schedule?: FileTransferScheduleDefinition;
 }
@@ -2104,7 +2116,7 @@ export interface FileTransferTaskDefinitionView extends BaseRecord {
   targetDatasourceType?: string;
   selection: Record<string, unknown>;
   mapping: Record<string, unknown>;
-  policy: Record<string, unknown>;
+  policy: FileTransferPolicy;
   runtime: Record<string, unknown>;
   schedule?: FileTransferScheduleDefinition;
 }
@@ -2200,7 +2212,11 @@ export interface FileTransferRunItemView {
   resumePhase?: "REBUILDING_CHECKSUM" | "RESUMING_TRANSFER" | "RESTARTED_FROM_ZERO" | string;
   resumeCheckedBytes?: number | string | null;
   resumeTotalBytes?: number | string | null;
-  verificationPhase?: "TARGET_CHECKSUM" | string;
+  verificationPhase?: "TARGET_CHECKSUM" | "TARGET_SAMPLE" | "STRUCTURE" | string;
+  verificationModeConfigured?: FileTransferVerificationMode;
+  verificationModeEffective?: FileTransferVerificationMode;
+  verificationFrameCount?: number;
+  verificationFrameSizeBytes?: number | string | null;
   verificationBytes?: number | string | null;
   verificationTotalBytes?: number | string | null;
   resumedBytes?: number | string | null;
