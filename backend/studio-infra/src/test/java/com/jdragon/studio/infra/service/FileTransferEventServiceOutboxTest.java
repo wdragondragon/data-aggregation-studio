@@ -322,6 +322,37 @@ class FileTransferEventServiceOutboxTest {
     }
 
     @Test
+    void targetSamplePayloadOverlaysModesAndSampleProgress() {
+        Fixture fixture = new Fixture();
+        fixture.runs.add(run(10L, 100L));
+        FileTransferRunItemEntity item = item(10L, 100L, 501L);
+        item.setStatus("VERIFYING");
+        item.setFileSize(32_768L);
+        item.setTransferredBytes(32_768L);
+        fixture.items.add(item);
+        FileTransferEventOutboxEntity event = event(100L, 10L, 100L, 501L,
+                FileTransferOutboxEventType.ITEM_CHANGED);
+        event.setPayloadJson(Map.of("live", true, "confirmedBytes", 32_768L,
+                "observedBytes", 32_768L, "activityBytes", 40_960L,
+                "liveBytesPerSecond", 1_024L, "verificationPhase", "TARGET_SAMPLE",
+                "verificationModeConfigured", "PARTIAL", "verificationModeEffective", "PARTIAL",
+                "verificationBytes", 8_192L, "verificationTotalBytes", 16_384L));
+        fixture.events.add(event);
+        CapturingEmitter emitter = new CapturingEmitter();
+
+        fixture.service("server-a", emitter).connect("99");
+
+        FileTransferRunItemView view = emitter.businessEvents().get(0).view().getItems().get(0);
+        assertThat(view.getTransferredBytes()).isEqualTo(32_768L);
+        assertThat(view.getVerificationPhase()).isEqualTo("TARGET_SAMPLE");
+        assertThat(view.getVerificationModeConfigured()).isEqualTo("PARTIAL");
+        assertThat(view.getVerificationModeEffective()).isEqualTo("PARTIAL");
+        assertThat(view.getVerificationBytes()).isEqualTo(8_192L);
+        assertThat(view.getVerificationTotalBytes()).isEqualTo(16_384L);
+        assertThat(view.getCurrentBytesPerSecond()).isEqualTo(1_024L);
+    }
+
+    @Test
     void staleLivePayloadDoesNotOverlayATerminalItem() {
         Fixture fixture = new Fixture();
         fixture.runs.add(run(10L, 100L));
@@ -332,7 +363,11 @@ class FileTransferEventServiceOutboxTest {
         FileTransferEventOutboxEntity event = event(100L, 10L, 100L, 501L,
                 FileTransferOutboxEventType.ITEM_CHANGED);
         event.setPayloadJson(Map.of("live", true, "confirmedBytes", 0L,
-                "observedBytes", 4_096L, "liveBytesPerSecond", 2_048L));
+                "observedBytes", 4_096L, "liveBytesPerSecond", 2_048L,
+                "verificationPhase", "TARGET_SAMPLE",
+                "verificationModeConfigured", "PARTIAL",
+                "verificationModeEffective", "PARTIAL",
+                "verificationBytes", 4_096L, "verificationTotalBytes", 8_192L));
         fixture.events.add(event);
         CapturingEmitter emitter = new CapturingEmitter();
 
@@ -341,6 +376,8 @@ class FileTransferEventServiceOutboxTest {
         FileTransferRunItemView view = emitter.businessEvents().get(0).view().getItems().get(0);
         assertThat(view.getTransferredBytes()).isEqualTo(8_192L);
         assertThat(view.getObservedBytes()).isNull();
+        assertThat(view.getVerificationPhase()).isNull();
+        assertThat(view.getVerificationModeEffective()).isNull();
         assertThat(view.getLive()).isNull();
     }
 

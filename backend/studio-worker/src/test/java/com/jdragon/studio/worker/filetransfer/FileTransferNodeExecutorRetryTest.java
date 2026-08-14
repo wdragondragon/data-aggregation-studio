@@ -11,6 +11,8 @@ import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
 import com.jdragon.aggregation.transfer.PreparedTransfer;
 import com.jdragon.aggregation.transfer.TransferEventListener;
 import com.jdragon.aggregation.transfer.TransferPlanner;
+import com.jdragon.aggregation.transfer.TransferVerificationPlan;
+import com.jdragon.aggregation.transfer.TransferVerifier;
 import com.jdragon.aggregation.transfer.model.ConflictPolicy;
 import com.jdragon.aggregation.transfer.model.SourceSnapshot;
 import com.jdragon.aggregation.transfer.model.SourceSuccessAction;
@@ -24,6 +26,7 @@ import com.jdragon.aggregation.transfer.model.TransferResult;
 import com.jdragon.aggregation.transfer.model.TransferRuntimeOptions;
 import com.jdragon.aggregation.transfer.model.TransferSelection;
 import com.jdragon.aggregation.transfer.model.TransferSpec;
+import com.jdragon.aggregation.transfer.model.VerificationMode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.infra.entity.FileTransferRunEntity;
 import com.jdragon.studio.infra.entity.FileTransferRunItemEntity;
@@ -40,6 +43,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.ByteArrayInputStream;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -53,6 +57,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -103,7 +108,7 @@ class FileTransferNodeExecutorRetryTest {
         TransferFileSystem source = mock(TransferFileSystem.class);
         TransferFileSystem target = mock(TransferFileSystem.class);
         when(target.transferExists("/target/item.bin")).thenReturn(true);
-        when(target.checksum("/target/item.bin", "SHA-256")).thenReturn("changed-sha");
+        when(target.checksum(eq("/target/item.bin"), eq("SHA-256"), any())).thenReturn("changed-sha");
 
         TransferResult result = executor.retryPostAction(run,
                 prepared(SourceSuccessAction.DELETE, item("retry-item")),
@@ -123,11 +128,11 @@ class FileTransferNodeExecutorRetryTest {
         TransferFileSystem source = mock(TransferFileSystem.class);
         TransferFileSystem target = mock(TransferFileSystem.class);
         when(target.transferExists("/target/item.bin")).thenReturn(true);
-        when(target.checksum("/target/item.bin", "SHA-256")).thenReturn("expected-sha");
+        when(target.checksum(eq("/target/item.bin"), eq("SHA-256"), any())).thenReturn("expected-sha");
         when(source.transferExists("/source/item.bin")).thenReturn(true);
         when(source.stat("/source/item.bin")).thenReturn(
                 new TransferFileEntry("/source/item.bin", "item.bin", false, 10L, 100L, "etag-1"));
-        when(source.checksum("/source/item.bin", "SHA-256")).thenReturn("expected-sha");
+        when(source.checksum(eq("/source/item.bin"), eq("SHA-256"), any())).thenReturn("expected-sha");
 
         TransferResult result = executor.retryPostAction(run,
                 prepared(SourceSuccessAction.DELETE, item("retry-item")),
@@ -137,6 +142,47 @@ class FileTransferNodeExecutorRetryTest {
         verify(source).delete("/source/item.bin");
         verify(target, never()).append(any(), anyLong(), any(), anyLong());
         verify(target, never()).commit(any(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void partialPostActionRetryUsesTheOriginalStableSamplePlan() throws Exception {
+        long fileSize = 256L * 1024L;
+        TransferPlanItem planItem = item("retry-item", fileSize);
+        TransferPolicy policy = new TransferPolicy(ConflictPolicy.FAIL, "SHA-256",
+                VerificationMode.PARTIAL, 1, 64L * 1024L, SourceSuccessAction.DELETE, null);
+        PreparedTransfer prepared = prepared(policy, planItem);
+        TransferVerifier verifier = new TransferVerifier();
+        TransferVerificationPlan verificationPlan = verifier.plan(prepared.plan(), planItem, policy);
+        byte[] sampledContent = new byte[64 * 1024];
+        java.util.Arrays.fill(sampledContent, (byte) 23);
+
+        TransferFileSystem source = mock(TransferFileSystem.class);
+        TransferFileSystem target = mock(TransferFileSystem.class);
+        StorageCapabilities capabilities = new StorageCapabilities(
+                true, true, true, false, false, false, Set.of("SHA-256"), true);
+        when(source.capabilities()).thenReturn(capabilities);
+        when(target.capabilities()).thenReturn(capabilities);
+        when(source.openRead(anyString(), anyLong(), anyLong()))
+                .thenAnswer(ignored -> new ByteArrayInputStream(sampledContent));
+        when(target.openRead(anyString(), anyLong(), anyLong()))
+                .thenAnswer(ignored -> new ByteArrayInputStream(sampledContent));
+        String sampledFingerprint = verifier.checksum(source, planItem.sourcePath(),
+                verificationPlan, policy.checksumAlgorithm(), ignored -> { });
+
+        FileTransferRunEntity run = run();
+        when(itemMapper.selectOne(any())).thenReturn(storedItem(sampledFingerprint));
+        when(target.transferExists(planItem.targetPath())).thenReturn(true);
+        when(source.transferExists(planItem.sourcePath())).thenReturn(true);
+        when(source.stat(planItem.sourcePath())).thenReturn(new TransferFileEntry(
+                planItem.sourcePath(), "item.bin", false, fileSize, 100L, "etag-1"));
+
+        TransferResult result = executor.retryPostAction(run, prepared, () -> source, () -> target);
+
+        assertThat(result.items().get(0).status()).isEqualTo(TransferItemStatus.SUCCESS);
+        assertThat(result.items().get(0).targetChecksum()).startsWith(
+                TransferVerifier.PARTIAL_DIGEST_PREFIX);
+        verify(source).delete(planItem.sourcePath());
+        verify(target, never()).append(any(), anyLong(), any(), anyLong());
     }
 
     @Test
@@ -346,6 +392,10 @@ class FileTransferNodeExecutorRetryTest {
 
     private PreparedTransfer prepared(SourceSuccessAction action, TransferPlanItem... items) {
         TransferPolicy policy = new TransferPolicy(ConflictPolicy.FAIL, "SHA-256", action, null);
+        return prepared(policy, items);
+    }
+
+    private PreparedTransfer prepared(TransferPolicy policy, TransferPlanItem... items) {
         TransferSpec spec = new TransferSpec(1,
                 new TransferEndpoint("local", "source", Map.of()),
                 new TransferEndpoint("local", "target", Map.of()),
@@ -358,8 +408,12 @@ class FileTransferNodeExecutorRetryTest {
     }
 
     private TransferPlanItem item(String itemId) {
+        return item(itemId, 10L);
+    }
+
+    private TransferPlanItem item(String itemId, long fileSize) {
         return new TransferPlanItem(itemId, "1:10", "1:20",
                 "/source/item.bin", "/target/item.bin", "/target/item.bin.part",
-                "item.bin", new SourceSnapshot("/source/item.bin", 10L, 100L, "etag-1"));
+                "item.bin", new SourceSnapshot("/source/item.bin", fileSize, 100L, "etag-1"));
     }
 }

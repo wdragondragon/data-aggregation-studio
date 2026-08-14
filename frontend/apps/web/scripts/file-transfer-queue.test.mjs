@@ -9,6 +9,7 @@ const unstructuredManagement = await readFile(new URL("../src/views/Unstructured
 const apiClient = await readFile(new URL("../../../packages/api-sdk/src/client.ts", import.meta.url), "utf8");
 const queueSource = await readFile(new URL("../src/utils/fileTransferQueue.ts", import.meta.url), "utf8");
 const eventSource = await readFile(new URL("../src/utils/fileTransferEvents.ts", import.meta.url), "utf8");
+const fileTransferUtils = await readFile(new URL("../src/utils/fileTransfer.ts", import.meta.url), "utf8");
 const queueModuleSource = ts.transpileModule(queueSource, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -70,8 +71,14 @@ assert.match(center + runs, /verificationBytes/,
   "target checksum verification must expose its own validation progress");
 assert.match(center + runs, /isTargetChecksumVerifying/,
   "queue and run detail progress bars must switch to target verification progress");
-assert.match(center + runs, /目标校验/,
-  "target checksum progress must be labeled independently from transferred bytes");
+assert.match(center + runs, /fileTransferVerificationPhaseLabel/,
+  "target verification progress must use its configured phase label");
+assert.match(fileTransferUtils, /TARGET_SAMPLE[\s\S]*?目标采样[\s\S]*?目标校验/,
+  "partial sampling and strong checksum progress must have distinct labels");
+assert.match(center, /value="NONE"[\s\S]*?value="PARTIAL"[\s\S]*?value="STRONG"/,
+  "the immediate transfer policy must expose all verification modes");
+assert.match(center, /verificationFrameCount[\s\S]*?verificationFrameSizeBytes/,
+  "partial verification must submit both sampling parameters");
 assert.match(center + runs, /校验速度/,
   "checksum reconstruction speed must not be labeled as transfer speed");
 assert.match(center + runs, /if \(isChecksumRebuilding\(item\)\) return item\.transferredBytes/,

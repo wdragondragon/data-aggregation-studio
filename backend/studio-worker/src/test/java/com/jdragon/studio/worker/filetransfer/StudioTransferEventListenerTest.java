@@ -291,7 +291,7 @@ class StudioTransferEventListenerTest {
     }
 
     @Test
-    void targetVerificationProgressUpdatesSpeedWithoutAdvancingConfirmedBytes() throws Exception {
+    void targetSampleProgressCarriesModesWithoutAdvancingConfirmedBytes() throws Exception {
         FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
         FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
         FileTransferMetricSampleMapper metricMapper = mock(FileTransferMetricSampleMapper.class);
@@ -310,16 +310,20 @@ class StudioTransferEventListenerTest {
 
         listener.onEvent(new TransferEvent(TransferEventType.ITEM_STATUS_CHANGED, Instant.now(),
                 "run-1", "item-1", TransferItemStatus.VERIFYING, 8_192L, 8_192L, 1,
-                "verifying source snapshot and target checksum", null,
+                "verifying target sample", null,
                 Map.of("activityBytes", 8_192L, "verificationBytes", 0L,
-                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_CHECKSUM")));
+                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_SAMPLE",
+                        "verificationModeConfigured", "PARTIAL",
+                        "verificationModeEffective", "PARTIAL")));
         Thread.sleep(5L);
         listener.onEvent(new TransferEvent(TransferEventType.ITEM_PROGRESS, Instant.now(),
                 "run-1", "item-1", TransferItemStatus.VERIFYING, 8_192L, 8_192L, 1,
-                "target checksum verification in progress", null,
+                "target sample verification in progress", null,
                 Map.of("live", true, "confirmedBytes", 8_192L, "observedBytes", 8_192L,
                         "activityBytes", 12_288L, "verificationBytes", 4_096L,
-                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_CHECKSUM")));
+                        "verificationTotalBytes", 8_192L, "verificationPhase", "TARGET_SAMPLE",
+                        "verificationModeConfigured", "PARTIAL",
+                        "verificationModeEffective", "PARTIAL")));
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<LambdaUpdateWrapper<FileTransferRunItemEntity>> updates =
@@ -334,7 +338,9 @@ class StudioTransferEventListenerTest {
                 ArgumentCaptor.forClass(com.jdragon.studio.infra.model.FileTransferEventIntent.class);
         verify(outboxWriter, atLeastOnce()).appendProgress(intents.capture(), any(), anyBoolean());
         assertThat(intents.getAllValues()).anySatisfy(intent -> {
-            assertThat(intent.getPayload()).containsEntry("verificationPhase", "TARGET_CHECKSUM");
+            assertThat(intent.getPayload()).containsEntry("verificationPhase", "TARGET_SAMPLE");
+            assertThat(intent.getPayload()).containsEntry("verificationModeConfigured", "PARTIAL");
+            assertThat(intent.getPayload()).containsEntry("verificationModeEffective", "PARTIAL");
             assertThat(intent.getPayload()).containsEntry("verificationBytes", 4_096L);
             assertThat(intent.getPayload()).containsEntry("verificationTotalBytes", 8_192L);
             assertThat((Long) intent.getPayload().get("liveBytesPerSecond")).isPositive();
