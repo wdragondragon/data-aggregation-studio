@@ -3,6 +3,7 @@ package com.jdragon.studio.infra.service;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
+import com.jdragon.studio.dto.model.FileTransferFileEntryView;
 import com.jdragon.studio.dto.model.request.UnstructuredOperationRequest;
 import com.jdragon.studio.infra.entity.UnstructuredOpAuditEntity;
 import com.jdragon.studio.infra.mapper.UnstructuredOpAuditMapper;
@@ -12,11 +13,16 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Method;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.anyBoolean;
+import static org.mockito.Mockito.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,6 +63,85 @@ class UnstructuredManagementOperationAuditTest {
         assertThat(audit.getSourcePath()).isEqualTo("/acceptance");
         assertThat(audit.getRuntimeClusterId()).isEqualTo(11L);
         assertThat(audit.getUsername()).isEqualTo("admin");
+    }
+
+    @Test
+    void shouldWriteSuccessAuditForUpload() {
+        doThrow(new StudioException(StudioErrorCode.NOT_FOUND, "missing"))
+                .when(runtimeRouter).stat(any(), any(), any());
+        when(runtimeRouter.upload(any(), any(), any(), anyBoolean(), anyLong(), any()))
+                .thenReturn(7L);
+
+        service.upload(11L, 101L, "/incoming/a.txt", false, 7L,
+                new ByteArrayInputStream("content".getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+
+        UnstructuredOpAuditEntity audit = capturedAudit();
+        assertThat(audit.getStatus()).isEqualTo("SUCCESS");
+        assertThat(audit.getOperation()).isEqualTo("UPLOAD");
+        assertThat(audit.getTargetPath()).isEqualTo("/incoming/a.txt");
+        assertThat(audit.getMessage()).isEqualTo("7 bytes");
+    }
+
+    @Test
+    void shouldWriteSuccessAuditForArchiveDownload() {
+        UnstructuredManagementService.PreparedArchive prepared =
+                new UnstructuredManagementService.PreparedArchive(
+                        datasource(), 11L, List.of("/reports", "/readme.txt"),
+                        "download.zip", 20L, "admin");
+
+        service.downloadArchive(prepared, new ByteArrayOutputStream());
+
+        UnstructuredOpAuditEntity audit = capturedAudit();
+        assertThat(audit.getStatus()).isEqualTo("SUCCESS");
+        assertThat(audit.getOperation()).isEqualTo("DOWNLOAD_ARCHIVE");
+        assertThat(audit.getSourcePath()).isEqualTo("/reports\n/readme.txt");
+        assertThat(audit.getRecursive()).isEqualTo(1);
+    }
+
+    @Test
+    void shouldPrepareSingleFileForNativeDownload() {
+        FileTransferFileEntryView entry = new FileTransferFileEntryView();
+        entry.setName("report.txt");
+        entry.setSize(42L);
+        entry.setDirectory(false);
+        when(runtimeRouter.stat(any(), any(), any())).thenReturn(entry);
+
+        UnstructuredManagementService.PreparedNativeDownload prepared =
+                service.prepareNativeDownload(11L, 101L,
+                        List.of("reports/./report.txt", "/reports/report.txt"));
+
+        assertThat(prepared.archive()).isFalse();
+        assertThat(prepared.fileName()).isEqualTo("report.txt");
+        assertThat(prepared.contentLength()).isEqualTo(42L);
+        assertThat(prepared.paths()).containsExactly("/reports/report.txt");
+        assertThat(prepared.download().path()).isEqualTo("/reports/report.txt");
+    }
+
+    @Test
+    void shouldPrepareDirectoryOrMultipleSelectionsAsArchive() {
+        FileTransferFileEntryView directory = new FileTransferFileEntryView();
+        directory.setName("reports");
+        directory.setDirectory(true);
+        when(runtimeRouter.stat(any(), any(), any())).thenReturn(directory);
+
+        UnstructuredManagementService.PreparedNativeDownload directoryDownload =
+                service.prepareNativeDownload(11L, 101L, List.of("/reports"));
+
+        assertThat(directoryDownload.archive()).isTrue();
+        assertThat(directoryDownload.fileName()).isEqualTo("reports.zip");
+        assertThat(directoryDownload.contentLength()).isNull();
+
+        FileTransferFileEntryView file = new FileTransferFileEntryView();
+        file.setName("a.txt");
+        file.setDirectory(false);
+        when(runtimeRouter.stat(any(), any(), any())).thenReturn(file);
+        UnstructuredManagementService.PreparedNativeDownload multiple =
+                service.prepareNativeDownload(11L, 101L,
+                        List.of("/a.txt", "/b.txt"));
+
+        assertThat(multiple.archive()).isTrue();
+        assertThat(multiple.fileName()).isEqualTo("download.zip");
+        assertThat(multiple.paths()).containsExactly("/a.txt", "/b.txt");
     }
 
     @Test
@@ -122,6 +207,16 @@ class UnstructuredManagementOperationAuditTest {
         request.setSourcePath("/acceptance");
         request.setRecursiveConfirmed(false);
         return request;
+    }
+
+    private DataSourceDefinition datasource() {
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(101L);
+        datasource.setTenantId("default");
+        datasource.setProjectId(10L);
+        datasource.setCreatedBy(20L);
+        datasource.setTypeCode("ftp");
+        return datasource;
     }
 
     private UnstructuredOpAuditEntity capturedAudit() {

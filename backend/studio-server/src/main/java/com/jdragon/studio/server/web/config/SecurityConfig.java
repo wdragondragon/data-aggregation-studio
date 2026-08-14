@@ -10,6 +10,7 @@ import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
@@ -42,6 +43,9 @@ public class SecurityConfig {
                                         objectMapper, Result.error(StudioErrorCode.FORBIDDEN, "Permission denied"))))
                 .authorizeHttpRequests(authorize -> authorize
                         .dispatcherTypeMatchers(DispatcherType.ASYNC)
+                        .permitAll()
+                        .requestMatchers(HttpMethod.GET,
+                                "/api/v1/unstructured-management/download/native")
                         .permitAll()
                         .requestMatchers(
                                 "/api/v1/auth/**",

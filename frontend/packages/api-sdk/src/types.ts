@@ -1977,6 +1977,34 @@ export interface UnstructuredPermissionView {
   ownerOrAdmin?: boolean;
 }
 
+export interface UnstructuredArchiveDownloadRequest {
+  runtimeClusterId: EntityId;
+  datasourceId: EntityId;
+  paths: string[];
+}
+
+export interface UnstructuredDownloadTicketRequest {
+  runtimeClusterId: EntityId;
+  datasourceId: EntityId;
+  paths: string[];
+}
+
+export interface UnstructuredDownloadTicketView {
+  ticket: string;
+  fileName?: string;
+  archive?: boolean;
+  contentLength?: number | null;
+  expiresAt?: string;
+}
+
+export interface UnstructuredUploadResultView {
+  operation?: string;
+  targetPath?: string;
+  bytes?: number;
+  overwritten?: boolean;
+  message?: string;
+}
+
 export interface UnstructuredOperationRequest {
   runtimeClusterId: EntityId;
   datasourceId: EntityId;
@@ -2167,6 +2195,11 @@ export interface FileTransferRunItemView {
   status?: FileTransferItemStatus;
   fileSize?: number | string | null;
   transferredBytes?: number | string | null;
+  observedBytes?: number | string | null;
+  live?: boolean | null;
+  resumePhase?: "REBUILDING_CHECKSUM" | "RESUMING_TRANSFER" | "RESTARTED_FROM_ZERO" | string;
+  resumeCheckedBytes?: number | string | null;
+  resumeTotalBytes?: number | string | null;
   resumedBytes?: number | string | null;
   currentBytesPerSecond?: number | string | null;
   sourceChecksum?: string;
@@ -2184,11 +2217,13 @@ export interface FileTransferRunItemView {
 
 export type FileTransferQueueEventType =
   | "SNAPSHOT_REQUIRED"
+  | "RUN_CREATED"
   | "RUN_CHANGED"
   | "RUN_REMOVED"
   | "ITEM_REMOVED";
 
 export interface FileTransferQueueEventView {
+  eventId?: EntityId;
   type?: FileTransferQueueEventType | string;
   runId?: EntityId;
   itemId?: EntityId;

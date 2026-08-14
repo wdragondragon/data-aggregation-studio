@@ -8,6 +8,7 @@ const browserPanel = await readFile(new URL("../src/components/file-transfer/Fil
 const unstructuredManagement = await readFile(new URL("../src/views/UnstructuredManagementView.vue", import.meta.url), "utf8");
 const apiClient = await readFile(new URL("../../../packages/api-sdk/src/client.ts", import.meta.url), "utf8");
 const queueSource = await readFile(new URL("../src/utils/fileTransferQueue.ts", import.meta.url), "utf8");
+const eventSource = await readFile(new URL("../src/utils/fileTransferEvents.ts", import.meta.url), "utf8");
 const queueModuleSource = ts.transpileModule(queueSource, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
@@ -39,6 +40,36 @@ assert.match(unstructuredManagement, /initialPathPending\s*=\s*true[\s\S]*?page\
   "unstructured management must apply the remote pwd only when a datasource is first selected");
 assert.doesNotMatch(unstructuredManagement, /setInterval\s*\(/,
   "unstructured management must not poll");
+assert.match(unstructuredManagement, /createDownloadTicket\s*\(/,
+  "unstructured management must create a short-lived ticket before downloading");
+assert.match(unstructuredManagement, /resolveStudioApiBaseUrl\("\/unstructured-management\/download\/native"\)/,
+  "the browser must own the native download request");
+assert.doesNotMatch(unstructuredManagement, /createObjectURL|saveBlob|requestBlob/,
+  "unstructured management must not buffer downloads in a browser Blob");
+assert.match(apiClient, /url:\s*"\/unstructured-management\/download"[\s\S]*?timeout:\s*0/,
+  "the compatibility single-file Blob API must not retain the default request timeout");
+assert.match(eventSource, /line\.startsWith\("id:"\)/,
+  "the SSE parser must read business event IDs");
+assert.match(eventSource, /"Last-Event-ID": lastEventId/,
+  "reconnect requests must carry the last successfully handled event ID");
+assert.match(eventSource, /compareEventIds\(event\.id, lastEventId\) <= 0/,
+  "duplicate and stale events must be discarded before list listeners run");
+assert.match(eventSource, /for \(const listener of listeners\) listener\(payload\);[\s\S]*?lastEventId = event\.id/,
+  "the local cursor must advance only after listeners successfully handle the event");
+assert.match(eventSource, /normalizeNumericEventId/,
+  "snowflake event IDs must be compared as strings without JavaScript number coercion");
+assert.match(eventSource, /currentScope !== lastEventScope[\s\S]*?lastEventId = null/,
+  "switching tenant or project must reset the browser connection cursor");
+assert.doesNotMatch(eventSource, /setInterval\s*\(/,
+  "the SSE implementation must not introduce polling");
+assert.match(center + runs, /REBUILDING_CHECKSUM/,
+  "queue and run detail views must distinguish checksum reconstruction from target transfer");
+assert.match(center + runs, /resumeCheckedBytes/,
+  "checksum reconstruction must expose its own validation progress");
+assert.match(center + runs, /校验速度/,
+  "checksum reconstruction speed must not be labeled as transfer speed");
+assert.match(center + runs, /if \(isChecksumRebuilding\(item\)\) return item\.transferredBytes/,
+  "checksum reconstruction must keep confirmed transfer progress unchanged");
 
 const activeRuns = Array.from({ length: 201 }, (_, index) => ({
   id: `active-${index}`,

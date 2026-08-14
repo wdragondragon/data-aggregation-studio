@@ -9,6 +9,7 @@ public final class RuntimeInternalHeaders {
     public static final String INTERNAL_AUTHENTICATION = "INTERNAL_AUTHENTICATION";
     public static final String RUNTIME_RESPONSE_HEADER = "X-Studio-Runtime-Response";
     public static final String RUNTIME_RESPONSE_AUTHENTICATED = "AUTHENTICATED";
+    public static final String RUNTIME_REQUEST_HEADER = "X-Studio-Runtime-Request";
     public static final String IDEMPOTENCY_KEY_HASH_HEADER = "X-Studio-Idempotency-Key-Hash";
     public static final String IDEMPOTENCY_FINGERPRINT_HEADER = "X-Studio-Idempotency-Fingerprint";
 

@@ -10,7 +10,9 @@ import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManager;
 import org.apache.hc.client5.http.impl.io.PoolingHttpClientConnectionManagerBuilder;
 import org.apache.hc.core5.http.Header;
 import org.apache.hc.core5.http.HttpEntity;
+import org.apache.hc.core5.http.ContentType;
 import org.apache.hc.core5.http.io.entity.ByteArrayEntity;
+import org.apache.hc.core5.http.io.entity.InputStreamEntity;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
 import org.springframework.stereotype.Service;
@@ -99,6 +101,40 @@ public class RuntimeEndpointHttpClient {
                 readResponse(response.getEntity(), maxBytes, deadlineNanos)));
     }
 
+    public Response execute(RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target,
+                            String method,
+                            Map<String, List<String>> headers,
+                            InputStream body,
+                            long contentLength,
+                            int connectTimeoutMillis,
+                            int readTimeoutMillis,
+                            int maxResponseBytes) throws Exception {
+        if (body == null || contentLength < 0L) {
+            throw new IllegalArgumentException("Streaming request body and content length are required");
+        }
+        int connectTimeout = timeout(connectTimeoutMillis, 3000);
+        int readTimeout = streamingTimeout(readTimeoutMillis, 300000);
+        int maxBytes = Math.min(1024 * 1024, Math.max(1024, maxResponseBytes));
+        RequestConfig requestConfig = RequestConfig.custom()
+                .setConnectTimeout(Timeout.ofMilliseconds(connectTimeout))
+                .setConnectionRequestTimeout(Timeout.ofMilliseconds(connectTimeout))
+                .setResponseTimeout(Timeout.ofMilliseconds(readTimeout))
+                .setRedirectsEnabled(false)
+                .build();
+        dnsResolver.pin(target);
+        connectionManager.closeExpired();
+        connectionManager.closeIdle(IDLE_CONNECTION_AGE);
+        HttpUriRequestBase request = new HttpUriRequestBase(method, target.getUri());
+        request.setConfig(requestConfig);
+        request.setEntity(new InputStreamEntity(body, contentLength,
+                ContentType.APPLICATION_OCTET_STREAM));
+        addHeaders(request, headers);
+        long deadlineNanos = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(readTimeout);
+        return client.execute(request, response -> new Response(
+                response.getCode(), responseHeaders(response.getHeaders()),
+                readResponse(response.getEntity(), maxBytes, deadlineNanos)));
+    }
+
     public StreamingResponse executeStreaming(RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target,
                                                String method,
                                                Map<String, List<String>> headers,
@@ -107,7 +143,7 @@ public class RuntimeEndpointHttpClient {
                                                int readTimeoutMillis,
                                                OutputStream output) throws Exception {
         int connectTimeout = timeout(connectTimeoutMillis, 3000);
-        int readTimeout = timeout(readTimeoutMillis, 60000);
+        int readTimeout = streamingTimeout(readTimeoutMillis, 60000);
         RequestConfig requestConfig = RequestConfig.custom()
                 .setConnectTimeout(Timeout.ofMilliseconds(connectTimeout))
                 .setConnectionRequestTimeout(Timeout.ofMilliseconds(connectTimeout))
@@ -122,18 +158,7 @@ public class RuntimeEndpointHttpClient {
         if (body != null && body.length > 0) {
             request.setEntity(new ByteArrayEntity(body, null));
         }
-        if (headers != null) {
-            for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
-                if (entry.getKey() == null || entry.getValue() == null) {
-                    continue;
-                }
-                for (String value : entry.getValue()) {
-                    if (value != null) {
-                        request.addHeader(entry.getKey(), value);
-                    }
-                }
-            }
-        }
+        addHeaders(request, headers);
         return client.execute(request, response -> {
             Map<String, List<String>> responseHeaders = responseHeaders(response.getHeaders());
             if (response.getCode() >= 200 && response.getCode() < 300) {
@@ -200,9 +225,30 @@ public class RuntimeEndpointHttpClient {
         return result;
     }
 
+    private void addHeaders(HttpUriRequestBase request, Map<String, List<String>> headers) {
+        if (headers == null) {
+            return;
+        }
+        for (Map.Entry<String, List<String>> entry : headers.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                continue;
+            }
+            for (String value : entry.getValue()) {
+                if (value != null) {
+                    request.addHeader(entry.getKey(), value);
+                }
+            }
+        }
+    }
+
     private int timeout(int value, int fallback) {
         int configured = value <= 0 ? fallback : value;
         return Math.max(100, Math.min(configured, 60000));
+    }
+
+    private int streamingTimeout(int value, int fallback) {
+        int configured = value <= 0 ? fallback : value;
+        return Math.max(1000, Math.min(configured, 30 * 60 * 1000));
     }
 
     public static final class Response {

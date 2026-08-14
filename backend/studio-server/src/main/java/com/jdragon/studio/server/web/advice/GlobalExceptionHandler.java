@@ -40,6 +40,8 @@ public class GlobalExceptionHandler {
             status = HttpStatus.FORBIDDEN;
         } else if (StudioErrorCode.NOT_FOUND.equals(ex.getCode())) {
             status = HttpStatus.NOT_FOUND;
+        } else if (StudioErrorCode.CONFLICT.equals(ex.getCode())) {
+            status = HttpStatus.CONFLICT;
         } else if (StudioErrorCode.SERVICE_UNAVAILABLE.equals(ex.getCode())) {
             status = HttpStatus.SERVICE_UNAVAILABLE;
         } else if (StudioErrorCode.INTERNAL_SERVER_ERROR.equals(ex.getCode())) {

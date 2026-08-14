@@ -54,10 +54,13 @@
           @selection-change="selectedEntries = $event"
         />
         <div class="operation-toolbar">
-          <el-button :icon="FolderAdd" :disabled="!canEdit" @click="createDirectory">新建文件夹</el-button>
+          <input ref="uploadInput" class="file-input" type="file" @change="handleUploadSelection" />
+          <el-button :icon="Upload" :loading="loading.upload" :disabled="!canEdit || !datasourceId || loading.upload" @click="chooseUploadFile">上传文件</el-button>
+          <el-progress v-if="loading.upload" class="upload-progress" :percentage="uploadProgress" :stroke-width="6" />
+          <el-button :icon="FolderAdd" :disabled="!canEdit || loading.upload" @click="createDirectory">新建文件夹</el-button>
           <el-button :icon="EditPen" :disabled="selectedEntries.length !== 1 || !canEdit" @click="renameSelected">重命名</el-button>
           <el-button :icon="Rank" :disabled="selectedEntries.length !== 1 || !canEdit" @click="moveSelected">移动</el-button>
-          <el-button :icon="Download" :disabled="selectedEntries.length !== 1 || selectedEntries[0]?.directory || !canDownload" @click="downloadSelected">下载</el-button>
+          <el-button :icon="Download" :loading="loading.download" :disabled="selectedEntries.length === 0 || !canDownload || loading.download" @click="downloadSelected">下载</el-button>
           <el-button type="danger" :icon="Delete" :disabled="selectedEntries.length === 0 || !canDelete" @click="deleteSelected">删除</el-button>
           <el-button v-if="selectedSource?.aclManageable" :icon="Lock" @click="openAcl">ACL</el-button>
         </div>
@@ -100,10 +103,10 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { Delete, Download, EditPen, FolderAdd, Lock, Rank, Refresh } from "@element-plus/icons-vue";
+import { Delete, Download, EditPen, FolderAdd, Lock, Rank, Refresh, Upload } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type { DataSourceOptionView, EntityId, FileTransferFileEntryView, RuntimeClusterView, StudioUserOption, UnstructuredAclEntryRequest, UnstructuredPermissionView, UnstructuredSourceView } from "@studio/api-sdk";
-import { studioApi } from "@/api/studio";
+import { resolveStudioApiBaseUrl, studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import FileTransferBrowserPanel from "@/components/file-transfer/FileTransferBrowserPanel.vue";
 import { normalizeTransferPath, parentTransferPath } from "@/utils/fileTransfer";
@@ -121,7 +124,9 @@ const selectedEntries = ref<FileTransferFileEntryView[]>([]);
 const cursorHistory = ref<Array<string | undefined>>([undefined]);
 const nextCursor = ref<string>();
 const hasMore = ref(false);
-const loading = reactive({ sources: false, browser: false, acl: false });
+const loading = reactive({ sources: false, browser: false, acl: false, upload: false, download: false });
+const uploadInput = ref<HTMLInputElement>();
+const uploadProgress = ref(0);
 const permissions = ref<UnstructuredPermissionView>({ effectivePermissions: [] });
 let browserRequestSequence = 0;
 let permissionRequestSequence = 0;
@@ -206,7 +211,98 @@ async function deleteSelected() {
   try { await ElMessageBox.confirm(entry.directory ? "非空目录需要递归删除，确认继续？" : `确认删除 ${entry.name}？`, "删除文件", { type: "warning" }); await submitOperation("DELETE", entry.path, undefined, Boolean(entry.directory)); } catch { /* cancelled */ }
 }
 async function submitOperation(operation: string, sourcePath: string, targetPath?: string, recursiveConfirmed = false) { if (!runtimeClusterId.value || !datasourceId.value) return; try { await studioApi.unstructuredManagement.operate({ runtimeClusterId: runtimeClusterId.value, datasourceId: datasourceId.value, operation, sourcePath, targetPath, recursiveConfirmed }); ElMessage.success("操作完成"); await loadBrowser(); await loadPermissions(); } catch (error) { showError(error, "文件操作失败"); } }
-async function downloadSelected() { const entry = selectedEntries.value[0]; if (!entry || entry.directory || !runtimeClusterId.value || !datasourceId.value) return; try { const blob = await studioApi.unstructuredManagement.download({ runtimeClusterId: runtimeClusterId.value, datasourceId: datasourceId.value, path: entry.path }); const url = URL.createObjectURL(blob as Blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = entry.name || "download"; anchor.click(); URL.revokeObjectURL(url); } catch (error) { showError(error, "下载失败"); } }
+
+function chooseUploadFile() {
+  if (!canEdit.value || loading.upload) return;
+  if (uploadInput.value) uploadInput.value.value = "";
+  uploadInput.value?.click();
+}
+
+async function handleUploadSelection(event: Event) {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file || !runtimeClusterId.value || !datasourceId.value) return;
+  const targetPath = normalizeTransferPath(`${path.value === "/" ? "" : path.value}/${file.name}`);
+  loading.upload = true;
+  uploadProgress.value = 0;
+  try {
+    let overwrite = false;
+    try {
+      await studioApi.unstructuredManagement.stat({ runtimeClusterId: runtimeClusterId.value, datasourceId: datasourceId.value, path: targetPath }, { studioSkipGlobalLoading: true });
+      overwrite = await confirmOverwrite(file.name);
+      if (!overwrite) return;
+    } catch (error) {
+      if (errorStatus(error) !== 404) throw error;
+    }
+    try {
+      await uploadFile(file, targetPath, overwrite);
+    } catch (error) {
+      if (errorStatus(error) !== 409 || overwrite || !(await confirmOverwrite(file.name))) throw error;
+      await uploadFile(file, targetPath, true);
+    }
+    uploadProgress.value = 100;
+    ElMessage.success("文件上传成功");
+    await loadBrowser();
+    await loadPermissions();
+  } catch (error) {
+    showError(error, "文件上传失败");
+  } finally {
+    loading.upload = false;
+  }
+}
+
+function uploadFile(file: File, targetPath: string, overwrite: boolean) {
+  return studioApi.unstructuredManagement.upload(
+    { runtimeClusterId: runtimeClusterId.value as EntityId, datasourceId: datasourceId.value as EntityId, targetPath, overwrite },
+    file,
+    (percentage) => { uploadProgress.value = percentage; },
+    { studioSkipGlobalLoading: true },
+  );
+}
+
+async function confirmOverwrite(fileName: string) {
+  try {
+    await ElMessageBox.confirm(`文件 ${fileName} 已存在，是否覆盖？`, "文件已存在", { type: "warning", confirmButtonText: "覆盖", cancelButtonText: "取消" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function downloadSelected() {
+  if (!selectedEntries.value.length || !runtimeClusterId.value || !datasourceId.value || loading.download) return;
+  loading.download = true;
+  try {
+    const downloadTicket = await studioApi.unstructuredManagement.createDownloadTicket({
+      runtimeClusterId: runtimeClusterId.value,
+      datasourceId: datasourceId.value,
+      paths: selectedEntries.value.map((item) => item.path),
+    }, { studioSkipGlobalLoading: true });
+    if (!downloadTicket.ticket) throw new Error("下载票据为空");
+    startNativeDownload(downloadTicket.ticket);
+  } catch (error) {
+    showError(error, "下载失败");
+  } finally {
+    loading.download = false;
+  }
+}
+
+function startNativeDownload(ticket: string) {
+  const url = new URL(
+    resolveStudioApiBaseUrl("/unstructured-management/download/native"),
+    window.location.origin,
+  );
+  url.searchParams.set("ticket", ticket);
+  const anchor = document.createElement("a");
+  anchor.href = url.toString();
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+}
+
+function errorStatus(error: unknown) {
+  return Number((error as { status?: number } | null)?.status ?? 0);
+}
 
 async function openAcl() { if (!datasourceId.value) return; const selected = selectedEntries.value.length === 1 ? selectedEntries.value[0] : undefined; aclPath.value = selected?.path || path.value; aclDirectory.value = selected ? Boolean(selected.directory) : true; loading.acl = true; try { const [source, pathEntries, optionUsers] = await Promise.all([studioApi.unstructuredManagement.sourceAcl(datasourceId.value), studioApi.unstructuredManagement.pathAcl(datasourceId.value, aclPath.value), studioApi.unstructuredManagement.userOptions()]); sourceAclDraft.value = source.map(toAclDraft); pathAclDraft.value = pathEntries.map(toAclDraft); users.value = optionUsers; aclDialogVisible.value = true; } catch (error) { showError(error, "加载 ACL 失败"); } finally { loading.acl = false; } }
 function toAclDraft(entry: { principalType: string; userId?: EntityId; permission: string; effect: string }): UnstructuredAclEntryRequest { return { principalType: entry.principalType, userId: entry.userId, permission: entry.permission, effect: entry.effect }; }
@@ -231,6 +327,8 @@ onMounted(async () => { try { await loadRuntimeClusters(); } catch (error) { sho
 .source-list__item:hover, .source-list__item.is-active { background: var(--studio-surface-hover); }
 .browser-workspace { min-width: 0; display: grid; gap: 10px; }
 .operation-toolbar, .permission-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.file-input { display: none; }
+.upload-progress { width: 150px; }
 .permission-strip { color: var(--studio-text-soft); font-size: 12px; }
 .acl-section { display: grid; gap: 8px; margin-bottom: 16px; }
 .acl-section__header { display: flex; justify-content: space-between; align-items: center; }

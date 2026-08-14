@@ -4,15 +4,21 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.model.FileTransferBrowserPageView;
 import com.jdragon.studio.dto.model.StudioUserOptionView;
 import com.jdragon.studio.dto.model.UnstructuredAclEntryView;
+import com.jdragon.studio.dto.model.UnstructuredDownloadTicketView;
 import com.jdragon.studio.dto.model.UnstructuredOperationResultView;
 import com.jdragon.studio.dto.model.UnstructuredPermissionView;
 import com.jdragon.studio.dto.model.UnstructuredSourceView;
+import com.jdragon.studio.dto.model.UnstructuredUploadResultView;
 import com.jdragon.studio.dto.model.request.FileTransferBrowserRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredOperationRequest;
+import com.jdragon.studio.dto.model.request.UnstructuredArchiveDownloadRequest;
+import com.jdragon.studio.dto.model.request.UnstructuredDownloadTicketRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredPathAclRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredSourceAclRequest;
 import com.jdragon.studio.infra.service.UnstructuredManagementService;
+import com.jdragon.studio.infra.service.UnstructuredDownloadTicketService;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -35,9 +41,12 @@ import java.util.List;
 @RequestMapping("/api/v1/unstructured-management")
 public class UnstructuredManagementController {
     private final UnstructuredManagementService service;
+    private final UnstructuredDownloadTicketService downloadTicketService;
 
-    public UnstructuredManagementController(UnstructuredManagementService service) {
+    public UnstructuredManagementController(UnstructuredManagementService service,
+                                            UnstructuredDownloadTicketService downloadTicketService) {
         this.service = service;
+        this.downloadTicketService = downloadTicketService;
     }
 
     @GetMapping("/sources")
@@ -49,6 +58,30 @@ public class UnstructuredManagementController {
     public Result<FileTransferBrowserPageView> list(@Valid @RequestBody FileTransferBrowserRequest request) {
         return Result.success(service.browse(request.getRuntimeClusterId(), request.getDatasourceId(),
                 request.getPath(), request.getCursor(), request.getPageSize()));
+    }
+
+    @GetMapping("/stat")
+    public Result<com.jdragon.studio.dto.model.FileTransferFileEntryView> stat(
+            @RequestParam("runtimeClusterId") Long runtimeClusterId,
+            @RequestParam("datasourceId") Long datasourceId,
+            @RequestParam("path") String path) {
+        return Result.success(service.statForUpload(runtimeClusterId, datasourceId, path));
+    }
+
+    @PostMapping(value = "/upload", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<Result<UnstructuredUploadResultView>> upload(
+            @RequestParam("runtimeClusterId") Long runtimeClusterId,
+            @RequestParam("datasourceId") Long datasourceId,
+            @RequestParam("targetPath") String targetPath,
+            @RequestParam(value = "overwrite", defaultValue = "false") boolean overwrite,
+            HttpServletRequest request) throws java.io.IOException {
+        long contentLength = request.getContentLengthLong();
+        if (contentLength < 0L) {
+            return ResponseEntity.status(org.springframework.http.HttpStatus.LENGTH_REQUIRED)
+                    .body(Result.error("BAD_REQUEST", "Content-Length header is required"));
+        }
+        return ResponseEntity.ok(Result.success(service.upload(runtimeClusterId, datasourceId,
+                targetPath, overwrite, contentLength, request.getInputStream())));
     }
 
     @GetMapping("/download")
@@ -67,6 +100,58 @@ public class UnstructuredManagementController {
                 .contentLength(entry.getSize() == null ? 0L : entry.getSize())
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
                 .body(body);
+    }
+
+    @PostMapping("/download/archive")
+    public ResponseEntity<StreamingResponseBody> downloadArchive(
+            @Valid @RequestBody UnstructuredArchiveDownloadRequest request) {
+        UnstructuredManagementService.PreparedArchive prepared = service.prepareArchive(
+                request.getRuntimeClusterId(), request.getDatasourceId(), request.getPaths());
+        String encoded = URLEncoder.encode(prepared.fileName(), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        StreamingResponseBody body = output -> service.downloadArchive(prepared, output);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + encoded)
+                .body(body);
+    }
+
+    @PostMapping("/download-tickets")
+    public Result<UnstructuredDownloadTicketView> createDownloadTicket(
+            @Valid @RequestBody UnstructuredDownloadTicketRequest request) {
+        return Result.success(downloadTicketService.create(request));
+    }
+
+    @GetMapping("/download/native")
+    public ResponseEntity<StreamingResponseBody> downloadNative(
+            @RequestParam("ticket") String ticket) {
+        UnstructuredManagementService.PreparedNativeDownload prepared =
+                downloadTicketService.consume(ticket);
+        String encoded = URLEncoder.encode(prepared.fileName(), StandardCharsets.UTF_8)
+                .replace("+", "%20");
+        StreamingResponseBody body;
+        MediaType contentType;
+        if (prepared.archive()) {
+            body = output -> service.downloadArchive(prepared.archiveDownload(), output);
+            contentType = MediaType.parseMediaType("application/zip");
+        } else {
+            body = output -> service.download(prepared.download(), output);
+            contentType = MediaType.APPLICATION_OCTET_STREAM;
+        }
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok()
+                .contentType(contentType)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename*=UTF-8''" + encoded)
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                .header("Referrer-Policy", "no-referrer")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("X-Accel-Buffering", "no");
+        if (!prepared.archive() && prepared.contentLength() != null
+                && prepared.contentLength() >= 0L) {
+            response.contentLength(prepared.contentLength());
+        }
+        return response.body(body);
     }
 
     @PostMapping("/operations")

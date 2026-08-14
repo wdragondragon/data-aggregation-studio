@@ -5,6 +5,7 @@ import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
+import com.jdragon.aggregation.datasource.file.transfer.TransferWriteSession;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FileTransferBrowserPageView;
@@ -23,10 +24,17 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /** Executes datasource capabilities in the process that can actually reach the datasource. */
 public class RuntimeDatasourceProbeExecutor {
@@ -180,6 +188,198 @@ public class RuntimeDatasourceProbeExecutor {
         } catch (Exception exception) {
             throw new IllegalStateException("File download failed: " + exception.getMessage(), exception);
         }
+    }
+
+    public long upload(DataSourceDefinition datasource, String targetPath, boolean overwrite,
+                       long contentLength, InputStream input) {
+        String resolvedTarget = normalizePath(targetPath);
+        if ("/".equals(resolvedTarget)) {
+            throw new IllegalArgumentException("A file cannot replace the root directory");
+        }
+        if (contentLength < 0L || input == null) {
+            throw new IllegalArgumentException("Upload content length and stream are required");
+        }
+        String sessionId = UUID.randomUUID().toString();
+        String temporaryPath = temporaryUploadPath(resolvedTarget, sessionId);
+        TransferWriteSession session = null;
+        try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
+            if (fileSystem.transferExists(resolvedTarget)) {
+                TransferFileEntry existing = fileSystem.stat(resolvedTarget);
+                if (existing.directory()) {
+                    throw new FileAlreadyExistsException(
+                            "Upload target is an existing directory: " + resolvedTarget);
+                }
+                if (!overwrite) {
+                    throw new FileAlreadyExistsException(resolvedTarget);
+                }
+            }
+            session = fileSystem.prepareWrite(temporaryPath, sessionId);
+            if (session.confirmedOffset() != 0L) {
+                throw new IOException("Upload temporary file was not empty");
+            }
+            long written = fileSystem.append(session, 0L, input, contentLength);
+            if (written != contentLength) {
+                throw new IOException("Unexpected end of upload for " + resolvedTarget
+                        + ": expected " + contentLength + " bytes but received " + written);
+            }
+            fileSystem.commit(session, resolvedTarget, overwrite);
+            return written;
+        } catch (Exception exception) {
+            if (session != null) {
+                try (TransferFileSystem cleanup = provider.openTransferFileSystem(datasource)) {
+                    cleanup.abort(session);
+                } catch (Exception cleanupException) {
+                    exception.addSuppressed(cleanupException);
+                }
+            }
+            throw new IllegalStateException("File upload failed: " + exception.getMessage(), exception);
+        }
+    }
+
+    public void downloadArchive(DataSourceDefinition datasource, List<String> paths,
+                                OutputStream output) {
+        List<String> selectedPaths = normalizeArchivePaths(paths);
+        try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
+            List<ArchiveSelection> selections = new ArrayList<ArchiveSelection>();
+            for (String path : selectedPaths) {
+                selections.add(new ArchiveSelection(path, fileSystem.stat(path)));
+            }
+            selections.sort(Comparator.comparingInt(selection -> selection.path().length()));
+            List<ArchiveSelection> effectiveSelections = new ArrayList<ArchiveSelection>();
+            for (ArchiveSelection selection : selections) {
+                boolean covered = effectiveSelections.stream().anyMatch(parent ->
+                        parent.entry().directory()
+                                && ("/".equals(parent.path())
+                                || selection.path().startsWith(parent.path() + "/")));
+                if (!covered) {
+                    effectiveSelections.add(selection);
+                }
+            }
+            String basePath = commonArchiveBase(effectiveSelections.stream()
+                    .map(ArchiveSelection::path).toList());
+            Set<String> zipNames = new HashSet<String>();
+            ZipOutputStream archive = new ZipOutputStream(output, java.nio.charset.StandardCharsets.UTF_8);
+            for (ArchiveSelection selection : effectiveSelections) {
+                writeArchiveEntry(fileSystem, selection.entry(), selection.path(),
+                        basePath, archive, zipNames);
+            }
+            archive.finish();
+            archive.flush();
+        } catch (Exception exception) {
+            throw new IllegalStateException("File archive download failed: "
+                    + exception.getMessage(), exception);
+        }
+    }
+
+    private void writeArchiveEntry(TransferFileSystem fileSystem, TransferFileEntry entry,
+                                   String path, String basePath, ZipOutputStream archive,
+                                   Set<String> zipNames) throws IOException {
+        String zipName = archiveEntryName(path, basePath);
+        if (entry.directory()) {
+            if (!zipName.isEmpty()) {
+                putZipEntry(archive, zipNames, zipName + "/", entry.modifiedTimeMillis());
+                archive.closeEntry();
+            }
+            String cursor = null;
+            do {
+                TransferFilePage page = fileSystem.listPage(path, cursor, 500);
+                for (TransferFileEntry child : page.entries()) {
+                    String childPath = normalizePath(child.path());
+                    if (!("/".equals(path) ? childPath.startsWith("/")
+                            : childPath.startsWith(path + "/"))) {
+                        throw new IOException("Directory listing returned a path outside " + path);
+                    }
+                    writeArchiveEntry(fileSystem, child, childPath, basePath, archive, zipNames);
+                }
+                cursor = page.nextCursor();
+            } while (cursor != null && !cursor.isBlank());
+            return;
+        }
+        putZipEntry(archive, zipNames, zipName, entry.modifiedTimeMillis());
+        long transferred = 0L;
+        try (InputStream input = fileSystem.openRead(path, 0L, entry.size())) {
+            byte[] buffer = new byte[64 * 1024];
+            int read;
+            while ((read = input.read(buffer)) >= 0) {
+                if (read > 0) {
+                    archive.write(buffer, 0, read);
+                    transferred += read;
+                }
+            }
+        }
+        archive.closeEntry();
+        if (transferred != entry.size()) {
+            throw new IOException("Unexpected end of file for " + path
+                    + ": expected " + entry.size() + " bytes but received " + transferred);
+        }
+    }
+
+    private void putZipEntry(ZipOutputStream archive, Set<String> zipNames,
+                             String name, long modifiedTimeMillis) throws IOException {
+        String normalized = name.replace('\\', '/');
+        if (normalized.startsWith("/") || normalized.contains("../")
+                || normalized.equals("..") || normalized.indexOf('\0') >= 0) {
+            throw new IOException("Unsafe ZIP entry name: " + name);
+        }
+        if (!zipNames.add(normalized)) {
+            throw new IOException("Duplicate ZIP entry name: " + normalized);
+        }
+        ZipEntry zipEntry = new ZipEntry(normalized);
+        if (modifiedTimeMillis > 0L) {
+            zipEntry.setTime(modifiedTimeMillis);
+        }
+        archive.putNextEntry(zipEntry);
+    }
+
+    private List<String> normalizeArchivePaths(List<String> paths) {
+        if (paths == null || paths.isEmpty()) {
+            throw new IllegalArgumentException("At least one archive path is required");
+        }
+        LinkedHashSet<String> unique = new LinkedHashSet<String>();
+        for (String path : paths) {
+            unique.add(normalizePath(path));
+        }
+        return new ArrayList<String>(unique);
+    }
+
+    private String commonArchiveBase(List<String> paths) {
+        String common = parentPath(paths.get(0));
+        for (int index = 1; index < paths.size(); index++) {
+            String candidate = parentPath(paths.get(index));
+            while (!"/".equals(common)
+                    && !candidate.equals(common)
+                    && !candidate.startsWith(common + "/")) {
+                common = parentPath(common);
+            }
+        }
+        return common;
+    }
+
+    private String archiveEntryName(String path, String basePath) throws IOException {
+        if ("/".equals(path)) {
+            return "";
+        }
+        String relative = "/".equals(basePath) ? path.substring(1)
+                : path.substring(basePath.length() + 1);
+        if (relative.isBlank()) {
+            throw new IOException("The archive root cannot be empty");
+        }
+        return relative;
+    }
+
+    private String temporaryUploadPath(String targetPath, String sessionId) {
+        String parent = parentPath(targetPath);
+        String name = targetPath.substring(targetPath.lastIndexOf('/') + 1);
+        return ("/".equals(parent) ? "" : parent) + "/." + name
+                + ".studio-upload-" + sessionId + ".part";
+    }
+
+    private String parentPath(String path) {
+        int slash = path.lastIndexOf('/');
+        return slash <= 0 ? "/" : path.substring(0, slash);
+    }
+
+    private record ArchiveSelection(String path, TransferFileEntry entry) {
     }
 
     private void movePath(TransferFileSystem fileSystem, TransferFileEntry source,

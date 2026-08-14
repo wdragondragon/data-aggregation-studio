@@ -7,6 +7,7 @@ import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.request.RuntimeDatasourceProbeRequest;
+import com.jdragon.studio.dto.model.request.RuntimeDatasourceUploadRequest;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.mapper.DatasourceClusterBindingMapper;
@@ -16,12 +17,17 @@ import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.RuntimeDatasourceProbeExecutor;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Base64;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -150,6 +156,53 @@ class InternalDatasourceProbeControllerTest {
         assertThat(StudioRequestContextHolder.getContext()).isNull();
     }
 
+    @Test
+    void shouldStreamUploadThroughCanonicalDatasource() throws Exception {
+        Fixture fixture = fixture();
+        RuntimeDatasourceUploadRequest request = uploadRequest();
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        when(fixture.executor.upload(org.mockito.ArgumentMatchers.eq(canonical),
+                org.mockito.ArgumentMatchers.eq("/upload.txt"),
+                org.mockito.ArgumentMatchers.eq(false),
+                org.mockito.ArgumentMatchers.eq(5L),
+                org.mockito.ArgumentMatchers.any())).thenReturn(5L);
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+        var response = fixture.controller.fileUpload("internal-secret",
+                encode(request), servletRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(response.getBody().getData().getBytes()).isEqualTo(5L);
+        assertThat(StudioRequestContextHolder.getContext()).isNull();
+    }
+
+    @Test
+    void shouldReturnConflictEnvelopeForExistingUploadTarget() throws Exception {
+        Fixture fixture = fixture();
+        RuntimeDatasourceUploadRequest request = uploadRequest();
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doThrow(new IllegalStateException("File upload failed: /upload.txt",
+                new FileAlreadyExistsException("/upload.txt")))
+                .when(fixture.executor).upload(org.mockito.ArgumentMatchers.eq(canonical),
+                        org.mockito.ArgumentMatchers.eq("/upload.txt"),
+                        org.mockito.ArgumentMatchers.eq(false),
+                        org.mockito.ArgumentMatchers.eq(5L),
+                        org.mockito.ArgumentMatchers.any());
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+        var response = fixture.controller.fileUpload("internal-secret",
+                encode(request), servletRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(response.getBody().getCode()).isEqualTo(StudioErrorCode.CONFLICT);
+    }
+
     private Fixture fixture() {
         RuntimeDatasourceProbeExecutor executor = mock(RuntimeDatasourceProbeExecutor.class);
         RuntimeClusterMapper clusterMapper = mock(RuntimeClusterMapper.class);
@@ -168,7 +221,8 @@ class InternalDatasourceProbeControllerTest {
         when(authorizationService.isRuntimeClusterAuthorizedForProject("tenant-a", 20L, 50L))
                 .thenReturn(true);
         InternalDatasourceProbeController controller = new InternalDatasourceProbeController(
-                executor, properties, clusterMapper, authorizationService, bindingMapper, dataSourceService);
+                executor, properties, clusterMapper, authorizationService, bindingMapper,
+                dataSourceService, new ObjectMapper());
         return new Fixture(controller, executor, bindingMapper, dataSourceService);
     }
 
@@ -176,6 +230,27 @@ class InternalDatasourceProbeControllerTest {
         RuntimeDatasourceProbeRequest request = baseRequest(RuntimeDatasourceProbeMode.STORED);
         request.setDatasource(datasource(301L, "tenant-a", 10L));
         return request;
+    }
+
+    private RuntimeDatasourceUploadRequest uploadRequest() {
+        RuntimeDatasourceUploadRequest request = new RuntimeDatasourceUploadRequest();
+        request.setTargetClusterId(50L);
+        request.setTargetClusterCode("C50");
+        request.setTenantId("tenant-a");
+        request.setProjectId(20L);
+        request.setUserId(99L);
+        request.setUsername("admin");
+        request.setMode(RuntimeDatasourceProbeMode.STORED);
+        request.setDatasource(datasource(301L, "tenant-a", 10L));
+        request.setTargetPath("/upload.txt");
+        request.setContentLength(5L);
+        request.setOverwrite(false);
+        return request;
+    }
+
+    private String encode(RuntimeDatasourceUploadRequest request) throws Exception {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(
+                new ObjectMapper().writeValueAsBytes(request));
     }
 
     private RuntimeDatasourceProbeRequest baseRequest(RuntimeDatasourceProbeMode mode) {

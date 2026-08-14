@@ -1,6 +1,7 @@
 package com.jdragon.studio.worker.web.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.common.Result;
@@ -11,10 +12,13 @@ import com.jdragon.studio.dto.model.FileTransferFileEntryView;
 import com.jdragon.studio.dto.model.FileTransferSelectionPreviewView;
 import com.jdragon.studio.dto.model.RuntimeDatasourceHydrationResultView;
 import com.jdragon.studio.dto.model.SqlExecutionResultView;
+import com.jdragon.studio.dto.model.UnstructuredUploadResultView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
+import com.jdragon.studio.dto.model.request.RuntimeDatasourceArchiveRequest;
 import com.jdragon.studio.dto.model.request.RuntimeDatasourceProbeRequest;
+import com.jdragon.studio.dto.model.request.RuntimeDatasourceUploadRequest;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DatasourceClusterBindingEntity;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
@@ -24,9 +28,11 @@ import com.jdragon.studio.infra.security.StudioRequestContext;
 import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.RuntimeDatasourceProbeExecutor;
+import com.jdragon.studio.infra.service.RuntimeInternalHeaders;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.worker.filetransfer.FileTransferPreviewExecutor;
 import jakarta.validation.Valid;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -42,7 +48,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.security.MessageDigest;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -60,6 +68,7 @@ public class InternalDatasourceProbeController {
     private final WorkerAuthorizationService workerAuthorizationService;
     private final DatasourceClusterBindingMapper datasourceClusterBindingMapper;
     private final DataSourceService dataSourceService;
+    private final ObjectMapper objectMapper;
     private FileTransferPreviewExecutor fileTransferPreviewExecutor;
 
     public InternalDatasourceProbeController(RuntimeDatasourceProbeExecutor executor,
@@ -67,13 +76,15 @@ public class InternalDatasourceProbeController {
                                              RuntimeClusterMapper runtimeClusterMapper,
                                              WorkerAuthorizationService workerAuthorizationService,
                                              DatasourceClusterBindingMapper datasourceClusterBindingMapper,
-                                             DataSourceService dataSourceService) {
+                                             DataSourceService dataSourceService,
+                                             ObjectMapper objectMapper) {
         this.executor = executor;
         this.properties = properties;
         this.runtimeClusterMapper = runtimeClusterMapper;
         this.workerAuthorizationService = workerAuthorizationService;
         this.datasourceClusterBindingMapper = datasourceClusterBindingMapper;
         this.dataSourceService = dataSourceService;
+        this.objectMapper = objectMapper;
     }
 
     @Autowired
@@ -140,8 +151,18 @@ public class InternalDatasourceProbeController {
     public Result<FileTransferFileEntryView> fileStat(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
-        return execute(token, request, false,
-                datasource -> executor.stat(datasource, request.getPath()));
+        return execute(token, request, false, datasource -> {
+            try {
+                return executor.stat(datasource, request.getPath());
+            } catch (IllegalStateException exception) {
+                if (hasCause(exception, java.nio.file.NoSuchFileException.class)) {
+                    throw new StudioException(StudioErrorCode.NOT_FOUND,
+                            "File path was not found", exception);
+                }
+                throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                        exception.getMessage(), exception);
+            }
+        });
     }
 
     @PostMapping("/file-operation")
@@ -186,6 +207,60 @@ public class InternalDatasourceProbeController {
         }
     }
 
+    @PostMapping(value = "/file-upload", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public ResponseEntity<Result<UnstructuredUploadResultView>> fileUpload(
+            @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(RuntimeInternalHeaders.RUNTIME_REQUEST_HEADER) String encodedRequest,
+            HttpServletRequest servletRequest) throws java.io.IOException {
+        StudioRequestContext previous = StudioRequestContextHolder.getContext();
+        try {
+            RuntimeDatasourceUploadRequest request = decodeUploadRequest(encodedRequest);
+            if (servletRequest.getContentLengthLong() != request.getContentLength()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                        "Upload content length does not match the runtime request");
+            }
+            DataSourceDefinition datasource = prepare(token, request, false);
+            long bytes = executor.upload(datasource, request.getTargetPath(),
+                    Boolean.TRUE.equals(request.getOverwrite()), request.getContentLength(),
+                    servletRequest.getInputStream());
+            UnstructuredUploadResultView result = new UnstructuredUploadResultView();
+            result.setOperation("UPLOAD");
+            result.setTargetPath(request.getTargetPath());
+            result.setBytes(bytes);
+            result.setOverwritten(Boolean.TRUE.equals(request.getOverwrite()));
+            result.setMessage("Upload completed");
+            return ResponseEntity.ok(Result.success(result));
+        } catch (IllegalStateException exception) {
+            if (hasCause(exception, FileAlreadyExistsException.class)) {
+                return ResponseEntity.status(HttpStatus.CONFLICT)
+                        .body(Result.error(StudioErrorCode.CONFLICT, exception.getMessage()));
+            }
+            return ResponseEntity.badRequest()
+                    .body(Result.error(StudioErrorCode.BUSINESS_ERROR, exception.getMessage()));
+        } finally {
+            restoreContext(previous);
+        }
+    }
+
+    @PostMapping("/file-archive")
+    public ResponseEntity<StreamingResponseBody> fileArchive(
+            @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @Valid @RequestBody RuntimeDatasourceArchiveRequest request) {
+        StudioRequestContext previous = StudioRequestContextHolder.getContext();
+        try {
+            DataSourceDefinition datasource = prepare(token, request, false);
+            StreamingResponseBody body = output -> executor.downloadArchive(
+                    datasource, request.getPaths(), output);
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType("application/zip"))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            "attachment; filename*=UTF-8''download.zip")
+                    .body(body);
+        } finally {
+            restoreContext(previous);
+        }
+    }
+
     @PostMapping("/file-transfer-preview")
     public Result<FileTransferSelectionPreviewView> fileTransferPreview(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
@@ -212,6 +287,33 @@ public class InternalDatasourceProbeController {
         } finally {
             restoreContext(previous);
         }
+    }
+
+    private RuntimeDatasourceUploadRequest decodeUploadRequest(String encodedRequest) {
+        try {
+            byte[] json = Base64.getUrlDecoder().decode(encodedRequest);
+            RuntimeDatasourceUploadRequest request = objectMapper.readValue(
+                    json, RuntimeDatasourceUploadRequest.class);
+            if (request.getContentLength() == null || request.getContentLength() < 0L
+                    || !StringUtils.hasText(request.getTargetPath())) {
+                throw new IllegalArgumentException("Upload request is incomplete");
+            }
+            return request;
+        } catch (Exception exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Invalid runtime upload request", exception);
+        }
+    }
+
+    private boolean hasCause(Throwable throwable, Class<? extends Throwable> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     private DataSourceDefinition prepare(String token, RuntimeDatasourceProbeRequest request,

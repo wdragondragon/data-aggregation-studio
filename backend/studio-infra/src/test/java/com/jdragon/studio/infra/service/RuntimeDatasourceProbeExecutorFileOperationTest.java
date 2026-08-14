@@ -4,6 +4,7 @@ import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
 import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
+import com.jdragon.aggregation.datasource.file.transfer.TransferWriteSession;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,8 +13,13 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.nio.file.FileAlreadyExistsException;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -24,6 +30,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class RuntimeDatasourceProbeExecutorFileOperationTest {
 
@@ -161,9 +168,122 @@ class RuntimeDatasourceProbeExecutorFileOperationTest {
         assertInstanceOf(java.io.IOException.class, failure.getCause());
     }
 
+    @Test
+    void uploadStreamsExpectedLengthAndCommitsTemporaryFile() throws Exception {
+        byte[] content = "streamed upload".getBytes(StandardCharsets.UTF_8);
+        TransferWriteSession session = new TransferWriteSession(
+                "upload-1", "/.target.txt.part", 0L, Map.of());
+        when(fileSystem.transferExists("/target.txt")).thenReturn(false);
+        when(fileSystem.prepareWrite(anyString(), anyString())).thenReturn(session);
+        when(fileSystem.append(org.mockito.ArgumentMatchers.eq(session),
+                org.mockito.ArgumentMatchers.eq(0L), any(),
+                org.mockito.ArgumentMatchers.eq((long) content.length)))
+                .thenAnswer(invocation -> {
+                    byte[] received = invocation.<java.io.InputStream>getArgument(2).readAllBytes();
+                    assertEquals("streamed upload", new String(received, StandardCharsets.UTF_8));
+                    return (long) received.length;
+                });
+
+        long bytes = executor.upload(datasource, "/target.txt", false,
+                content.length, new ByteArrayInputStream(content));
+
+        assertEquals(content.length, bytes);
+        verify(fileSystem).commit(session, "/target.txt", false);
+    }
+
+    @Test
+    void uploadRejectsConflictAndDoesNotCreateTemporaryFile() throws Exception {
+        when(fileSystem.transferExists("/target.txt")).thenReturn(true);
+        when(fileSystem.stat("/target.txt")).thenReturn(file("/target.txt", 10L));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> executor.upload(datasource, "/target.txt", false, 1L,
+                        new ByteArrayInputStream(new byte[]{1})));
+
+        assertInstanceOf(FileAlreadyExistsException.class, failure.getCause());
+        verify(fileSystem, never()).prepareWrite(anyString(), anyString());
+    }
+
+    @Test
+    void uploadAbortsTemporaryFileWhenSourceEndsEarly() throws Exception {
+        TransferWriteSession session = new TransferWriteSession(
+                "upload-2", "/.target.txt.part", 0L, Map.of());
+        when(fileSystem.transferExists("/target.txt")).thenReturn(false);
+        when(fileSystem.prepareWrite(anyString(), anyString())).thenReturn(session);
+        when(fileSystem.append(org.mockito.ArgumentMatchers.eq(session),
+                org.mockito.ArgumentMatchers.eq(0L), any(),
+                org.mockito.ArgumentMatchers.eq(5L))).thenReturn(2L);
+        when(provider.openTransferFileSystem(datasource)).thenReturn(fileSystem, fileSystem);
+
+        assertThrows(IllegalStateException.class,
+                () -> executor.upload(datasource, "/target.txt", false, 5L,
+                        new ByteArrayInputStream(new byte[]{1, 2})));
+
+        verify(fileSystem).abort(session);
+        verify(fileSystem, never()).commit(any(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void archiveRecursesPagedDirectoriesPreservesEmptyDirectoriesAndDeduplicatesChildren()
+            throws Exception {
+        TransferFileEntry reports = directory("/reports");
+        TransferFileEntry empty = directory("/reports/empty");
+        TransferFileEntry first = file("/reports/a.txt", 1L);
+        TransferFileEntry second = file("/reports/nested/b.txt", 1L);
+        TransferFileEntry loose = file("/loose.txt", 1L);
+        when(fileSystem.stat("/reports")).thenReturn(reports);
+        when(fileSystem.stat("/reports/a.txt")).thenReturn(first);
+        when(fileSystem.stat("/loose.txt")).thenReturn(loose);
+        when(fileSystem.listPage("/reports", null, 500)).thenReturn(
+                new TransferFilePage(List.of(empty, first), "next", true));
+        when(fileSystem.listPage("/reports", "next", 500)).thenReturn(
+                new TransferFilePage(List.of(directory("/reports/nested")), null, false));
+        when(fileSystem.listPage("/reports/empty", null, 500)).thenReturn(
+                new TransferFilePage(List.of(), null, false));
+        when(fileSystem.listPage("/reports/nested", null, 500)).thenReturn(
+                new TransferFilePage(List.of(second), null, false));
+        when(fileSystem.openRead("/reports/a.txt", 0L, 1L))
+                .thenReturn(new ByteArrayInputStream(new byte[]{'a'}));
+        when(fileSystem.openRead("/reports/nested/b.txt", 0L, 1L))
+                .thenReturn(new ByteArrayInputStream(new byte[]{'b'}));
+        when(fileSystem.openRead("/loose.txt", 0L, 1L))
+                .thenReturn(new ByteArrayInputStream(new byte[]{'l'}));
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+
+        executor.downloadArchive(datasource,
+                List.of("/reports", "/reports/a.txt", "/loose.txt"), output);
+
+        Map<String, String> archive = unzip(output.toByteArray());
+        assertEquals(Set.of("reports/", "reports/empty/", "reports/a.txt",
+                        "reports/nested/", "reports/nested/b.txt", "loose.txt"),
+                archive.keySet());
+        assertEquals("a", archive.get("reports/a.txt"));
+        assertEquals("b", archive.get("reports/nested/b.txt"));
+        assertEquals("l", archive.get("loose.txt"));
+        verify(fileSystem, org.mockito.Mockito.times(1))
+                .openRead("/reports/a.txt", 0L, 1L);
+    }
+
+    private Map<String, String> unzip(byte[] bytes) throws Exception {
+        Map<String, String> result = new LinkedHashMap<String, String>();
+        try (ZipInputStream input = new ZipInputStream(new ByteArrayInputStream(bytes),
+                StandardCharsets.UTF_8)) {
+            ZipEntry entry;
+            while ((entry = input.getNextEntry()) != null) {
+                result.put(entry.getName(), entry.isDirectory() ? ""
+                        : new String(input.readAllBytes(), StandardCharsets.UTF_8));
+            }
+        }
+        return result;
+    }
+
     private TransferFileEntry file(String path) {
+        return file(path, 10L);
+    }
+
+    private TransferFileEntry file(String path, long size) {
         return new TransferFileEntry(path, path.substring(path.lastIndexOf('/') + 1),
-                false, 10L, 1L, "etag");
+                false, size, 1L, "etag");
     }
 
     private TransferFileEntry directory(String path) {

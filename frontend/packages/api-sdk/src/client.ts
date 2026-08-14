@@ -110,6 +110,7 @@ import type {
   FieldMappingRuleView,
   FileTransferBrowserPageView,
   FileTransferBrowserRequest,
+  FileTransferFileEntryView,
   FileTransferManualItemRequest,
   FileTransferManualRunRequest,
   FileTransferMetricDashboardView,
@@ -121,12 +122,16 @@ import type {
   FileTransferTaskDefinitionView,
   FileTransferTaskSaveRequest,
   UnstructuredAclEntryView,
+  UnstructuredArchiveDownloadRequest,
+  UnstructuredDownloadTicketRequest,
+  UnstructuredDownloadTicketView,
   UnstructuredOperationRequest,
   UnstructuredOperationResultView,
   UnstructuredPathAclRequest,
   UnstructuredPermissionView,
   UnstructuredSourceAclRequest,
   UnstructuredSourceView,
+  UnstructuredUploadResultView,
   FollowRequest,
   FollowStatusView,
   JobContainerConfig,
@@ -456,6 +461,22 @@ export function createStudioApi(options: StudioApiOptions = {}) {
   const request = <T>(config: StudioRequestConfig) => unwrap<T>(instance.request<Result<T>>(config) as Promise<{ data: Result<T> }>);
   const requestPage = <T>(config: StudioRequestConfig, query?: { pageNo?: number; pageSize?: number }) =>
     request<unknown>(config).then((payload) => normalizePageResult<T>(payload, query?.pageNo ?? 1, query?.pageSize ?? 20));
+  const requestBlob = async (config: StudioRequestConfig) => {
+    try {
+      const response = await instance.request<Blob>({ ...config, responseType: "blob" });
+      return response.data;
+    } catch (error) {
+      const source = error as { cause?: { response?: { data?: unknown } }; response?: { data?: unknown } };
+      const data = source.cause?.response?.data ?? source.response?.data;
+      if (data instanceof Blob) {
+        const message = responseDataMessage(await data.text());
+        if (message && error instanceof Error) {
+          error.message = message;
+        }
+      }
+      throw error;
+    }
+  };
 
   return {
     auth: {
@@ -1632,8 +1653,42 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           return request<FileTransferBrowserPageView>({ ...config, url: "/unstructured-management/browser/list", method: "POST", data: payload });
         },
       },
+      stat(params: { runtimeClusterId: EntityId; datasourceId: EntityId; path: string }, config?: StudioRequestConfig) {
+        return request<FileTransferFileEntryView>({ ...config, url: "/unstructured-management/stat", method: "GET", params });
+      },
+      upload(
+        params: { runtimeClusterId: EntityId; datasourceId: EntityId; targetPath: string; overwrite?: boolean },
+        file: File,
+        onProgress?: (percentage: number) => void,
+        config?: StudioRequestConfig,
+      ) {
+        return request<UnstructuredUploadResultView>({
+          ...config,
+          url: "/unstructured-management/upload",
+          method: "POST",
+          params,
+          data: file,
+          timeout: 0,
+          headers: { ...config?.headers, "Content-Type": "application/octet-stream" },
+          onUploadProgress: (event) => {
+            const total = event.total ?? file.size;
+            onProgress?.(total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 100);
+          },
+        });
+      },
       download(params: { runtimeClusterId: EntityId; datasourceId: EntityId; path: string }, config?: StudioRequestConfig) {
-        return instance.request<Blob>({ ...config, url: "/unstructured-management/download", method: "GET", params, responseType: "blob" }).then((response) => response.data);
+        return requestBlob({ ...config, url: "/unstructured-management/download", method: "GET", params, timeout: 0 });
+      },
+      downloadArchive(payload: UnstructuredArchiveDownloadRequest, config?: StudioRequestConfig) {
+        return requestBlob({ ...config, url: "/unstructured-management/download/archive", method: "POST", data: payload, timeout: 0 });
+      },
+      createDownloadTicket(payload: UnstructuredDownloadTicketRequest, config?: StudioRequestConfig) {
+        return request<UnstructuredDownloadTicketView>({
+          ...config,
+          url: "/unstructured-management/download-tickets",
+          method: "POST",
+          data: payload,
+        });
       },
       operate(payload: UnstructuredOperationRequest) {
         return request<UnstructuredOperationResultView>({ url: "/unstructured-management/operations", method: "POST", data: payload });

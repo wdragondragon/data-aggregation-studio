@@ -18,6 +18,8 @@ import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
 import com.jdragon.studio.dto.model.request.RuntimeDatasourceProbeRequest;
+import com.jdragon.studio.dto.model.request.RuntimeDatasourceArchiveRequest;
+import com.jdragon.studio.dto.model.request.RuntimeDatasourceUploadRequest;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RuntimeClusterEntity;
 import com.jdragon.studio.infra.entity.RuntimeEndpointEntity;
@@ -32,12 +34,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.OutputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Base64;
 
 /** Routes datasource probes to the selected runtime. No endpoint means UNKNOWN, never UNAVAILABLE. */
 @Service
@@ -242,13 +246,86 @@ public class RuntimeDatasourceProbeRouter {
                     target, "POST", runtimeRequestHeaders(endpoint),
                     serializePayload(payload).getBytes(StandardCharsets.UTF_8),
                     timeout(endpoint.getConnectTimeoutMillis(), 3000),
-                    timeout(endpoint.getReadTimeoutMillis(), 60000), output);
+                    downloadReadIdleTimeout(), output);
             if (!RuntimeInternalHeaders.isAuthenticatedRuntimeResponse(response.getHeaders())) throw unavailable();
             if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
                 Map<String, Object> envelope = objectMapper.readValue(response.getErrorBody(),
                         new TypeReference<LinkedHashMap<String, Object>>() { });
                 throw remoteError(response.getStatusCode(), envelope);
             }
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (StudioException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public void downloadArchive(DataSourceDefinition datasource, Long clusterId,
+                                List<String> paths, OutputStream output) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceArchiveRequest payload = objectMapper.convertValue(
+                payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED),
+                RuntimeDatasourceArchiveRequest.class);
+        payload.setPaths(paths == null ? new ArrayList<String>() : new ArrayList<String>(paths));
+        try {
+            executeStreamingDownload(endpoint, payload,
+                    "/internal/runtime/datasource/file-archive", output);
+        } catch (RemoteRuntimeException ex) {
+            throw ex;
+        } catch (StudioException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw unavailable();
+        }
+    }
+
+    public long upload(DataSourceDefinition datasource, Long clusterId, String targetPath,
+                       boolean overwrite, long contentLength, InputStream input) {
+        RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
+        RuntimeEndpointEntity endpoint = endpoint(cluster);
+        if (endpoint == null || !online(cluster)) throw unavailable();
+        RuntimeDatasourceUploadRequest payload = objectMapper.convertValue(
+                payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED),
+                RuntimeDatasourceUploadRequest.class);
+        payload.setTargetPath(targetPath);
+        payload.setOverwrite(overwrite);
+        payload.setContentLength(contentLength);
+        try {
+            String endpointUrl = encryption.decrypt(endpoint.getEndpointCiphertext());
+            String baseUrl = runtimeEndpointSecurityService.validate(endpointUrl).toString().replaceAll("/+$", "");
+            RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target =
+                    runtimeEndpointSecurityService.validateRequestTarget(
+                            baseUrl + "/internal/runtime/datasource/file-upload");
+            if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
+            Map<String, List<String>> headers = runtimeRequestHeaders(endpoint);
+            headers.put("Content-Type", List.of("application/octet-stream"));
+            addHeader(headers, RuntimeInternalHeaders.RUNTIME_REQUEST_HEADER,
+                    Base64.getUrlEncoder().withoutPadding().encodeToString(
+                            serializePayload(payload).getBytes(StandardCharsets.UTF_8)));
+            RuntimeEndpointHttpClient.Response response = runtimeEndpointHttpClient.execute(
+                    target, "POST", headers, input, contentLength,
+                    timeout(endpoint.getConnectTimeoutMillis(), 3000),
+                    longTransferTimeout(endpoint.getReadTimeoutMillis()), 1024 * 1024);
+            if (!RuntimeInternalHeaders.isAuthenticatedRuntimeResponse(response.getHeaders())) {
+                throw unavailable();
+            }
+            Map<String, Object> envelope = objectMapper.readValue(response.getBody(),
+                    new TypeReference<LinkedHashMap<String, Object>>() { });
+            if (!Boolean.TRUE.equals(envelope.get("success"))) {
+                throw remoteError(response.getStatusCode(), envelope);
+            }
+            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                throw unavailable();
+            }
+            Object data = envelope.get("data");
+            if (!(data instanceof Map<?, ?> dataMap) || dataMap.get("bytes") == null) {
+                throw unavailable();
+            }
+            return Long.parseLong(String.valueOf(dataMap.get("bytes")));
         } catch (RemoteRuntimeException ex) {
             throw ex;
         } catch (StudioException ex) {
@@ -399,7 +476,6 @@ public class RuntimeDatasourceProbeRouter {
             throw unavailable();
         }
         byte[] responseBody = response.getBody();
-        if (response.getStatusCode() == 409) throw unavailable();
         Map<String,Object> envelope = objectMapper.readValue(responseBody,
                 new TypeReference<LinkedHashMap<String,Object>>() {});
         if (!Boolean.TRUE.equals(envelope.get("success"))) {
@@ -407,6 +483,28 @@ public class RuntimeDatasourceProbeRouter {
         }
         if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) throw unavailable();
         return envelope.get("data");
+    }
+
+    private void executeStreamingDownload(RuntimeEndpointEntity endpoint,
+                                          RuntimeDatasourceProbeRequest payload,
+                                          String path,
+                                          OutputStream output) throws Exception {
+        String endpointUrl = encryption.decrypt(endpoint.getEndpointCiphertext());
+        String baseUrl = runtimeEndpointSecurityService.validate(endpointUrl).toString().replaceAll("/+$", "");
+        RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target =
+                runtimeEndpointSecurityService.validateRequestTarget(baseUrl + path);
+        if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
+        RuntimeEndpointHttpClient.StreamingResponse response = runtimeEndpointHttpClient.executeStreaming(
+                target, "POST", runtimeRequestHeaders(endpoint),
+                serializePayload(payload).getBytes(StandardCharsets.UTF_8),
+                timeout(endpoint.getConnectTimeoutMillis(), 3000),
+                downloadReadIdleTimeout(), output);
+        if (!RuntimeInternalHeaders.isAuthenticatedRuntimeResponse(response.getHeaders())) throw unavailable();
+        if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+            Map<String, Object> envelope = objectMapper.readValue(response.getErrorBody(),
+                    new TypeReference<LinkedHashMap<String, Object>>() { });
+            throw remoteError(response.getStatusCode(), envelope);
+        }
     }
 
     private Map<String, List<String>> runtimeRequestHeaders(RuntimeEndpointEntity endpoint) throws Exception {
@@ -464,6 +562,7 @@ public class RuntimeDatasourceProbeRouter {
         if (!StringUtils.hasText(code)) {
             code = status == 403 ? StudioErrorCode.FORBIDDEN
                     : status == 404 ? StudioErrorCode.NOT_FOUND
+                    : status == 409 ? StudioErrorCode.CONFLICT
                     : status >= 500 ? StudioErrorCode.INTERNAL_SERVER_ERROR
                     : StudioErrorCode.BUSINESS_ERROR;
         }
@@ -476,6 +575,15 @@ public class RuntimeDatasourceProbeRouter {
     private ConnectionTestResult unknown(String message) { ConnectionTestResult r=new ConnectionTestResult(); r.setSuccess(false);r.setStatus(DataSourceConnectionStatus.UNKNOWN);r.setMessage(message);return r; }
     private StudioException unavailable() { return new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE, "Target runtime cluster is unavailable"); }
     private int timeout(Integer value, int fallback) { return value == null ? fallback : Math.max(100, Math.min(value, 60000)); }
+    private int longTransferTimeout(Integer value) {
+        int configured = value == null || value <= 0 ? 300000 : Math.max(value, 300000);
+        return Math.max(1000, Math.min(configured, 30 * 60 * 1000));
+    }
+    private int downloadReadIdleTimeout() {
+        Integer configured = properties.getFileTransfer().getDownloadReadIdleTimeoutMillis();
+        int timeout = configured == null || configured <= 0 ? 30 * 60 * 1000 : configured;
+        return Math.max(1000, Math.min(timeout, 30 * 60 * 1000));
+    }
     private boolean containsHeader(Map<String, String> headers, String expected) {
         for (String name : headers.keySet()) if (expected.equalsIgnoreCase(name)) return true;
         return false;

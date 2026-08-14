@@ -14,11 +14,14 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.isNull;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 
 class FileTransferPublicRouteContractTest {
 
@@ -55,14 +58,35 @@ class FileTransferPublicRouteContractTest {
     @Test
     void shouldExposeFileTransferServerSentEventStream() throws Exception {
         FileTransferEventService eventService = mock(FileTransferEventService.class);
-        when(eventService.connect()).thenReturn(new SseEmitter());
+        when(eventService.connect(isNull(String.class))).thenReturn(new SseEmitter());
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
                 new FileTransferRunController(mock(FileTransferRunService.class), eventService))
                 .build();
 
         mockMvc.perform(get("/api/v1/file-transfer/runs/events")
                         .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-cache"))
+                .andExpect(header().string("X-Accel-Buffering", "no"))
+                .andExpect(header().string("Connection", "keep-alive"));
+
+        verify(eventService).connect(isNull(String.class));
+    }
+
+    @Test
+    void shouldForwardLastEventIdHeaderToEventService() throws Exception {
+        FileTransferEventService eventService = mock(FileTransferEventService.class);
+        when(eventService.connect("99")).thenReturn(new SseEmitter());
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
+                new FileTransferRunController(mock(FileTransferRunService.class), eventService))
+                .build();
+
+        mockMvc.perform(get("/api/v1/file-transfer/runs/events")
+                        .header("Last-Event-ID", "99")
+                        .accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(status().isOk());
+
+        verify(eventService).connect("99");
     }
 
     @Test

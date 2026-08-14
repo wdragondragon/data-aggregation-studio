@@ -18,6 +18,7 @@ import com.jdragon.studio.dto.model.UnstructuredAclEntryView;
 import com.jdragon.studio.dto.model.UnstructuredOperationResultView;
 import com.jdragon.studio.dto.model.UnstructuredPermissionView;
 import com.jdragon.studio.dto.model.UnstructuredSourceView;
+import com.jdragon.studio.dto.model.UnstructuredUploadResultView;
 import com.jdragon.studio.dto.model.request.UnstructuredAclEntryRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredOperationRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredPathAclRequest;
@@ -47,6 +48,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.io.InputStream;
+import java.io.OutputStream;
 
 @Service
 public class UnstructuredManagementService {
@@ -121,6 +124,153 @@ public class UnstructuredManagementService {
         String normalizedPath = normalizePath(path);
         assertPermission(datasource, normalizedPath, permission);
         return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+    }
+
+    public FileTransferFileEntryView statForUpload(Long runtimeClusterId, Long datasourceId,
+                                                   String path) {
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        String normalizedPath = normalizePath(path);
+        if ("/".equals(normalizedPath)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Upload target must be a file path");
+        }
+        assertPermission(datasource, parentPath(normalizedPath), UnstructuredAclPermission.EDIT);
+        return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+    }
+
+    public UnstructuredUploadResultView upload(Long runtimeClusterId, Long datasourceId,
+                                               String targetPath, boolean overwrite,
+                                               long contentLength, InputStream input) {
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        String normalizedPath = normalizePath(targetPath);
+        if ("/".equals(normalizedPath)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Upload target must be a file path");
+        }
+        assertPermission(datasource, parentPath(normalizedPath), UnstructuredAclPermission.EDIT);
+        Long userId = securityService.currentUserId();
+        String username = securityService.currentUsername();
+        try {
+            if (!overwrite) {
+                try {
+                    runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+                    throw new StudioException(StudioErrorCode.CONFLICT,
+                            "Upload target already exists");
+                } catch (StudioException exception) {
+                    if (!StudioErrorCode.NOT_FOUND.equals(exception.getCode())) {
+                        throw exception;
+                    }
+                }
+            }
+            long bytes = runtimeRouter.upload(datasource, runtimeClusterId, normalizedPath,
+                    overwrite, contentLength, input);
+            recordAuditSafely(datasource, runtimeClusterId, userId, username,
+                    "UPLOAD", null, normalizedPath, false, "SUCCESS", bytes + " bytes");
+            UnstructuredUploadResultView result = new UnstructuredUploadResultView();
+            result.setOperation("UPLOAD");
+            result.setTargetPath(normalizedPath);
+            result.setBytes(bytes);
+            result.setOverwritten(overwrite);
+            result.setMessage("Upload completed");
+            return result;
+        } catch (RuntimeException exception) {
+            recordAuditSafely(datasource, runtimeClusterId, userId, username,
+                    "UPLOAD", null, normalizedPath, false, "FAILED", message(exception));
+            throw exception;
+        }
+    }
+
+    public PreparedArchive prepareArchive(Long runtimeClusterId, Long datasourceId,
+                                          List<String> paths) {
+        if (paths == null || paths.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "At least one archive path is required");
+        }
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<String>();
+        List<FileTransferFileEntryView> entries = new ArrayList<FileTransferFileEntryView>();
+        for (String path : paths) {
+            String normalizedPath = normalizePath(path);
+            if (!normalizedPaths.add(normalizedPath)) {
+                continue;
+            }
+            assertPermission(datasource, normalizedPath, UnstructuredAclPermission.DOWNLOAD);
+            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath));
+        }
+        String fileName = "download.zip";
+        if (normalizedPaths.size() == 1 && !entries.isEmpty()
+                && Boolean.TRUE.equals(entries.get(0).getDirectory())) {
+            String name = entries.get(0).getName();
+            fileName = (name == null || name.isBlank() ? "download" : name) + ".zip";
+        }
+        return new PreparedArchive(datasource, runtimeClusterId,
+                new ArrayList<String>(normalizedPaths), fileName,
+                securityService.currentUserId(), securityService.currentUsername());
+    }
+
+    public PreparedNativeDownload prepareNativeDownload(Long runtimeClusterId, Long datasourceId,
+                                                        List<String> paths) {
+        if (paths == null || paths.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "At least one download path is required");
+        }
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        LinkedHashSet<String> normalizedPaths = new LinkedHashSet<String>();
+        List<FileTransferFileEntryView> entries = new ArrayList<FileTransferFileEntryView>();
+        for (String path : paths) {
+            String normalizedPath = normalizePath(path);
+            if (!normalizedPaths.add(normalizedPath)) {
+                continue;
+            }
+            assertPermission(datasource, normalizedPath, UnstructuredAclPermission.DOWNLOAD);
+            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath));
+        }
+        if (normalizedPaths.size() == 1 && !entries.isEmpty()
+                && !Boolean.TRUE.equals(entries.get(0).getDirectory())) {
+            String normalizedPath = normalizedPaths.iterator().next();
+            FileTransferFileEntryView entry = entries.get(0);
+            String fileName = entry.getName() == null || entry.getName().isBlank()
+                    ? "download" : entry.getName();
+            PreparedDownload download = new PreparedDownload(
+                    datasource, runtimeClusterId, normalizedPath, entry);
+            return new PreparedNativeDownload(false, download, null, fileName,
+                    entry.getSize(), List.of(normalizedPath));
+        }
+
+        String fileName = "download.zip";
+        if (normalizedPaths.size() == 1 && !entries.isEmpty()) {
+            String name = entries.get(0).getName();
+            fileName = (name == null || name.isBlank() ? "download" : name) + ".zip";
+        }
+        List<String> preparedPaths = new ArrayList<String>(normalizedPaths);
+        PreparedArchive archive = new PreparedArchive(datasource, runtimeClusterId,
+                preparedPaths, fileName, securityService.currentUserId(),
+                securityService.currentUsername());
+        return new PreparedNativeDownload(true, null, archive, fileName,
+                null, preparedPaths);
+    }
+
+    public void downloadArchive(PreparedArchive prepared, OutputStream output) {
+        if (prepared == null || prepared.datasource() == null
+                || prepared.runtimeClusterId() == null || prepared.paths() == null
+                || prepared.paths().isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Prepared archive context is incomplete");
+        }
+        try {
+            runtimeRouter.downloadArchive(prepared.datasource(), prepared.runtimeClusterId(),
+                    prepared.paths(), output);
+            recordAuditSafely(prepared.datasource(), prepared.runtimeClusterId(),
+                    prepared.userId(), prepared.username(), "DOWNLOAD_ARCHIVE",
+                    String.join("\n", prepared.paths()), null, true,
+                    "SUCCESS", prepared.paths().size() + " selected paths");
+        } catch (RuntimeException exception) {
+            recordAuditSafely(prepared.datasource(), prepared.runtimeClusterId(),
+                    prepared.userId(), prepared.username(), "DOWNLOAD_ARCHIVE",
+                    String.join("\n", prepared.paths()), null, true,
+                    "FAILED", message(exception));
+            throw exception;
+        }
     }
 
     public String assertPermission(Long runtimeClusterId, Long datasourceId, String path,
@@ -497,6 +647,26 @@ public class UnstructuredManagementService {
         auditMapper.insert(audit);
     }
 
+    private void recordAudit(DataSourceDefinition datasource, Long runtimeClusterId,
+                             Long userId, String username, String operation,
+                             String sourcePath, String targetPath, boolean recursive,
+                             String status, String message) {
+        UnstructuredOpAuditEntity audit = new UnstructuredOpAuditEntity();
+        audit.setTenantId(datasource.getTenantId());
+        audit.setProjectId(datasource.getProjectId());
+        audit.setDatasourceId(datasource.getId());
+        audit.setRuntimeClusterId(runtimeClusterId);
+        audit.setUserId(userId);
+        audit.setUsername(username);
+        audit.setOperation(operation);
+        audit.setSourcePath(sourcePath);
+        audit.setTargetPath(targetPath);
+        audit.setRecursive(recursive ? 1 : 0);
+        audit.setStatus(status);
+        audit.setMessage(auditMessage(message));
+        auditMapper.insert(audit);
+    }
+
     /**
      * Auditing must never replace the result of the remote file operation. A
      * schema/connection problem in the audit database is logged and allowed to
@@ -507,6 +677,19 @@ public class UnstructuredManagementService {
                                    String status, String message) {
         try {
             recordAudit(datasource, request, operation, sourcePath, targetPath, status, message);
+        } catch (RuntimeException auditException) {
+            log.warn("Unable to persist unstructured operation audit: operation={}, datasourceId={}, status={}",
+                    operation, datasource == null ? null : datasource.getId(), status, auditException);
+        }
+    }
+
+    private void recordAuditSafely(DataSourceDefinition datasource, Long runtimeClusterId,
+                                   Long userId, String username, String operation,
+                                   String sourcePath, String targetPath, boolean recursive,
+                                   String status, String message) {
+        try {
+            recordAudit(datasource, runtimeClusterId, userId, username, operation,
+                    sourcePath, targetPath, recursive, status, message);
         } catch (RuntimeException auditException) {
             log.warn("Unable to persist unstructured operation audit: operation={}, datasourceId={}, status={}",
                     operation, datasource == null ? null : datasource.getId(), status, auditException);
@@ -558,5 +741,21 @@ public class UnstructuredManagementService {
                                    Long runtimeClusterId,
                                    String path,
                                    FileTransferFileEntryView entry) {
+    }
+
+    public record PreparedArchive(DataSourceDefinition datasource,
+                                  Long runtimeClusterId,
+                                  List<String> paths,
+                                  String fileName,
+                                  Long userId,
+                                  String username) {
+    }
+
+    public record PreparedNativeDownload(boolean archive,
+                                         PreparedDownload download,
+                                         PreparedArchive archiveDownload,
+                                         String fileName,
+                                         Long contentLength,
+                                         List<String> paths) {
     }
 }
