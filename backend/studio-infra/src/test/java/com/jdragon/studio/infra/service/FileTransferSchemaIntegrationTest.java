@@ -60,6 +60,7 @@ class FileTransferSchemaIntegrationTest {
             assertEquals(1, columnCount(statement, "dispatch_task", "file_transfer_run_id"));
             assertEquals(1, columnCount(statement, "run_record", "file_transfer_task_id"));
             assertEquals(1, columnCount(statement, "run_record", "file_transfer_run_id"));
+            assertEquals(1, columnCount(statement, "file_transfer_run", "queue_visible"));
 
             statement.executeUpdate("insert into file_transfer_task_definition " +
                     "(id, tenant_id, project_id, code, name, status, source_runtime_cluster_id, " +
@@ -73,6 +74,8 @@ class FileTransferSchemaIntegrationTest {
             statement.executeUpdate("insert into file_transfer_run " +
                     "(id, tenant_id, project_id, status, target_runtime_cluster_id) " +
                     "values (100, 'tenant-a', 10, 'RUNNING', 12)");
+            assertEquals(1, count(statement,
+                    "select queue_visible from file_transfer_run where id=100"));
             statement.executeUpdate("insert into file_transfer_run_item " +
                     "(id, tenant_id, project_id, run_id, core_item_id, source_runtime_cluster_id, " +
                     "source_datasource_id, source_path, target_runtime_cluster_id, target_datasource_id, " +
@@ -98,7 +101,9 @@ class FileTransferSchemaIntegrationTest {
                 "studio-server/src/main/resources/update/20260807/20260807-file-transfer.sql");
         String outboxMigration = backendFile(
                 "studio-server/src/main/resources/update/20260812/20260812-file-transfer-event-outbox.sql");
-        String migration = baseMigration + "\n" + outboxMigration;
+        String queueVisibilityMigration = backendFile(
+                "studio-server/src/main/resources/update/20260816/20260816-file-transfer-queue-visibility.sql");
+        String migration = baseMigration + "\n" + outboxMigration + "\n" + queueVisibilityMigration;
         String upgrade = Files.readString(Path.of(
                 "src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java"),
                 StandardCharsets.UTF_8);
@@ -122,6 +127,11 @@ class FileTransferSchemaIntegrationTest {
             assertTrue(migration.contains(column));
             assertTrue(upgrade.contains(column));
         }
+        assertTrue(mysql.contains("queue_visible int not null default 1"));
+        assertTrue(sqlite.contains("queue_visible integer not null default 1"));
+        assertTrue(queueVisibilityMigration.contains("add column queue_visible int not null default 1"));
+        assertTrue(upgrade.contains("add column queue_visible int not null default 1"));
+        assertTrue(upgrade.contains("add column queue_visible integer not null default 1"));
         assertTrue(outboxMigration.contains("FILE_TRANSFER_EVENT_OUTBOX_REQUIRES_MANUAL_BACKFILL"));
         assertTrue(outboxMigration.contains("FILE_TRANSFER_EVENT_CURSOR_REQUIRES_MANUAL_BACKFILL"));
         assertTrue(upgrade.contains("Cannot auto-repair non-empty"));

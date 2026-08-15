@@ -21,6 +21,7 @@ public class FileTransferRunEntity extends BaseProjectTenantEntity {
     private String direction;
     private String channel;
     private String status;
+    private Boolean queueVisible;
     private Long runtimeClusterId;
     private Long sourceRuntimeClusterId;
     private Long sourceDatasourceId;

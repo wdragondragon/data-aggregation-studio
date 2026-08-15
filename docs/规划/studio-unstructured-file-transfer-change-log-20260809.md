@@ -1,10 +1,10 @@
 # Studio 单集群文件传输与非结构化管理改造变更跟踪
 
-> 状态：单集群功能与 MySQL Outbox 高可用实现已完成；4 GiB SFTP 扩展业务矩阵仍待完成
+> 状态：单集群功能、MySQL Outbox 高可用和 W10 日志增强已完成；4 GiB SFTP 扩展业务矩阵仍待完成
 > 目标线程 ID：`019fdb69-25b0-7bd3-a544-39738bf0e618`
 > 基线设计文档：[`studio-unstructured-file-transfer-plan-20260807.md`](./studio-unstructured-file-transfer-plan-20260807.md)
 > 需求确认日期：2026-08-09
-> 当前阶段：W6 长时间环境验收收尾（Outbox W7 已完成）
+> 当前阶段：W6 长时间环境验收收尾；W10 日志增强已完成
 
 ## 1. 目的与使用规则
 
@@ -72,6 +72,7 @@
 | W4 | 数据源创建者、源级/路径级 ACL、操作审计 | 已完成 | 2026-08-09 | 项目成员边界、ALLOW/DENY/INHERIT、管理员/创建者绕过 |
 | W5 | 非结构化管理菜单、浏览器、ACL 页面和权限状态 | 已完成 | 2026-08-09 | `/dfs/data-aggregation-studio/unstructured-management` |
 | W6 | 后端、前端、真实 OSS/FTP/SFTP、重启和健康检查验收 | 进行中 | - | OSS/FTP 小样本和 SFTP 连接、浏览、目录操作、出方向暂停/恢复已通过；4 GiB 四方向终态和三源文件管理矩阵仍在执行 |
+| W10 | 非结构化管理与文件传输日志增强 | 已完成 | 2026-08-15 | 代码、自动化、真实 SFTP 权限拒绝、三源操作、统一入口、敏感扫描和重启健康检查均已完成 |
 
 ## 6. 公共接口变更清单
 
@@ -338,3 +339,34 @@ GET    /api/v1/unstructured-management/users/options
 - Studio 与 Web：任务保存、校验、发布、触发和即时入队共用策略规范化；运行文件项返回配置/有效模式和采样参数。Outbox/SSE 新增 `TARGET_SAMPLE` 与模式字段，迟到事件仍不能覆盖提交中或终态。即时策略弹窗、预设任务编辑器、任务列表、队列和运行详情均支持三档选择、参数联动、自动提升提示与采样指纹展示。
 - 数据库与发布：不新增表、字段、索引、SQL 或 Liquibase，继续使用 `policy_json`、`resolved_spec_json` 和现有摘要字段。生产发布需要更新 `studio-worker`、`studio-server` 和 Studio Web；Local、FTP、SFTP、MinIO、OSS 插件包无需因本功能重新发布。
 - 定向自动化：Java 17 下文件传输核心 41 项通过；Studio 策略规范化、运行 DTO 推导、Outbox/SSE、Worker 事件和后处理重试共 43 项通过，均为 0 失败、0 错误。Web 文件传输队列静态回归、`vue-tsc --noEmit` 和 4331 模块生产构建通过。真实五类数据源互传、FTP 采样成本和 MinIO multipart 临时目标采样仍需在发布环境执行，未表述为已通过。
+
+## 17. W10：非结构化管理与文件传输日志增强
+
+- 实施日期：2026-08-15；状态：已完成。
+- 实现边界：继续使用既有 `SLF4J + Logback` 和五个标准级别；没有新增日志门面、Appender、日志表、日志接口、中间件、数据库变更、公共 API 字段或前端轮询，也没有修改 Logback Pattern、`StudioCapturedMdcDenyFilter`、传输状态、checkpoint、Outbox、SSE、ACL 或文件操作语义。
+- 运行日志关联：`FileTransferNodeExecutor` 通过现有 `TransferEngine` task decorator 同时绑定 `PluginRuntimeSession` 和执行线程 MDC；并行 `file-transfer-*` 子线程继承 `runLogId`、`runLogPath`，结束后恢复线程原上下文。文件传输过程日志继续进入当前 `runRecordId` 对应的运行日志归档，不重复写入 Worker 主日志。
+- 生命周期日志：增加 `FT_DISPATCH_START/COMPLETED/FAILED`、`FT_PLAN_START/COMPLETED`、`FT_RUN_START/PARTIAL/COMPLETED`。失败阶段固定为 `LOAD_RUN`、`RESOLVE_SPEC`、`PLAN`、`TRANSFER`、`PERSIST_RESULT`、`FINISH`；完整异常栈只在调度生命周期入口输出一次。
+- 文件项日志：增加开始、恢复、摘要重建、回零、进度、校验、提交、暂停/恢复、重试、冲突、后置动作失败和终态事件码。单文件进度最多每 30 秒一条，运行汇总最多每 60 秒一条；终态、恢复决策、暂停、冲突和失败不受限频。进度明确区分 `confirmedBytes`、`observedBytes`、`activityBytes`、`resumedBytes` 和 `currentBps`。
+- checkpoint/Outbox/SSE：checkpoint 加载、保存和删除只使用 `DEBUG`，不打印 checkpoint JSON、checksum state 或临时物理定位；非空 Outbox 批次使用 `DEBUG`，有效 replay 使用 `INFO`，过期/超限/缺口和发送失败使用 `WARN`，实际清理数大于零才使用 `INFO`。250 ms 空轮询、heartbeat、每个传输块和单条 Outbox 行不产生日志。
+- 非结构化关联：Server 为浏览、stat、写操作、上传和实际下载生成 UUID，通过内部可选头 `X-Studio-Operation-Id` 传到 Worker。Worker 在请求和异步流线程内临时写入 MDC 并在 `finally` 恢复；该值只接受 64 字符以内的 `[A-Za-z0-9._-]+`，不参与认证、幂等、ACL 或业务响应。
+- 非结构化级别：浏览和 stat 成功使用 `DEBUG`；mkdir、rename、move、delete、上传和下载使用 `INFO`；ACL 拒绝、路径不存在、目标冲突、非空目录未确认和权限不足等预期拒绝使用 `WARN`；网络、协议、插件及不可预期异常使用 `ERROR`。Server 与 Worker 显式打印相同 `operationId` 便于串联。
+- 安全边界：只记录运行/操作身份、集群/数据源 ID 和类型、规范化逻辑路径、状态、字节、速度、耗时和异常类型。禁止记录密码、Token、Secret、AccessKey、PrivateKey、Authorization/Cookie、完整数据源配置、请求体、checkpoint JSON、checksum state、Worker 内部地址和对象存储凭据。`StudioSensitiveLogSanitizer.sanitizeSingleLine(...)` 统一执行敏感字段替换、首行截取、控制字符移除和长度限制；Worker 执行层、内部 Controller 响应边界和 Server 领域日志均使用该保护。Server 消息最多 2 KiB，不可预期异常栈脱敏后最多 12 KiB，审计摘要最多 1,800 字符；Worker 继续使用既有 `SanitizingPatternLayoutEncoder`。
+- SFTP 权限拒绝：SFTP 插件按协议状态码识别 `SSH_FX_PERMISSION_DENIED`，使用无堆栈 `WARN`，并避免旧 `AggregationException` 把 cause 堆栈拼入业务消息。Worker 将权限拒绝记录为 `UF_OPERATION_REJECTED`，不误报 `UF_WORKER_FAILED`；未知网络或插件异常仍保留脱敏后的 `ERROR` 堆栈。内部文件操作和上传错误响应再次执行单行脱敏，错误码和 HTTP 行为保持不变。
+- 自动化结果：Java 17 下日志增强广覆盖回归 Infra 64 项、Worker 33 项通过；最终边界回归包含 SFTP 插件 7 项、Studio Commons 3 项、Studio Infra 27 项和 Worker 内部 Controller 12 项，共 49 项，全部 0 失败、0 错误。`GlobalExceptionHandlerTest` 11 项通过；Worker 全模块仅保留两个与本次改动无关的历史 `WorkerSchedulingConfigurationTest` 夹具缺失问题，未将其表述为全量绿色。
+- 发布影响：不需要数据库升级或前端发布；需要重启 Studio Server 和 Studio Worker 才能启用新增日志。回滚只需回滚本工作包 Java 代码并重启，不处理数据库或历史运行记录。
+- 真实传输日志验收：持续超过 65 秒的大文件传输已产生 30 秒文件进度和 60 秒运行汇总；暂停/恢复、两次 Worker 重启后的 checkpoint 接管、`FT_RESUME_ACCEPTED`、SSE 自动更新和取消终态均已取得证据。运行日志 MDC 并行隔离自动化通过。
+- 真实非结构化验收：OSS、FTP、SFTP 的浏览和写操作均已覆盖，ACL 拒绝已验证。SFTP 真实根目录无权限创建返回兼容的 `400/BUSINESS_ERROR` 和单行脱敏消息；Server 与 Worker 使用相同 `operationId`，两端均为 `UF_OPERATION_REJECTED/WARN`，SFTP 插件为无堆栈权限 `WARN`，没有 `UF_WORKER_FAILED` 或业务堆栈。
+- 环境与安全验收：Server、Worker 健康状态均为 `UP`，运行集群在线 Worker 数为 1，统一 Web 入口返回 200；浏览器页面为默认租户/默认项目，文件传输中心正常渲染且控制台无新增错误或警告。前端继续通过流式 `/file-transfer/runs/events`、`Last-Event-ID` 和 `ReadableStream` 消费 SSE，文件传输代码中不存在列表 `setInterval`。应用日志抽取 228 条 `FT_*`/`UF_*` 事件，凭据赋值、checkpoint JSON、checksum state、内部认证头、技术元数据和物理 endpoint 六类扫描均为 0 命中。
+- 清理与残余风险：通过 Studio 非结构化接口重新浏览并确认 5 个日志验收隔离目录；底层共享目录经 3 次明确递归删除后，OSS、FTP、SFTP 三个视图的该前缀剩余数均为 0。启动日志仍有既有 Spring JCL/Commons Logging 类路径警告，属于依赖治理项，不影响本工作包验收；W6 的完整 4 GiB 四方向业务矩阵继续独立保持“进行中”。
+
+## 18. W11：传输队列清理与运行历史分离
+
+- 实施日期：2026-08-16；状态：已完成。
+- 缺陷根因：传输中心“清理已完成”和运行级“移出队列”直接调用 `DELETE /api/v1/file-transfer/runs/{runId}`；该兼容接口会逻辑删除 `file_transfer_run` 及其文件项，而运行记录页读取同一运行表，因此历史记录同步消失。
+- 数据模型：`file_transfer_run` 增加 `queue_visible`，MySQL 使用 `int not null default 1`，SQLite 使用 `integer not null default 1`。新运行显式初始化为可见，历史运行通过默认值保持可见；同步更新 MySQL/SQLite 新库 Schema、启动在线升级和幂等脚本 `20260816-file-transfer-queue-visibility.sql`，不新增索引或表。
+- 接口语义：新增 `DELETE /api/v1/file-transfer/runs/{runId}/queue`，只将即时运行移出队列并追加 `RUN_REMOVED` Outbox，不删除运行、文件项、指标、日志、checkpoint 或文件结果。原 `DELETE /{runId}` 保留真正的逻辑删除语义。`GET /runs` 新增可选 `queueOnly=true`，传输中心使用该条件，运行记录页保持无条件历史查询。
+- 状态边界：终态运行可直接隐藏；排队运行先取消未领取 Dispatch，确认没有 Worker 已领取后转为 `CANCELED` 并隐藏；`RUNNING/PAUSED` 或存在已领取 Dispatch 时拒绝隐藏。被隐藏的失败运行执行恢复或文件项重试后重新设置为队列可见。
+- SSE 与前端：传输中心“清理已完成”和运行级操作改用 `runs.dismiss`，继续由 SSE `RUN_REMOVED` 移除队列行；运行记录页收到同一事件后重新执行未过滤的历史查询，不再把队列移除当作历史删除。`LEGACY_SCAN` 回滚模式也只扫描队列可见运行，避免隐藏记录被旧扫描重新加入队列；未增加轮询。
+- 自动化结果：JDK 17 下 `FileTransferRunRemovalTest`、`FileTransferSchemaIntegrationTest`、`FileTransferEventServiceTest`、`FileTransferEventServiceOutboxTest` 共 39 项通过，Server 公共路由 4 项通过，全部 0 失败、0 错误。Web 文件传输队列回归通过，独立 `vue-tsc --noEmit` 和 4,331 模块生产构建通过，`git diff --check` 通过。
+- 环境结果：发布前只读查询确认活动文件传输为 0；重启 Server/Worker 后健康状态均为 `UP`，唯一运行集群在线 Worker 数为 1，统一 `8000` 入口返回 HTTP 200。新版 `queueOnly=true` 查询成功，证明当前 MySQL 字段升级已生效。环境没有可用于非破坏性操作验证的既有运行，未人为创建或删除业务运行；接口事务和前端行为由上述自动化覆盖。
+- 发布与回滚：本次需要升级数据库、重启 Server 并发布 Web；Worker 同步重启后恢复为在线。回滚代码前可将队列查询暂时停止传入 `queueOnly`，保留 `queue_visible` 字段和历史值，不删除该列；旧版本会忽略新增字段。

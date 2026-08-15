@@ -1806,6 +1806,7 @@ create table if not exists file_transfer_run (
     direction text,
     channel text,
     status text not null,
+    queue_visible integer not null default 1,
     runtime_cluster_id integer,
     source_runtime_cluster_id integer,
     source_datasource_id integer,

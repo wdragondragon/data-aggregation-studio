@@ -17,11 +17,15 @@ import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.FilterOutputStream;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -29,6 +33,7 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -37,7 +42,11 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 /** Executes datasource capabilities in the process that can actually reach the datasource. */
+@Slf4j
 public class RuntimeDatasourceProbeExecutor {
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 2 * 1024;
+    private static final String UNKNOWN_ERROR_MESSAGE = "Unknown error";
+
     private final AggregationSourceCapabilityProvider provider;
     private final DataDevelopmentSqlExecutor sqlExecutor;
 
@@ -66,6 +75,11 @@ public class RuntimeDatasourceProbeExecutor {
                                                String cursor, Integer pageSize) {
         int resolvedPageSize = pageSize == null ? 200 : Math.max(1, Math.min(1000, pageSize));
         String resolvedPath = path == null || path.trim().isEmpty() ? "/" : path.trim();
+        long startedAt = System.nanoTime();
+        log.debug("[UF_BROWSE_START] 开始浏览非结构化目录 operationId={} datasourceId={} "
+                        + "datasourceType={} path={} pageSize={} cursorPresent={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath,
+                resolvedPageSize, cursor != null && !cursor.isBlank());
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
             TransferFilePage page = fileSystem.listPage(resolvedPath, cursor, resolvedPageSize);
             FileTransferBrowserPageView view = new FileTransferBrowserPageView();
@@ -94,18 +108,33 @@ public class RuntimeDatasourceProbeExecutor {
             values.put("multipartWrite", capabilities.multipartWrite());
             values.put("checksumAlgorithms", capabilities.checksumAlgorithms());
             view.setCapabilities(values);
+            log.debug("[UF_BROWSE_COMPLETED] 非结构化目录浏览完成 operationId={} datasourceId={} "
+                            + "datasourceType={} path={} entries={} hasMore={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath,
+                    view.getEntries().size(), view.getHasMore(), elapsedMillis(startedAt));
             return view;
         } catch (Exception exception) {
-            throw new IllegalStateException("File browser failed: " + exception.getMessage(), exception);
+            logWorkerException("BROWSE", datasource, resolvedPath, null, exception, startedAt);
+            throw failure("File browser failed", exception);
         }
     }
 
     public FileTransferFileEntryView stat(DataSourceDefinition datasource, String path) {
         String resolvedPath = normalizePath(path);
+        long startedAt = System.nanoTime();
+        log.debug("[UF_STAT_START] 开始读取非结构化文件属性 operationId={} datasourceId={} "
+                        + "datasourceType={} path={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath);
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
-            return toFileEntry(fileSystem.stat(resolvedPath));
+            FileTransferFileEntryView entry = toFileEntry(fileSystem.stat(resolvedPath));
+            log.debug("[UF_STAT_COMPLETED] 非结构化文件属性读取完成 operationId={} datasourceId={} "
+                            + "datasourceType={} path={} directory={} size={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath,
+                    entry.getDirectory(), entry.getSize(), elapsedMillis(startedAt));
+            return entry;
         } catch (Exception exception) {
-            throw new IllegalStateException("File stat failed: " + exception.getMessage(), exception);
+            logWorkerException("STAT", datasource, resolvedPath, null, exception, startedAt);
+            throw failure("File stat failed", exception);
         }
     }
 
@@ -114,14 +143,22 @@ public class RuntimeDatasourceProbeExecutor {
         String resolvedSource = normalizePath(sourcePath);
         String resolvedTarget = targetPath == null || targetPath.trim().isEmpty()
                 ? null : normalizePath(targetPath);
+        String resolvedOperation = operation == null ? "" : operation.trim().toUpperCase();
+        long startedAt = System.nanoTime();
+        log.info("[UF_OPERATION_START] 非结构化文件操作开始 operationId={} datasourceId={} "
+                        + "datasourceType={} operation={} sourcePath={} targetPath={} recursiveConfirmed={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), resolvedOperation,
+                resolvedSource, resolvedTarget, Boolean.TRUE.equals(recursiveConfirmed));
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
-            switch (operation == null ? "" : operation.trim().toUpperCase()) {
+            switch (resolvedOperation) {
                 case "CREATE_DIRECTORY":
                     if (resolvedTarget != null) {
                         throw new IllegalArgumentException("Target path is not used when creating a directory");
                     }
                     ensureMissing(fileSystem, resolvedSource);
                     fileSystem.mkdir(resolvedSource);
+                    logOperationCompleted(datasource, resolvedOperation, resolvedSource,
+                            resolvedTarget, startedAt);
                     return;
                 case "RENAME":
                     if (resolvedTarget == null) {
@@ -131,6 +168,8 @@ public class RuntimeDatasourceProbeExecutor {
                     ensureMissing(fileSystem, resolvedTarget);
                     movePath(fileSystem, fileSystem.stat(resolvedSource),
                             resolvedSource, resolvedTarget);
+                    logOperationCompleted(datasource, resolvedOperation, resolvedSource,
+                            resolvedTarget, startedAt);
                     return;
                 case "MOVE":
                     if (resolvedTarget == null) {
@@ -142,6 +181,8 @@ public class RuntimeDatasourceProbeExecutor {
                     ensureMissing(fileSystem, resolvedTarget);
                     movePath(fileSystem, fileSystem.stat(resolvedSource),
                             resolvedSource, resolvedTarget);
+                    logOperationCompleted(datasource, resolvedOperation, resolvedSource,
+                            resolvedTarget, startedAt);
                     return;
                 case "DELETE":
                     if ("/".equals(resolvedSource)) {
@@ -153,17 +194,25 @@ public class RuntimeDatasourceProbeExecutor {
                         throw new IllegalArgumentException("Non-empty directory deletion requires recursive confirmation");
                     }
                     fileSystem.delete(resolvedSource);
+                    logOperationCompleted(datasource, resolvedOperation, resolvedSource,
+                            resolvedTarget, startedAt);
                     return;
                 default:
                     throw new IllegalArgumentException("Unsupported file operation: " + operation);
             }
         } catch (Exception exception) {
-            throw new IllegalStateException("File operation failed: " + exception.getMessage(), exception);
+            logWorkerException(resolvedOperation, datasource, resolvedSource,
+                    resolvedTarget, exception, startedAt);
+            throw failure("File operation failed", exception);
         }
     }
 
     public void download(DataSourceDefinition datasource, String path, OutputStream output) {
         String resolvedPath = normalizePath(path);
+        long startedAt = System.nanoTime();
+        log.info("[UF_DOWNLOAD_START] 非结构化文件下载开始 operationId={} datasourceId={} "
+                        + "datasourceType={} path={} selectionCount=1",
+                operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath);
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
             TransferFileEntry entry = fileSystem.stat(resolvedPath);
             if (entry.directory()) {
@@ -185,8 +234,13 @@ public class RuntimeDatasourceProbeExecutor {
                         + ": expected " + entry.size() + " bytes but received " + transferred);
             }
             output.flush();
+            log.info("[UF_DOWNLOAD_COMPLETED] 非结构化文件下载完成 operationId={} datasourceId={} "
+                            + "datasourceType={} path={} outputBytes={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), resolvedPath,
+                    transferred, elapsedMillis(startedAt));
         } catch (Exception exception) {
-            throw new IllegalStateException("File download failed: " + exception.getMessage(), exception);
+            logWorkerException("DOWNLOAD", datasource, resolvedPath, null, exception, startedAt);
+            throw failure("File download failed", exception);
         }
     }
 
@@ -202,6 +256,11 @@ public class RuntimeDatasourceProbeExecutor {
         String sessionId = UUID.randomUUID().toString();
         String temporaryPath = temporaryUploadPath(resolvedTarget, sessionId);
         TransferWriteSession session = null;
+        long startedAt = System.nanoTime();
+        log.info("[UF_UPLOAD_START] 非结构化文件上传开始 operationId={} datasourceId={} "
+                        + "datasourceType={} targetPath={} overwrite={} declaredBytes={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), resolvedTarget,
+                overwrite, contentLength);
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
             if (fileSystem.transferExists(resolvedTarget)) {
                 TransferFileEntry existing = fileSystem.stat(resolvedTarget);
@@ -223,22 +282,38 @@ public class RuntimeDatasourceProbeExecutor {
                         + ": expected " + contentLength + " bytes but received " + written);
             }
             fileSystem.commit(session, resolvedTarget, overwrite);
+            log.info("[UF_UPLOAD_COMPLETED] 非结构化文件上传完成 operationId={} datasourceId={} "
+                            + "datasourceType={} targetPath={} overwrite={} declaredBytes={} "
+                            + "actualBytes={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), resolvedTarget,
+                    overwrite, contentLength, written, elapsedMillis(startedAt));
             return written;
         } catch (Exception exception) {
             if (session != null) {
                 try (TransferFileSystem cleanup = provider.openTransferFileSystem(datasource)) {
                     cleanup.abort(session);
                 } catch (Exception cleanupException) {
+                    log.warn("[UF_ABORT_FAILED] 上传失败后清理临时目标失败 operationId={} datasourceId={} "
+                                    + "datasourceType={} targetPath={} exceptionType={} message={}",
+                            operationId(), datasourceId(datasource), datasourceType(datasource),
+                            resolvedTarget, cleanupException.getClass().getName(),
+                            safeExceptionMessage(cleanupException));
                     exception.addSuppressed(cleanupException);
                 }
             }
-            throw new IllegalStateException("File upload failed: " + exception.getMessage(), exception);
+            logWorkerException("UPLOAD", datasource, null, resolvedTarget, exception, startedAt);
+            throw failure("File upload failed", exception);
         }
     }
 
     public void downloadArchive(DataSourceDefinition datasource, List<String> paths,
                                 OutputStream output) {
         List<String> selectedPaths = normalizeArchivePaths(paths);
+        long startedAt = System.nanoTime();
+        CountingOutputStream countedOutput = new CountingOutputStream(output);
+        log.info("[UF_DOWNLOAD_START] 非结构化归档下载开始 operationId={} datasourceId={} "
+                        + "datasourceType={} selectionCount={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), selectedPaths.size());
         try (TransferFileSystem fileSystem = provider.openTransferFileSystem(datasource)) {
             List<ArchiveSelection> selections = new ArrayList<ArchiveSelection>();
             for (String path : selectedPaths) {
@@ -258,16 +333,131 @@ public class RuntimeDatasourceProbeExecutor {
             String basePath = commonArchiveBase(effectiveSelections.stream()
                     .map(ArchiveSelection::path).toList());
             Set<String> zipNames = new HashSet<String>();
-            ZipOutputStream archive = new ZipOutputStream(output, java.nio.charset.StandardCharsets.UTF_8);
+            ZipOutputStream archive = new ZipOutputStream(countedOutput, java.nio.charset.StandardCharsets.UTF_8);
             for (ArchiveSelection selection : effectiveSelections) {
                 writeArchiveEntry(fileSystem, selection.entry(), selection.path(),
                         basePath, archive, zipNames);
             }
             archive.finish();
             archive.flush();
+            log.info("[UF_DOWNLOAD_COMPLETED] 非结构化归档下载完成 operationId={} datasourceId={} "
+                            + "datasourceType={} selectionCount={} outputBytes={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), selectedPaths.size(),
+                    countedOutput.count(), elapsedMillis(startedAt));
         } catch (Exception exception) {
-            throw new IllegalStateException("File archive download failed: "
-                    + exception.getMessage(), exception);
+            logWorkerException("DOWNLOAD_ARCHIVE", datasource, null, null, exception, startedAt);
+            throw failure("File archive download failed", exception);
+        }
+    }
+
+    private void logWorkerException(String operation, DataSourceDefinition datasource,
+                                    String sourcePath, String targetPath,
+                                    Exception exception, long startedAt) {
+        if (expectedRejection(exception)) {
+            log.warn("[UF_OPERATION_REJECTED] Worker 非结构化文件操作被拒绝 operationId={} "
+                            + "datasourceId={} datasourceType={} operation={} sourcePath={} targetPath={} "
+                            + "exceptionType={} message={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource), operation,
+                    sourcePath, targetPath, exception.getClass().getName(),
+                    safeExceptionMessage(exception),
+                    elapsedMillis(startedAt));
+            return;
+        }
+        logWorkerFailure(operation, datasource, sourcePath, targetPath, exception, startedAt);
+    }
+
+    private void logOperationCompleted(DataSourceDefinition datasource, String operation,
+                                       String sourcePath, String targetPath, long startedAt) {
+        log.info("[UF_OPERATION_COMPLETED] 非结构化文件操作完成 operationId={} datasourceId={} "
+                        + "datasourceType={} operation={} sourcePath={} targetPath={} durationMillis={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), operation,
+                sourcePath, targetPath, elapsedMillis(startedAt));
+    }
+
+    private void logWorkerFailure(String operation, DataSourceDefinition datasource,
+                                  String sourcePath, String targetPath,
+                                  Exception exception, long startedAt) {
+        log.error("[UF_WORKER_FAILED] Worker 非结构化文件操作失败 operationId={} datasourceId={} "
+                        + "datasourceType={} operation={} sourcePath={} targetPath={} exceptionType={} "
+                        + "message={} durationMillis={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource), operation,
+                sourcePath, targetPath, exception.getClass().getName(),
+                safeExceptionMessage(exception),
+                elapsedMillis(startedAt), exception);
+    }
+
+    private boolean expectedRejection(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof IllegalArgumentException
+                    || current instanceof java.nio.file.FileAlreadyExistsException
+                    || current instanceof java.nio.file.NoSuchFileException
+                    || current instanceof java.nio.file.AccessDeniedException) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String normalized = message.toLowerCase(Locale.ROOT);
+                if (normalized.contains("permission denied")
+                        || normalized.contains("access denied")
+                        || message.contains("权限不足")
+                        || message.contains("无权限")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private IllegalStateException failure(String prefix, Exception exception) {
+        return new IllegalStateException(prefix + ": " + safeExceptionMessage(exception), exception);
+    }
+
+    private String safeExceptionMessage(Throwable throwable) {
+        String message = throwable == null ? null : throwable.getMessage();
+        String sanitized = StudioSensitiveLogSanitizer.sanitizeSingleLine(
+                message, MAX_ERROR_MESSAGE_LENGTH);
+        return sanitized == null || sanitized.isBlank() ? UNKNOWN_ERROR_MESSAGE : sanitized;
+    }
+
+    private String operationId() {
+        return MDC.get("operationId");
+    }
+
+    private Long datasourceId(DataSourceDefinition datasource) {
+        return datasource == null ? null : datasource.getId();
+    }
+
+    private String datasourceType(DataSourceDefinition datasource) {
+        return datasource == null ? null : datasource.getTypeCode();
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
+    }
+
+    private static final class CountingOutputStream extends FilterOutputStream {
+        private long count;
+
+        private CountingOutputStream(OutputStream output) {
+            super(output);
+        }
+
+        @Override
+        public void write(int value) throws IOException {
+            out.write(value);
+            count++;
+        }
+
+        @Override
+        public void write(byte[] values, int offset, int length) throws IOException {
+            out.write(values, offset, length);
+            count += length;
+        }
+
+        private long count() {
+            return count;
         }
     }
 

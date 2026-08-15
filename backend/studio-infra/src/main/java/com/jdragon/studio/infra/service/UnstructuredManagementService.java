@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.dto.enums.UnstructuredAclEffect;
 import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import com.jdragon.studio.dto.enums.UnstructuredAclPrincipalType;
@@ -48,8 +49,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 @Service
 public class UnstructuredManagementService {
@@ -58,6 +63,9 @@ public class UnstructuredManagementService {
             "local", "local_file", "file", "ftp", "sftp", "minio", "oss", "aliyun", "aliyun_oss", "aliyun-oss");
     private static final int MAX_AUDIT_MESSAGE_LENGTH = 1800;
     private static final String AUDIT_MESSAGE_TRUNCATED_SUFFIX = " ...[truncated]";
+    private static final int MAX_SANITIZED_STACK_TRACE_LENGTH = 12 * 1024;
+    private static final int MAX_SANITIZED_ERROR_MESSAGE_LENGTH = 2 * 1024;
+    private static final String STACK_TRACE_TRUNCATED_SUFFIX = "\n...[truncated]";
 
     private final DataSourceService dataSourceService;
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
@@ -112,48 +120,94 @@ public class UnstructuredManagementService {
 
     public FileTransferBrowserPageView browse(Long runtimeClusterId, Long datasourceId,
                                               String path, String cursor, Integer pageSize) {
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(path);
-        assertPermission(datasource, normalizedPath, UnstructuredAclPermission.BROWSE);
-        return runtimeRouter.browse(datasource, runtimeClusterId, normalizedPath, cursor, pageSize);
+        assertPermissionLogged(operationId, datasource, normalizedPath,
+                UnstructuredAclPermission.BROWSE, "BROWSE");
+        log.debug("[UF_BROWSE_START] Server 开始路由非结构化目录浏览 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} path={} pageSize={}",
+                operationId, runtimeClusterId, datasourceId, datasource.getTypeCode(), normalizedPath, pageSize);
+        try {
+            FileTransferBrowserPageView result = runtimeRouter.browse(datasource, runtimeClusterId,
+                    normalizedPath, cursor, pageSize, operationId);
+            log.debug("[UF_BROWSE_COMPLETED] Server 非结构化目录浏览完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} path={} entries={} hasMore={} durationMillis={}",
+                    operationId, runtimeClusterId, datasourceId, normalizedPath,
+                    result == null ? 0 : result.getEntries().size(),
+                    result == null ? null : result.getHasMore(), elapsedMillis(startedAt));
+            return result;
+        } catch (RuntimeException exception) {
+            logRouteFailure(operationId, "BROWSE", datasource, runtimeClusterId,
+                    normalizedPath, null, exception, startedAt);
+            throw exception;
+        }
     }
 
     public FileTransferFileEntryView stat(Long runtimeClusterId, Long datasourceId, String path,
                                           UnstructuredAclPermission permission) {
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(path);
-        assertPermission(datasource, normalizedPath, permission);
-        return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+        assertPermissionLogged(operationId, datasource, normalizedPath, permission, "STAT");
+        log.debug("[UF_STAT_START] Server 开始路由非结构化文件属性读取 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} path={}",
+                operationId, runtimeClusterId, datasourceId, datasource.getTypeCode(), normalizedPath);
+        try {
+            FileTransferFileEntryView result = runtimeRouter.stat(
+                    datasource, runtimeClusterId, normalizedPath, operationId);
+            log.debug("[UF_STAT_COMPLETED] Server 非结构化文件属性读取完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} path={} directory={} size={} durationMillis={}",
+                    operationId, runtimeClusterId, datasourceId, normalizedPath,
+                    result.getDirectory(), result.getSize(), elapsedMillis(startedAt));
+            return result;
+        } catch (RuntimeException exception) {
+            logRouteFailure(operationId, "STAT", datasource, runtimeClusterId,
+                    normalizedPath, null, exception, startedAt);
+            throw exception;
+        }
     }
 
     public FileTransferFileEntryView statForUpload(Long runtimeClusterId, Long datasourceId,
                                                    String path) {
+        String operationId = operationId();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(path);
         if ("/".equals(normalizedPath)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Upload target must be a file path");
         }
-        assertPermission(datasource, parentPath(normalizedPath), UnstructuredAclPermission.EDIT);
-        return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+        assertPermissionLogged(operationId, datasource, parentPath(normalizedPath),
+                UnstructuredAclPermission.EDIT, "STAT");
+        return runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath, operationId);
     }
 
     public UnstructuredUploadResultView upload(Long runtimeClusterId, Long datasourceId,
                                                String targetPath, boolean overwrite,
                                                long contentLength, InputStream input) {
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(targetPath);
         if ("/".equals(normalizedPath)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Upload target must be a file path");
         }
-        assertPermission(datasource, parentPath(normalizedPath), UnstructuredAclPermission.EDIT);
+        assertPermissionLogged(operationId, datasource, parentPath(normalizedPath),
+                UnstructuredAclPermission.EDIT, "UPLOAD");
         Long userId = securityService.currentUserId();
         String username = securityService.currentUsername();
+        log.info("[UF_UPLOAD_START] Server 开始路由非结构化文件上传 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} targetPath={} "
+                        + "overwrite={} declaredBytes={}",
+                operationId, runtimeClusterId, datasourceId, datasource.getTypeCode(),
+                normalizedPath, overwrite, contentLength);
         try {
             if (!overwrite) {
                 try {
-                    runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath);
+                    runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath, operationId);
                     throw new StudioException(StudioErrorCode.CONFLICT,
                             "Upload target already exists");
                 } catch (StudioException exception) {
@@ -163,7 +217,7 @@ public class UnstructuredManagementService {
                 }
             }
             long bytes = runtimeRouter.upload(datasource, runtimeClusterId, normalizedPath,
-                    overwrite, contentLength, input);
+                    overwrite, contentLength, input, operationId);
             recordAuditSafely(datasource, runtimeClusterId, userId, username,
                     "UPLOAD", null, normalizedPath, false, "SUCCESS", bytes + " bytes");
             UnstructuredUploadResultView result = new UnstructuredUploadResultView();
@@ -172,16 +226,23 @@ public class UnstructuredManagementService {
             result.setBytes(bytes);
             result.setOverwritten(overwrite);
             result.setMessage("Upload completed");
+            log.info("[UF_UPLOAD_COMPLETED] Server 非结构化文件上传完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} targetPath={} actualBytes={} durationMillis={}",
+                    operationId, runtimeClusterId, datasourceId, normalizedPath,
+                    bytes, elapsedMillis(startedAt));
             return result;
         } catch (RuntimeException exception) {
             recordAuditSafely(datasource, runtimeClusterId, userId, username,
                     "UPLOAD", null, normalizedPath, false, "FAILED", message(exception));
+            logRouteFailure(operationId, "UPLOAD", datasource, runtimeClusterId,
+                    null, normalizedPath, exception, startedAt);
             throw exception;
         }
     }
 
     public PreparedArchive prepareArchive(Long runtimeClusterId, Long datasourceId,
                                           List<String> paths) {
+        String operationId = operationId();
         if (paths == null || paths.isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "At least one archive path is required");
@@ -194,8 +255,9 @@ public class UnstructuredManagementService {
             if (!normalizedPaths.add(normalizedPath)) {
                 continue;
             }
-            assertPermission(datasource, normalizedPath, UnstructuredAclPermission.DOWNLOAD);
-            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath));
+            assertPermissionLogged(operationId, datasource, normalizedPath,
+                    UnstructuredAclPermission.DOWNLOAD, "DOWNLOAD_ARCHIVE");
+            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath, operationId));
         }
         String fileName = "download.zip";
         if (normalizedPaths.size() == 1 && !entries.isEmpty()
@@ -210,6 +272,7 @@ public class UnstructuredManagementService {
 
     public PreparedNativeDownload prepareNativeDownload(Long runtimeClusterId, Long datasourceId,
                                                         List<String> paths) {
+        String operationId = operationId();
         if (paths == null || paths.isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "At least one download path is required");
@@ -222,8 +285,9 @@ public class UnstructuredManagementService {
             if (!normalizedPaths.add(normalizedPath)) {
                 continue;
             }
-            assertPermission(datasource, normalizedPath, UnstructuredAclPermission.DOWNLOAD);
-            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath));
+            assertPermissionLogged(operationId, datasource, normalizedPath,
+                    UnstructuredAclPermission.DOWNLOAD, "DOWNLOAD");
+            entries.add(runtimeRouter.stat(datasource, runtimeClusterId, normalizedPath, operationId));
         }
         if (normalizedPaths.size() == 1 && !entries.isEmpty()
                 && !Boolean.TRUE.equals(entries.get(0).getDirectory())) {
@@ -257,32 +321,47 @@ public class UnstructuredManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Prepared archive context is incomplete");
         }
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
+        log.info("[UF_DOWNLOAD_START] Server 开始路由非结构化归档下载 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} selectionCount={}",
+                operationId, prepared.runtimeClusterId(), prepared.datasource().getId(),
+                prepared.datasource().getTypeCode(), prepared.paths().size());
         try {
             runtimeRouter.downloadArchive(prepared.datasource(), prepared.runtimeClusterId(),
-                    prepared.paths(), output);
+                    prepared.paths(), output, operationId);
             recordAuditSafely(prepared.datasource(), prepared.runtimeClusterId(),
                     prepared.userId(), prepared.username(), "DOWNLOAD_ARCHIVE",
                     String.join("\n", prepared.paths()), null, true,
                     "SUCCESS", prepared.paths().size() + " selected paths");
+            log.info("[UF_DOWNLOAD_COMPLETED] Server 非结构化归档下载完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} selectionCount={} durationMillis={}",
+                    operationId, prepared.runtimeClusterId(), prepared.datasource().getId(),
+                    prepared.paths().size(), elapsedMillis(startedAt));
         } catch (RuntimeException exception) {
             recordAuditSafely(prepared.datasource(), prepared.runtimeClusterId(),
                     prepared.userId(), prepared.username(), "DOWNLOAD_ARCHIVE",
                     String.join("\n", prepared.paths()), null, true,
                     "FAILED", message(exception));
+            logRouteFailure(operationId, "DOWNLOAD_ARCHIVE", prepared.datasource(),
+                    prepared.runtimeClusterId(), null, null, exception, startedAt);
             throw exception;
         }
     }
 
     public String assertPermission(Long runtimeClusterId, Long datasourceId, String path,
                                    UnstructuredAclPermission permission) {
+        String operationId = operationId();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(path);
-        assertPermission(datasource, normalizedPath, permission);
+        assertPermissionLogged(operationId, datasource, normalizedPath, permission, "TRANSFER");
         return normalizedPath;
     }
 
     @Transactional(noRollbackFor = RuntimeException.class)
     public UnstructuredOperationResultView operate(UnstructuredOperationRequest request) {
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
         DataSourceDefinition datasource = requireDatasource(request.getDatasourceId(), request.getRuntimeClusterId());
         UnstructuredFileOperation operation = parseOperation(request.getOperation());
         String sourcePath = normalizePath(request.getSourcePath());
@@ -290,13 +369,19 @@ public class UnstructuredManagementService {
                 ? null : normalizePath(request.getTargetPath());
         UnstructuredAclPermission permission = operation == UnstructuredFileOperation.DELETE
                 ? UnstructuredAclPermission.DELETE : UnstructuredAclPermission.EDIT;
-        assertPermission(datasource, sourcePath, permission);
+        assertPermissionLogged(operationId, datasource, sourcePath, permission, operation.name());
         if (targetPath != null) {
-            assertPermission(datasource, parentPath(targetPath), UnstructuredAclPermission.EDIT);
+            assertPermissionLogged(operationId, datasource, parentPath(targetPath),
+                    UnstructuredAclPermission.EDIT, operation.name());
         }
+        log.info("[UF_OPERATION_START] Server 开始路由非结构化文件操作 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} operation={} "
+                        + "sourcePath={} targetPath={} recursiveConfirmed={}",
+                operationId, request.getRuntimeClusterId(), datasource.getId(), datasource.getTypeCode(),
+                operation.name(), sourcePath, targetPath, Boolean.TRUE.equals(request.getRecursiveConfirmed()));
         try {
             runtimeRouter.operate(datasource, request.getRuntimeClusterId(), operation.name(),
-                    sourcePath, targetPath, request.getRecursiveConfirmed());
+                    sourcePath, targetPath, request.getRecursiveConfirmed(), operationId);
             recordAuditSafely(datasource, request, operation.name(), sourcePath, targetPath, "SUCCESS", "");
             UnstructuredOperationResultView result = new UnstructuredOperationResultView();
             result.setOperation(operation.name());
@@ -304,20 +389,29 @@ public class UnstructuredManagementService {
             result.setTargetPath(targetPath);
             result.setRecursive(Boolean.TRUE.equals(request.getRecursiveConfirmed()));
             result.setMessage("Operation completed");
+            log.info("[UF_OPERATION_COMPLETED] Server 非结构化文件操作完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} operation={} sourcePath={} "
+                            + "targetPath={} durationMillis={}",
+                    operationId, request.getRuntimeClusterId(), datasource.getId(), operation.name(),
+                    sourcePath, targetPath, elapsedMillis(startedAt));
             return result;
         } catch (RuntimeException exception) {
             recordAuditSafely(datasource, request, operation.name(), sourcePath, targetPath,
                     "FAILED", message(exception));
+            logRouteFailure(operationId, operation.name(), datasource, request.getRuntimeClusterId(),
+                    sourcePath, targetPath, exception, startedAt);
             throw exception;
         }
     }
 
     public PreparedDownload prepareDownload(Long runtimeClusterId, Long datasourceId, String path) {
+        String operationId = operationId();
         DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
         String normalizedPath = normalizePath(path);
-        assertPermission(datasource, normalizedPath, UnstructuredAclPermission.DOWNLOAD);
+        assertPermissionLogged(operationId, datasource, normalizedPath,
+                UnstructuredAclPermission.DOWNLOAD, "DOWNLOAD");
         FileTransferFileEntryView entry = runtimeRouter.stat(
-                datasource, runtimeClusterId, normalizedPath);
+                datasource, runtimeClusterId, normalizedPath, operationId);
         if (Boolean.TRUE.equals(entry.getDirectory())) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Only files can be downloaded");
@@ -331,8 +425,24 @@ public class UnstructuredManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "Prepared download context is incomplete");
         }
-        runtimeRouter.download(prepared.datasource(), prepared.runtimeClusterId(),
-                prepared.path(), output);
+        String operationId = operationId();
+        long startedAt = System.nanoTime();
+        log.info("[UF_DOWNLOAD_START] Server 开始路由非结构化文件下载 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} path={} selectionCount=1",
+                operationId, prepared.runtimeClusterId(), prepared.datasource().getId(),
+                prepared.datasource().getTypeCode(), prepared.path());
+        try {
+            runtimeRouter.download(prepared.datasource(), prepared.runtimeClusterId(),
+                    prepared.path(), output, operationId);
+            log.info("[UF_DOWNLOAD_COMPLETED] Server 非结构化文件下载完成 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} path={} outputBytes={} durationMillis={}",
+                    operationId, prepared.runtimeClusterId(), prepared.datasource().getId(), prepared.path(),
+                    prepared.entry() == null ? null : prepared.entry().getSize(), elapsedMillis(startedAt));
+        } catch (RuntimeException exception) {
+            logRouteFailure(operationId, "DOWNLOAD", prepared.datasource(), prepared.runtimeClusterId(),
+                    prepared.path(), null, exception, startedAt);
+            throw exception;
+        }
     }
 
     public List<UnstructuredAclEntryView> sourceAcl(Long datasourceId) {
@@ -460,11 +570,82 @@ public class UnstructuredManagementService {
         return view;
     }
 
-    private void assertPermission(DataSourceDefinition datasource, String path, UnstructuredAclPermission permission) {
-        if (!hasPermission(datasource, path, permission)) {
-            throw new StudioException(StudioErrorCode.FORBIDDEN,
-                    "No " + permission.name() + " permission for path " + path);
+    private void assertPermissionLogged(String operationId, DataSourceDefinition datasource,
+                                        String path, UnstructuredAclPermission permission,
+                                        String operation) {
+        if (hasPermission(datasource, path, permission)) {
+            return;
         }
+        log.warn("[UF_ACL_DENIED] 非结构化文件操作权限不足 operationId={} userId={} username={} "
+                        + "datasourceId={} datasourceType={} operation={} requiredPermission={} path={}",
+                operationId, securityService.currentUserId(), securityService.currentUsername(),
+                datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(), operation, permission, path);
+        throw new StudioException(StudioErrorCode.FORBIDDEN,
+                "No " + permission.name() + " permission for path " + path);
+    }
+
+    private void logRouteFailure(String operationId, String operation,
+                                 DataSourceDefinition datasource, Long runtimeClusterId,
+                                 String sourcePath, String targetPath,
+                                 RuntimeException exception, long startedAt) {
+        String message = sanitizedErrorMessage(exception.getMessage());
+        if (expectedRejection(exception)) {
+            log.warn("[UF_OPERATION_REJECTED] Server 非结构化文件操作被拒绝 operationId={} "
+                            + "runtimeClusterId={} datasourceId={} datasourceType={} operation={} "
+                            + "sourcePath={} targetPath={} exceptionType={} message={} durationMillis={}",
+                    operationId, runtimeClusterId, datasource == null ? null : datasource.getId(),
+                    datasource == null ? null : datasource.getTypeCode(), operation,
+                    sourcePath, targetPath, exception.getClass().getName(), message,
+                    elapsedMillis(startedAt));
+            return;
+        }
+        log.error("[UF_ROUTE_FAILED] Server 路由非结构化文件操作失败 operationId={} "
+                        + "runtimeClusterId={} datasourceId={} datasourceType={} operation={} "
+                        + "sourcePath={} targetPath={} exceptionType={} message={} durationMillis={} "
+                        + "stackTrace={}",
+                operationId, runtimeClusterId, datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(), operation,
+                sourcePath, targetPath, exception.getClass().getName(), message,
+                elapsedMillis(startedAt), sanitizedStackTrace(exception));
+    }
+
+    static String sanitizedStackTrace(Throwable throwable) {
+        if (throwable == null) {
+            return null;
+        }
+        StringWriter buffer = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(buffer));
+        String sanitized = StudioSensitiveLogSanitizer.sanitize(buffer.toString());
+        if (sanitized == null || sanitized.length() <= MAX_SANITIZED_STACK_TRACE_LENGTH) {
+            return sanitized;
+        }
+        int prefixLength = Math.max(0,
+                MAX_SANITIZED_STACK_TRACE_LENGTH - STACK_TRACE_TRUNCATED_SUFFIX.length());
+        return sanitized.substring(0, prefixLength) + STACK_TRACE_TRUNCATED_SUFFIX;
+    }
+
+    static String sanitizedErrorMessage(String message) {
+        return StudioSensitiveLogSanitizer.sanitizeSingleLine(
+                message, MAX_SANITIZED_ERROR_MESSAGE_LENGTH);
+    }
+
+    private boolean expectedRejection(RuntimeException exception) {
+        if (exception instanceof StudioException studioException) {
+            return Set.of(StudioErrorCode.BAD_REQUEST, StudioErrorCode.NOT_FOUND,
+                            StudioErrorCode.CONFLICT, StudioErrorCode.FORBIDDEN,
+                            StudioErrorCode.BUSINESS_ERROR)
+                    .contains(studioException.getCode());
+        }
+        return exception instanceof IllegalArgumentException;
+    }
+
+    private String operationId() {
+        return UUID.randomUUID().toString();
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return Math.max(0L, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
     }
 
     boolean hasPermission(DataSourceDefinition datasource, String path, UnstructuredAclPermission permission) {
@@ -678,8 +859,12 @@ public class UnstructuredManagementService {
         try {
             recordAudit(datasource, request, operation, sourcePath, targetPath, status, message);
         } catch (RuntimeException auditException) {
-            log.warn("Unable to persist unstructured operation audit: operation={}, datasourceId={}, status={}",
-                    operation, datasource == null ? null : datasource.getId(), status, auditException);
+            log.warn("[UF_AUDIT_FAILED] 非结构化操作审计写入失败 operation={} datasourceId={} "
+                            + "status={} exceptionType={} message={} stackTrace={}",
+                    operation, datasource == null ? null : datasource.getId(), status,
+                    auditException.getClass().getName(),
+                    sanitizedErrorMessage(auditException.getMessage()),
+                    sanitizedStackTrace(auditException));
         }
     }
 
@@ -691,8 +876,12 @@ public class UnstructuredManagementService {
             recordAudit(datasource, runtimeClusterId, userId, username, operation,
                     sourcePath, targetPath, recursive, status, message);
         } catch (RuntimeException auditException) {
-            log.warn("Unable to persist unstructured operation audit: operation={}, datasourceId={}, status={}",
-                    operation, datasource == null ? null : datasource.getId(), status, auditException);
+            log.warn("[UF_AUDIT_FAILED] 非结构化操作审计写入失败 operation={} datasourceId={} "
+                            + "status={} exceptionType={} message={} stackTrace={}",
+                    operation, datasource == null ? null : datasource.getId(), status,
+                    auditException.getClass().getName(),
+                    sanitizedErrorMessage(auditException.getMessage()),
+                    sanitizedStackTrace(auditException));
         }
     }
 

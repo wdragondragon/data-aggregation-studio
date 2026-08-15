@@ -4020,6 +4020,8 @@ public class StudioSchemaUpgradeService {
                 "alter table file_transfer_task_definition add column runtime_cluster_id bigint");
         ensureColumnIfTableExists("file_transfer_run", "runtime_cluster_id",
                 "alter table file_transfer_run add column runtime_cluster_id bigint");
+        ensureColumnIfTableExists("file_transfer_run", "queue_visible",
+                "alter table file_transfer_run add column queue_visible int not null default 1");
         ensureColumnIfTableExists("file_transfer_run_item", "runtime_cluster_id",
                 "alter table file_transfer_run_item add column runtime_cluster_id bigint");
         ensureColumnIfTableExists("dispatch_task", "file_transfer_task_id",
@@ -4058,7 +4060,8 @@ public class StudioSchemaUpgradeService {
                 "id bigint primary key, tenant_id varchar(64) default 'default', project_id bigint, deleted int default 0, " +
                 "created_at datetime default current_timestamp, updated_at datetime default current_timestamp, " +
                 "run_record_id bigint, task_id bigint, task_name_snapshot varchar(255), trigger_type varchar(32), " +
-                "direction varchar(32), channel varchar(32), status varchar(32) not null, runtime_cluster_id bigint, " +
+                "direction varchar(32), channel varchar(32), status varchar(32) not null, " +
+                "queue_visible int not null default 1, runtime_cluster_id bigint, " +
                 "source_runtime_cluster_id bigint, source_datasource_id bigint, target_runtime_cluster_id bigint not null, " +
                 "target_datasource_id bigint, total_files bigint default 0, success_files bigint default 0, " +
                 "skipped_files bigint default 0, failed_files bigint default 0, conflict_files bigint default 0, " +
@@ -4182,6 +4185,8 @@ public class StudioSchemaUpgradeService {
                 "alter table file_transfer_task_definition add column runtime_cluster_id integer");
         ensureColumnIfTableExists("file_transfer_run", "runtime_cluster_id",
                 "alter table file_transfer_run add column runtime_cluster_id integer");
+        ensureColumnIfTableExists("file_transfer_run", "queue_visible",
+                "alter table file_transfer_run add column queue_visible integer not null default 1");
         ensureColumnIfTableExists("file_transfer_run_item", "runtime_cluster_id",
                 "alter table file_transfer_run_item add column runtime_cluster_id integer");
         ensureColumnIfTableExists("dispatch_task", "file_transfer_task_id",
@@ -4214,7 +4219,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create table if not exists file_transfer_run (" +
                 "id integer primary key, tenant_id text default 'default', project_id integer, deleted integer default 0, " +
                 "created_at text, updated_at text, run_record_id integer, task_id integer, task_name_snapshot text, trigger_type text, " +
-                "direction text, channel text, status text not null, runtime_cluster_id integer, source_runtime_cluster_id integer, source_datasource_id integer, " +
+                "direction text, channel text, status text not null, queue_visible integer not null default 1, " +
+                "runtime_cluster_id integer, source_runtime_cluster_id integer, source_datasource_id integer, " +
                 "target_runtime_cluster_id integer not null, target_datasource_id integer, total_files integer default 0, " +
                 "success_files integer default 0, skipped_files integer default 0, failed_files integer default 0, " +
                 "conflict_files integer default 0, resumed_files integer default 0, post_action_failed_files integer default 0, " +

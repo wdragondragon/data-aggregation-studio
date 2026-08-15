@@ -68,8 +68,8 @@ class UnstructuredManagementOperationAuditTest {
     @Test
     void shouldWriteSuccessAuditForUpload() {
         doThrow(new StudioException(StudioErrorCode.NOT_FOUND, "missing"))
-                .when(runtimeRouter).stat(any(), any(), any());
-        when(runtimeRouter.upload(any(), any(), any(), anyBoolean(), anyLong(), any()))
+                .when(runtimeRouter).stat(any(), any(), any(), any());
+        when(runtimeRouter.upload(any(), any(), any(), anyBoolean(), anyLong(), any(), any()))
                 .thenReturn(7L);
 
         service.upload(11L, 101L, "/incoming/a.txt", false, 7L,
@@ -104,7 +104,7 @@ class UnstructuredManagementOperationAuditTest {
         entry.setName("report.txt");
         entry.setSize(42L);
         entry.setDirectory(false);
-        when(runtimeRouter.stat(any(), any(), any())).thenReturn(entry);
+        when(runtimeRouter.stat(any(), any(), any(), any())).thenReturn(entry);
 
         UnstructuredManagementService.PreparedNativeDownload prepared =
                 service.prepareNativeDownload(11L, 101L,
@@ -122,7 +122,7 @@ class UnstructuredManagementOperationAuditTest {
         FileTransferFileEntryView directory = new FileTransferFileEntryView();
         directory.setName("reports");
         directory.setDirectory(true);
-        when(runtimeRouter.stat(any(), any(), any())).thenReturn(directory);
+        when(runtimeRouter.stat(any(), any(), any(), any())).thenReturn(directory);
 
         UnstructuredManagementService.PreparedNativeDownload directoryDownload =
                 service.prepareNativeDownload(11L, 101L, List.of("/reports"));
@@ -134,7 +134,7 @@ class UnstructuredManagementOperationAuditTest {
         FileTransferFileEntryView file = new FileTransferFileEntryView();
         file.setName("a.txt");
         file.setDirectory(false);
-        when(runtimeRouter.stat(any(), any(), any())).thenReturn(file);
+        when(runtimeRouter.stat(any(), any(), any(), any())).thenReturn(file);
         UnstructuredManagementService.PreparedNativeDownload multiple =
                 service.prepareNativeDownload(11L, 101L,
                         List.of("/a.txt", "/b.txt"));
@@ -147,7 +147,7 @@ class UnstructuredManagementOperationAuditTest {
     @Test
     void shouldWriteFailureAuditAndPreserveOriginalError() {
         doThrow(new StudioException(StudioErrorCode.BUSINESS_ERROR, "Target already exists"))
-                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any());
+                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.operate(request()))
                 .isInstanceOf(StudioException.class)
@@ -162,7 +162,7 @@ class UnstructuredManagementOperationAuditTest {
     void shouldTruncateLongFailureAuditWithoutReplacingTheOriginalError() {
         String originalMessage = "x".repeat(3000);
         doThrow(new StudioException(StudioErrorCode.BUSINESS_ERROR, originalMessage))
-                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any());
+                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.operate(request()))
                 .isInstanceOf(StudioException.class)
@@ -183,7 +183,7 @@ class UnstructuredManagementOperationAuditTest {
         StudioException operationFailure = new StudioException(
                 StudioErrorCode.BUSINESS_ERROR, "SFTP permission denied");
         doThrow(operationFailure)
-                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any());
+                .when(runtimeRouter).operate(any(), any(), any(), any(), any(), any(), any());
 
         assertThatThrownBy(() -> service.operate(request()))
                 .isSameAs(operationFailure);
@@ -197,6 +197,32 @@ class UnstructuredManagementOperationAuditTest {
 
         assertThat(transactional).isNotNull();
         assertThat(transactional.noRollbackFor()).contains(RuntimeException.class);
+    }
+
+    @Test
+    void shouldSanitizeAndBoundUnexpectedFailureStackTrace() {
+        String secret = "token=plain-secret";
+        IllegalStateException failure = new IllegalStateException(
+                secret + " " + "x".repeat(20_000));
+
+        String stackTrace = UnstructuredManagementService.sanitizedStackTrace(failure);
+
+        assertThat(stackTrace).doesNotContain("plain-secret");
+        assertThat(stackTrace).contains("token=******");
+        assertThat(stackTrace).hasSizeLessThanOrEqualTo(12 * 1024);
+        assertThat(stackTrace).endsWith("...[truncated]");
+
+        String message = UnstructuredManagementService.sanitizedErrorMessage(
+                secret + " " + "x".repeat(3_000));
+        assertThat(message).doesNotContain("plain-secret");
+        assertThat(message).hasSizeLessThanOrEqualTo(2 * 1024);
+        assertThat(message).endsWith(" ...[truncated]");
+
+        String multiline = UnstructuredManagementService.sanitizedErrorMessage(
+                "Permission denied token=plain-secret\r\n\tat example.Plugin.mkdir(Plugin.java:42)");
+        assertThat(multiline)
+                .isEqualTo("Permission denied token=******")
+                .doesNotContain("plain-secret", "Plugin.java", "\r", "\n");
     }
 
     private UnstructuredOperationRequest request() {

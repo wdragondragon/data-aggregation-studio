@@ -1554,7 +1554,7 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         addItems(runId: EntityId, payload: FileTransferManualItemRequest[]) {
           return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/items`, method: "POST", data: payload });
         },
-        list(params?: { pageNo?: number; pageSize?: number; taskId?: EntityId; status?: string; triggerType?: string; statusGroup?: "ACTIVE" | "TERMINAL" }, config?: StudioRequestConfig) {
+        list(params?: { pageNo?: number; pageSize?: number; taskId?: EntityId; status?: string; triggerType?: string; statusGroup?: "ACTIVE" | "TERMINAL"; queueOnly?: boolean }, config?: StudioRequestConfig) {
           return requestPage<FileTransferRunView>({
             ...config,
             url: "/file-transfer/runs",
@@ -1584,6 +1584,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
         },
         remove(runId: EntityId) {
           return request<void>({ url: `/file-transfer/runs/${runId}`, method: "DELETE" });
+        },
+        dismiss(runId: EntityId) {
+          return request<void>({ url: `/file-transfer/runs/${runId}/queue`, method: "DELETE" });
         },
         retryItem(runId: EntityId, itemId: EntityId) {
           return request<FileTransferRunView>({ url: `/file-transfer/runs/${runId}/items/${itemId}/retry`, method: "POST" });

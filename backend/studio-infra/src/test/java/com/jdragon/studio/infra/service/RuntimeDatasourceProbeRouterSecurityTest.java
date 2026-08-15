@@ -37,6 +37,42 @@ import static org.mockito.Mockito.when;
 class RuntimeDatasourceProbeRouterSecurityTest {
 
     @Test
+    void shouldPropagateOperationIdOnlyForCorrelatedFileRequests() throws Exception {
+        byte[] body = ("{\"success\":true,\"data\":{\"path\":\"/\"," +
+                "\"entries\":[],\"hasMore\":false}}")
+                .getBytes(StandardCharsets.UTF_8);
+        AtomicReference<String> operationId = new AtomicReference<String>();
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/internal/runtime/datasource/file-browser", exchange -> {
+            operationId.set(exchange.getRequestHeaders().getFirst(
+                    RuntimeInternalHeaders.OPERATION_ID_HEADER));
+            markAuthenticated(exchange);
+            exchange.sendResponseHeaders(200, body.length);
+            exchange.getResponseBody().write(body);
+            exchange.close();
+        });
+        server.start();
+        try {
+            Fixture fixture = fixture(true);
+            when(fixture.encryption.decrypt("endpoint-ciphertext"))
+                    .thenReturn("http://127.0.0.1:" + server.getAddress().getPort());
+
+            fixture.router.browse(datasource(), 46L, "/", null, 20, "operation-123");
+
+            assertEquals("operation-123", operationId.get());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void shouldRejectUnsafeOperationIdValues() {
+        assertNull(RuntimeInternalHeaders.normalizeOperationId("invalid\r\noperation"));
+        assertNull(RuntimeInternalHeaders.normalizeOperationId("x".repeat(65)));
+        assertEquals("operation-123", RuntimeInternalHeaders.normalizeOperationId(" operation-123 "));
+    }
+
+    @Test
     void shouldRejectUnsafeEndpointBeforeDecryptingTransportSecrets() {
         Fixture fixture = fixture(false);
         fixture.endpoint.setHeadersCiphertext("headers-ciphertext");

@@ -5,6 +5,7 @@ export interface FileTransferRunListParams {
   pageSize: number;
   triggerType: "MANUAL";
   statusGroup: "ACTIVE" | "TERMINAL";
+  queueOnly: true;
 }
 
 interface FileTransferRunPage {
@@ -18,13 +19,19 @@ const terminalStatuses = new Set(["SUCCESS", "PARTIAL_SUCCESS", "FAILED", "CANCE
 
 export async function loadBoundedManualRuns(listRuns: FileTransferRunList) {
   const [firstActivePage, terminalPage] = await Promise.all([
-    listRuns({ pageNo: 1, pageSize: 200, triggerType: "MANUAL", statusGroup: "ACTIVE" }),
-    listRuns({ pageNo: 1, pageSize: 10, triggerType: "MANUAL", statusGroup: "TERMINAL" }),
+    listRuns({ pageNo: 1, pageSize: 200, triggerType: "MANUAL", statusGroup: "ACTIVE", queueOnly: true }),
+    listRuns({ pageNo: 1, pageSize: 10, triggerType: "MANUAL", statusGroup: "TERMINAL", queueOnly: true }),
   ]);
   const activeRuns = [...firstActivePage.items];
   let pageNo = 2;
   while (activeRuns.length < firstActivePage.total) {
-    const page = await listRuns({ pageNo, pageSize: 200, triggerType: "MANUAL", statusGroup: "ACTIVE" });
+    const page = await listRuns({
+      pageNo,
+      pageSize: 200,
+      triggerType: "MANUAL",
+      statusGroup: "ACTIVE",
+      queueOnly: true,
+    });
     if (!page.items.length) break;
     activeRuns.push(...page.items);
     pageNo += 1;

@@ -436,14 +436,9 @@ function applyFileTransferEvent(event: FileTransferQueueEventView) {
   }
   if (loading.value) runsReloadRequested = true;
   if (type === "RUN_REMOVED" && event.runId != null) {
-    const existed = runs.value.some((run) => String(run.id) === String(event.runId));
-    runs.value = runs.value.filter((run) => String(run.id) !== String(event.runId));
-    if (existed) total.value = Math.max(0, total.value - 1);
-    if (String(activeRun.value?.id) === String(event.runId)) {
-      detailVisible.value = false;
-      activeRun.value = undefined;
-      runItems.value = [];
-    }
+    // RUN_REMOVED is also used for non-destructive queue dismissal. Reload the
+    // unfiltered history query so queue cleanup cannot erase the visible record.
+    void loadRuns();
     return;
   }
   if (type === "ITEM_REMOVED" && event.itemId != null) {

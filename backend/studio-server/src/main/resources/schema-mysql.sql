@@ -1769,6 +1769,7 @@ create table if not exists file_transfer_run (
     direction varchar(32),
     channel varchar(32),
     status varchar(32) not null,
+    queue_visible int not null default 1,
     runtime_cluster_id bigint,
     source_runtime_cluster_id bigint,
     source_datasource_id bigint,

@@ -358,14 +358,15 @@ ACL 仅允许当前项目成员作为授权对象。创建者和管理员始终�
 |---|---|---|
 | `POST` | `/api/v1/file-transfer/runs/manual` | 创建即时运行，可自动开始 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/items` | 在仍为 `QUEUED` 的即时运行中增加文件项 |
-| `GET` | `/api/v1/file-transfer/runs` | 分页查询运行，支持 `pageNo/pageSize/taskId/status/triggerType/statusGroup` |
+| `GET` | `/api/v1/file-transfer/runs` | 分页查询运行，支持 `pageNo/pageSize/taskId/status/triggerType/statusGroup/queueOnly` |
 | `GET` | `/api/v1/file-transfer/runs/{runId}` | 查询运行详情 |
 | `GET` | `/api/v1/file-transfer/runs/{runId}/items` | 分页查询文件项 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/pause` | 请求暂停 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/resume` | 恢复并重新入队 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/cancel` | 请求取消并清理不可复用临时状态 |
 | `POST` | `/api/v1/file-transfer/runs/{runId}/items/{itemId}/retry` | 精确重试单个失败文件项或仅重试后处理 |
-| `DELETE` | `/api/v1/file-transfer/runs/{runId}` | 将即时传输运行及其文件项逻辑移出队列 |
+| `DELETE` | `/api/v1/file-transfer/runs/{runId}/queue` | 将即时传输运行移出传输队列，保留运行历史、文件项、指标和日志 |
+| `DELETE` | `/api/v1/file-transfer/runs/{runId}` | 逻辑删除即时传输运行及其文件项；兼容既有管理调用，不用于“清理已完成” |
 | `DELETE` | `/api/v1/file-transfer/runs/{runId}/items/{itemId}` | 将即时传输中的非活动文件项逻辑移出队列 |
 | `GET` | `/api/v1/file-transfer/runs/events` | 以 SSE 长连接推送队列和运行变化；重连可携带 `Last-Event-ID` 请求头 |
 
@@ -384,7 +385,7 @@ Studio 页面不得使用集群 ID 或数据源 ID 作为正常展示。传输�
 
 运行列表的展示名称使用触发时间片段和简短触发类型，例如 `08-09 01:03 · 即时`、`08-09 02:15 · 定时`；完整运行 ID 仍保留在接口和日志定位能力中。
 
-`triggerType` 为可选的精确过滤参数，服务端按大写枚举值匹配。`statusGroup` 只接受 `ACTIVE` 或 `TERMINAL`：`ACTIVE` 对应 `QUEUED/RUNNING/PAUSED`，`TERMINAL` 对应 `SUCCESS/PARTIAL_SUCCESS/FAILED/CANCELED`，其他值返回 `BAD_REQUEST`。传输中心使用 `triggerType=MANUAL` 分页读取全部活动运行，并单独读取最近 10 个终态运行；两个查询期间发生状态迁移时按运行 ID 合并，以较新的终态快照覆盖活动快照。不得扫描全部历史记录，也不得先截取混合触发类型的首屏数据再在前端过滤。
+`triggerType` 为可选的精确过滤参数，服务端按大写枚举值匹配。`statusGroup` 只接受 `ACTIVE` 或 `TERMINAL`：`ACTIVE` 对应 `QUEUED/RUNNING/PAUSED`，`TERMINAL` 对应 `SUCCESS/PARTIAL_SUCCESS/FAILED/CANCELED`，其他值返回 `BAD_REQUEST`。`queueOnly=true` 仅返回仍在传输队列中可见的运行；传输中心必须传递该参数，运行记录页不得传递。传输中心使用 `triggerType=MANUAL` 分页读取全部活动运行，并单独读取最近 10 个终态运行；两个查询期间发生状态迁移时按运行 ID 合并，以较新的终态快照覆盖活动快照。不得扫描全部历史记录，也不得先截取混合触发类型的首屏数据再在前端过滤。
 
 ### 3.3 队列删除与 SSE 长连接
 
@@ -396,7 +397,7 @@ Studio 页面不得使用集群 ID 或数据源 ID 作为正常展示。传输�
 | `run-created` | `RUN_CREATED` | 新运行已创建，携带最新运行视图 |
 | `run-changed` | `RUN_CHANGED` | 运行摘要变化，`run` 携带最新运行视图，`items` 携带本次变化的文件项 |
 | `item-removed` | `ITEM_REMOVED` | 文件项已逻辑删除，携带 `runId`、`itemId` 和当前运行视图 |
-| `run-removed` | `RUN_REMOVED` | 运行已从队列逻辑移除 |
+| `run-removed` | `RUN_REMOVED` | 运行已移出当前传输队列；不表示运行历史已删除 |
 | `heartbeat` | 无业务数据 | 保活事件，客户端不应触发列表查询 |
 
 SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_event_outbox` 事件在同一短事务中提交；Server 默认每 250 ms 按本实例独立游标读取 Outbox，再批量加载最新安全视图推送给本机连接。事件 ID 同时出现在 SSE `id:` 和 `data.eventId`，必须按十进制字符串处理，不能转成 JavaScript `number`。
@@ -409,11 +410,14 @@ SSE 由租户和项目隔离。运行或文件项状态更新与 `file_transfer_
 
 进度事件按运行或文件项默认最多每秒产生一条 Outbox 行；终态、创建和删除事件不受限频。一个批次中同一运行的变化会合并，单个 SSE 最多携带 200 个文件项，超过时按事件 ID 顺序拆分。断线时客户端持续进行封顶退避重连，不得退化为 `setInterval` 轮询。客户端离开页面、网络断开或 event-stream 异步请求超时后，Server 将已提交/event-stream 的 I/O 和 `AsyncRequestTimeoutException` 视为正常断连，不再尝试把 JSON `Result` 写入 `text/event-stream`；普通非流式 I/O 异常仍返回统一 500，普通非流式异步超时返回 `SERVICE_UNAVAILABLE`。
 
-删除语义：
+队列移除与删除语义：
 
-- 只允许删除 `MANUAL` 即时传输运行，不允许通过队列删除接口修改预设任务或工作流审计运行。
-- `QUEUED` 运行删除时会先把尚未领取的 Dispatch 置为 `CANCELED`，确认没有已被 Worker 领取的 `RUNNING` Dispatch 后，再逻辑删除运行和文件项；若领取竞争已发生，则拒绝删除并要求先取消运行。
-- `RUNNING`、`PAUSED` 运行必须先调用取消接口；`SUCCESS`、`PARTIAL_SUCCESS`、`FAILED`、`CANCELED` 可直接移除。
+- 传输中心“清理已完成”和运行级“移出队列”只调用 `DELETE /{runId}/queue`，将 `queue_visible` 置为 `0`；运行记录、文件项、指标、运行日志、checkpoint 和文件结果均保留，页面刷新后该运行也不会重新进入队列。
+- 运行记录查询不使用 `queueOnly=true`，因此被清理的运行仍可查询和查看详情。真正的 `DELETE /{runId}` 继续执行逻辑删除，仅保留给明确要求删除运行历史的兼容调用。
+- 只允许把 `MANUAL` 即时传输运行移出队列，不允许通过队列接口修改预设任务或工作流审计运行。
+- `QUEUED` 运行移出队列时会先把尚未领取的 Dispatch 置为 `CANCELED`，确认没有已被 Worker 领取的 `RUNNING` Dispatch 后，将运行终止为 `CANCELED` 并隐藏，但不删除运行和文件项；若领取竞争已发生，则拒绝并要求先取消运行。
+- `RUNNING`、`PAUSED` 运行必须先调用取消接口；`SUCCESS`、`PARTIAL_SUCCESS`、`FAILED`、`CANCELED` 可直接移出队列。
+- 被移出队列的失败或暂停恢复型运行在执行“恢复”或“重试文件项”后，会重新设置为队列可见并由 SSE 重新加入传输中心。
 - 文件项只允许删除非活动状态；删除不会物理清理运行指标和通用审计记录。
 
 ## 4. 预设任务

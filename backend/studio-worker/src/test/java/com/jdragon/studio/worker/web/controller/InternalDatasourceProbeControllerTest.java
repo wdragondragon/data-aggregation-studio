@@ -20,6 +20,7 @@ import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.server.ResponseStatusException;
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -43,6 +45,53 @@ class InternalDatasourceProbeControllerTest {
     @AfterEach
     void clearContext() {
         StudioRequestContextHolder.clear();
+        MDC.clear();
+    }
+
+    @Test
+    void shouldBindAndRestoreOperationIdAroundWorkerFileOperation() {
+        Fixture fixture = fixture();
+        RuntimeDatasourceProbeRequest request = storedRequest();
+        request.setFileOperation("CREATE_DIRECTORY");
+        request.setOperationPath("/new-directory");
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doAnswer(invocation -> {
+            assertThat(MDC.get("operationId")).isEqualTo("operation-123");
+            return null;
+        }).when(fixture.executor).operate(canonical, "CREATE_DIRECTORY",
+                "/new-directory", null, null);
+        MDC.put("operationId", "previous-operation");
+
+        Result<Void> result = fixture.controller.fileOperation(
+                "internal-secret", "operation-123", request);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(MDC.get("operationId")).isEqualTo("previous-operation");
+    }
+
+    @Test
+    void shouldIgnoreUnsafeOperationIdAndRestoreWorkerMdc() {
+        Fixture fixture = fixture();
+        RuntimeDatasourceProbeRequest request = storedRequest();
+        request.setFileOperation("CREATE_DIRECTORY");
+        request.setOperationPath("/new-directory");
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doAnswer(invocation -> {
+            assertThat(MDC.get("operationId")).isNull();
+            return null;
+        }).when(fixture.executor).operate(canonical, "CREATE_DIRECTORY",
+                "/new-directory", null, null);
+        MDC.put("operationId", "previous-operation");
+
+        Result<Void> result = fixture.controller.fileOperation(
+                "internal-secret", "invalid\r\noperation", request);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(MDC.get("operationId")).isEqualTo("previous-operation");
     }
 
     @Test
@@ -157,6 +206,32 @@ class InternalDatasourceProbeControllerTest {
     }
 
     @Test
+    void shouldSanitizeWorkerFileOperationFailureBeforeReturningEnvelope() {
+        Fixture fixture = fixture();
+        RuntimeDatasourceProbeRequest request = storedRequest();
+        request.setFileOperation("CREATE_DIRECTORY");
+        request.setOperationPath("/denied");
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doThrow(new IllegalStateException(
+                "File operation failed: Permission denied Authorization=Bearer secret-token\r\n"
+                        + "\tat example.Plugin.mkdir(Plugin.java:42)"))
+                .when(fixture.executor).operate(canonical, "CREATE_DIRECTORY",
+                        "/denied", null, null);
+
+        Result<Void> result = fixture.controller.fileOperation(
+                "internal-secret", "operation-safe", request);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getCode()).isEqualTo(StudioErrorCode.BUSINESS_ERROR);
+        assertThat(result.getMessage())
+                .isEqualTo("File operation failed: Permission denied Authorization=******")
+                .doesNotContain("secret-token", "Plugin.java", "\r", "\n");
+        assertThat(StudioRequestContextHolder.getContext()).isNull();
+    }
+
+    @Test
     void shouldStreamUploadThroughCanonicalDatasource() throws Exception {
         Fixture fixture = fixture();
         RuntimeDatasourceUploadRequest request = uploadRequest();
@@ -201,6 +276,34 @@ class InternalDatasourceProbeControllerTest {
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(response.getBody().getCode()).isEqualTo(StudioErrorCode.CONFLICT);
+    }
+
+    @Test
+    void shouldSanitizeWorkerUploadFailureBeforeReturningEnvelope() throws Exception {
+        Fixture fixture = fixture();
+        RuntimeDatasourceUploadRequest request = uploadRequest();
+        DataSourceDefinition canonical = datasource(301L, "tenant-a", 10L);
+        when(fixture.dataSourceService.getInternal(301L)).thenReturn(canonical);
+        when(fixture.bindingMapper.selectCount(any())).thenReturn(1L);
+        doThrow(new IllegalStateException(
+                "File upload failed: Permission denied token=secret-token\n"
+                        + "\tat example.Plugin.put(Plugin.java:17)"))
+                .when(fixture.executor).upload(org.mockito.ArgumentMatchers.eq(canonical),
+                        org.mockito.ArgumentMatchers.eq("/upload.txt"),
+                        org.mockito.ArgumentMatchers.eq(false),
+                        org.mockito.ArgumentMatchers.eq(5L),
+                        org.mockito.ArgumentMatchers.any());
+        MockHttpServletRequest servletRequest = new MockHttpServletRequest();
+        servletRequest.setContent("hello".getBytes(StandardCharsets.UTF_8));
+
+        var response = fixture.controller.fileUpload(
+                "internal-secret", "operation-safe", encode(request), servletRequest);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody().getCode()).isEqualTo(StudioErrorCode.BUSINESS_ERROR);
+        assertThat(response.getBody().getMessage())
+                .isEqualTo("File upload failed: Permission denied token=******")
+                .doesNotContain("secret-token", "Plugin.java", "\r", "\n");
     }
 
     private Fixture fixture() {

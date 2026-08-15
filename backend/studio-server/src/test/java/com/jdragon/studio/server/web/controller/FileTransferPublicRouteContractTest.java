@@ -28,9 +28,10 @@ class FileTransferPublicRouteContractTest {
     @Test
     void shouldExposeAllPublicFileTransferRoutesBelowApiV1() throws Exception {
         FileTransferEventService eventService = mock(FileTransferEventService.class);
+        FileTransferRunService runService = mock(FileTransferRunService.class);
         MockMvc mockMvc = MockMvcBuilders.standaloneSetup(
                 new FileTransferBrowserController(mock(UnstructuredManagementService.class)),
-                new FileTransferRunController(mock(FileTransferRunService.class), eventService),
+                new FileTransferRunController(runService, eventService),
                 new FileTransferTaskController(
                         mock(FileTransferTaskService.class),
                         mock(FileTransferRunService.class),
@@ -47,6 +48,9 @@ class FileTransferPublicRouteContractTest {
                 .andExpect(status().isOk());
         mockMvc.perform(delete("/api/v1/file-transfer/runs/100"))
                 .andExpect(status().isOk());
+        mockMvc.perform(delete("/api/v1/file-transfer/runs/100/queue"))
+                .andExpect(status().isOk());
+        verify(runService).dismissManualRunFromQueue(100L);
         mockMvc.perform(get("/api/v1/file-transfer-tasks"))
                 .andExpect(status().isOk());
         mockMvc.perform(post("/api/v1/file-transfer-metrics/dashboard")

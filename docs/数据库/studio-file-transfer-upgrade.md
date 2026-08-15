@@ -1,6 +1,6 @@
 # Studio 非结构化文件传输数据库升级指南
 
-> 适用基线：2026-08-07 文件传输三阶段实现、2026-08-09 单集群/非结构化管理/ACL 改造，以及 2026-08-12 MySQL Outbox 高可用事件架构。2026-08-13 本地 MySQL 结构、健康和双 Server 游标验收已通过。
+> 适用基线：2026-08-07 文件传输三阶段实现、2026-08-09 单集群/非结构化管理/ACL 改造、2026-08-12 MySQL Outbox 高可用事件架构，以及 2026-08-16 队列可见性与运行历史分离。
 
 ## 1. 交付物
 
@@ -20,6 +20,8 @@ MySQL 增量脚本，按日期和下列顺序执行：
 
 `backend/studio-server/src/main/resources/update/20260812/20260812-file-transfer-event-outbox.sql`
 
+`backend/studio-server/src/main/resources/update/20260816/20260816-file-transfer-queue-visibility.sql`
+
 SQLite 全量结构：
 
 `backend/studio-desktop-runtime/src/main/resources/schema-sqlite.sql`
@@ -29,7 +31,7 @@ SQLite 全量结构：
 `StudioSchemaUpgradeService` 对 MySQL 和 SQLite 按表、列和索引进行存在性检查，负责旧环境的幂等补齐。
 对于历史 MySQL 库，启动升级还会把 `unstructured_op_audit.message` 从旧的 `VARCHAR` 定义升级为 `TEXT`，避免远端文件操作异常消息写审计时触发截断。
 
-2026-08-13 运行环境验证：Server `18080` 的 `/actuator/health/studio-ha` 返回 `fileTransferOutbox=available`、七个 Outbox/游标索引完整、`fileTransferOutboxCursorLag=0`；Worker `18081` 健康为 `UP`。本次不新增数据库表、字段或中间件，Outbox 由现有 MySQL 提供可靠存储。
+2026-08-13 Outbox 运行环境验证：Server `18080` 的 `/actuator/health/studio-ha` 返回 `fileTransferOutbox=available`、七个 Outbox/游标索引完整、`fileTransferOutboxCursorLag=0`；Worker `18081` 健康为 `UP`。Outbox 不引入新中间件，由现有 MySQL 提供可靠存储。2026-08-16 队列清理修复另行增加 `queue_visible` 字段，但不新增表或索引。
 
 ## 2. 结构变化
 
@@ -44,6 +46,7 @@ SQLite 全量结构：
 | `datasource_definition` | `created_by` | 数据源创建者和 ACL 管理边界 |
 | `file_transfer_task_definition` | `runtime_cluster_id` | 新任务的规范单集群身份 |
 | `file_transfer_run` | `runtime_cluster_id` | 新运行的规范单集群身份 |
+| `file_transfer_run` | `queue_visible` | 传输中心队列可见性；移出队列时保留运行历史 |
 | `file_transfer_run_item` | `runtime_cluster_id` | 新文件项的规范单集群身份 |
 
 原 `source_runtime_cluster_id`、`target_runtime_cluster_id`、`direction` 和 `channel` 字段不删除，只保留历史查询兼容。只有源/目标集群相同的历史记录会回填规范 `runtime_cluster_id`；历史跨集群记录保持为空且不可重试、恢复或再次执行。
@@ -86,6 +89,7 @@ show columns from dispatch_task like 'file_transfer_run_id';
 show columns from run_record like 'file_transfer_run_id';
 show columns from datasource_definition like 'created_by';
 show columns from file_transfer_run like 'runtime_cluster_id';
+show columns from file_transfer_run like 'queue_visible';
 show tables like 'file_transfer_%';
 show tables like 'unstructured_%';
 show columns from file_transfer_event_outbox;
@@ -112,9 +116,10 @@ backend/studio-server/src/main/resources/update/20260809/20260809-single-cluster
 backend/studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql
 backend/studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql
 backend/studio-server/src/main/resources/update/20260812/20260812-file-transfer-event-outbox.sql
+backend/studio-server/src/main/resources/update/20260816/20260816-file-transfer-queue-visibility.sql
 ```
 
-`20260807-file-transfer.sql` 是一次性交付脚本；两个 `20260809` 脚本、`20260811` 审计字段脚本和 `20260812` Outbox 脚本通过 `information_schema` 与 `create table if not exists` 保护新增列、表和索引。`20260812` 可以重复执行：仅包含主键且没有数据的 Outbox/游标半成品表会先删除再按完整定义重建。非空表若缺少 `tenant_id`、`project_id`、运行/事件身份或游标身份等关键列，脚本和启动升级都会拒绝继续，绝不填充猜测的历史事件归属；必须先备份，再由 DBA 人工回填为完整结构或在确认可丢弃历史事件后重建空表。若环境已经由启动升级服务部分创建 20260807 结构，DBA 必须先按实际结构裁剪旧脚本，不能直接整文件重放。
+`20260807-file-transfer.sql` 是一次性交付脚本；两个 `20260809` 脚本、`20260811` 审计字段脚本、`20260812` Outbox 脚本和 `20260816` 队列可见性脚本通过 `information_schema` 与 `create table if not exists` 保护新增列、表和索引。`20260812` 可以重复执行：仅包含主键且没有数据的 Outbox/游标半成品表会先删除再按完整定义重建。`20260816` 可以重复执行，既有运行和新运行的 `queue_visible` 默认均为 `1`。非空表若缺少 `tenant_id`、`project_id`、运行/事件身份或游标身份等关键列，脚本和启动升级都会拒绝继续，绝不填充猜测的历史事件归属；必须先备份，再由 DBA 人工回填为完整结构或在确认可丢弃历史事件后重建空表。若环境已经由启动升级服务部分创建 20260807 结构，DBA 必须先按实际结构裁剪旧脚本，不能直接整文件重放。
 
 执行完成后可收回应用账号 DDL 权限，启动升级服务只应做存在性核验。
 
@@ -147,6 +152,7 @@ select count(*) from unstructured_op_audit;
 - `file_transfer_event_consumer_cursor` 存在唯一索引 `uk_ft_event_cursor_scope`，以及 `idx_ft_event_cursor_seen`、`idx_ft_event_cursor_position`。
 - Outbox 事件类型只包含 `RUN_CREATED`、`RUN_CHANGED`、`ITEM_CHANGED`、`RUN_REMOVED`、`ITEM_REMOVED`；`payload_json` 不包含密码、Token、Worker 地址或完整任务快照。
 - `datasource_definition.created_by` 以及任务、运行、文件项的 `runtime_cluster_id` 均存在。
+- `file_transfer_run.queue_visible` 为非空整数字段，默认值为 `1`；传输中心清理后的运行值为 `0`，运行历史查询仍可读取该行。
 - `unstructured_path_acl.directory` 存在；旧路径规则的空值按递归目录规则兼容。
 - `unstructured_op_audit.message` 的 MySQL 数据类型为 `text`；应用仍将单条审计错误消息限制为 1,800 个字符，以保留错误摘要且避免异常内容无限增长。
 - Server 能启动且不加载文件数据源插件。
@@ -154,7 +160,7 @@ select count(*) from unstructured_op_audit;
 
 ## 7. 回滚
 
-代码回滚时，新表和新增可空字段可以保留，旧版本不会读取这些对象。不要在存在文件传输运行或审计要求时直接删除表。
+代码回滚时，新表和 `queue_visible` 等新增字段可以保留，旧版本不会读取这些对象。不要在存在文件传输运行或审计要求时直接删除表或字段。
 
 如必须结构回滚：
 

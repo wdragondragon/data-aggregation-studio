@@ -232,12 +232,21 @@ public class FileTransferRunService {
 
     public PageView<FileTransferRunView> listPage(Integer pageNo, Integer pageSize, Long taskId,
                                                    String status, String triggerType, String statusGroup) {
+        return listPage(pageNo, pageSize, taskId, status, triggerType, statusGroup, null);
+    }
+
+    public PageView<FileTransferRunView> listPage(Integer pageNo, Integer pageSize, Long taskId,
+                                                   String status, String triggerType, String statusGroup,
+                                                   Boolean queueOnly) {
         int safePageNo = pageNo == null || pageNo < 1 ? 1 : pageNo;
         int safePageSize = pageSize == null ? 20 : Math.max(1, Math.min(200, pageSize));
         LambdaQueryWrapper<FileTransferRunEntity> query = new LambdaQueryWrapper<FileTransferRunEntity>()
                 .eq(FileTransferRunEntity::getTenantId, securityService.currentTenantId());
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         query.eq(FileTransferRunEntity::getProjectId, projectId);
+        if (Boolean.TRUE.equals(queueOnly)) {
+            query.eq(FileTransferRunEntity::getQueueVisible, true);
+        }
         if (taskId != null) {
             query.eq(FileTransferRunEntity::getTaskId, taskId);
         }
@@ -404,6 +413,7 @@ public class FileTransferRunService {
                 .set(FileTransferRunItemEntity::getErrorMessage, null)
                 .eq(FileTransferRunItemEntity::getId, item.getId()), false, true);
         run.setStatus("QUEUED");
+        run.setQueueVisible(true);
         run.setEndedAt(null);
         run.setMessage("Item retry requested");
         Map<String, Object> snapshot = copy(run.getResolvedSpecJson());
@@ -412,6 +422,7 @@ public class FileTransferRunService {
         run.setResolvedSpecJson(snapshot);
         updateRun(run.getId(), new LambdaUpdateWrapper<FileTransferRunEntity>()
                 .set(FileTransferRunEntity::getStatus, run.getStatus())
+                .set(FileTransferRunEntity::getQueueVisible, true)
                 .set(FileTransferRunEntity::getEndedAt, null)
                 .set(FileTransferRunEntity::getMessage, run.getMessage())
                 .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
@@ -447,6 +458,42 @@ public class FileTransferRunService {
             throw bad("Cancel the active file transfer run before removing it");
         }
         mutationService().removeRunAndEvent(run);
+    }
+
+    @Transactional
+    public void dismissManualRunFromQueue(Long runId) {
+        FileTransferRunEntity run = requireWritableRun(runId);
+        assertManualRun(run);
+        String status = normalizeStatus(run.getStatus());
+        if ("RUNNING".equals(status) || "PAUSED".equals(status)) {
+            throw bad("Cancel the active file transfer run before removing it from the queue");
+        }
+        if ("QUEUED".equals(status)) {
+            cancelQueuedDispatches(run);
+            if (hasClaimedDispatch(run)) {
+                throw bad("Cancel the active file transfer run before removing it from the queue");
+            }
+            run.setStatus("CANCELED");
+            run.setMessage("Removed from transfer queue");
+            run.setEndedAt(LocalDateTime.now());
+        }
+        if (hasClaimedDispatch(run)) {
+            throw bad("Cancel the active file transfer run before removing it from the queue");
+        }
+        run.setQueueVisible(false);
+        LambdaUpdateWrapper<FileTransferRunEntity> update = new LambdaUpdateWrapper<FileTransferRunEntity>()
+                .set(FileTransferRunEntity::getQueueVisible, false)
+                .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
+                .eq(FileTransferRunEntity::getTenantId, run.getTenantId())
+                .eq(FileTransferRunEntity::getProjectId, run.getProjectId())
+                .eq(FileTransferRunEntity::getId, run.getId())
+                .eq(FileTransferRunEntity::getQueueVisible, true);
+        if ("QUEUED".equals(status)) {
+            update.set(FileTransferRunEntity::getStatus, run.getStatus())
+                    .set(FileTransferRunEntity::getMessage, run.getMessage())
+                    .set(FileTransferRunEntity::getEndedAt, run.getEndedAt());
+        }
+        mutationService().dismissRunFromQueueAndEvent(run, update);
     }
 
     @Transactional
@@ -541,6 +588,7 @@ public class FileTransferRunService {
         run.setProjectId(projectId);
         run.setTriggerType(triggerType);
         run.setStatus("QUEUED");
+        run.setQueueVisible(true);
         run.setRuntimeClusterId(runtimeClusterId);
         run.setTargetRuntimeClusterId(runtimeClusterId);
         run.setTotalFiles(0L);

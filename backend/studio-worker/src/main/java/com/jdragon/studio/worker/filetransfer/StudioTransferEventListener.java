@@ -13,22 +13,28 @@ import com.jdragon.studio.infra.mapper.FileTransferMetricSampleMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.LongSupplier;
 
+@Slf4j
 final class StudioTransferEventListener implements TransferEventListener {
 
     private static final long ITEM_UPDATE_INTERVAL_MILLIS = 1_000L;
     private static final long SAMPLE_INTERVAL_MILLIS = 5_000L;
+    private static final long ITEM_PROGRESS_LOG_INTERVAL_MILLIS = 30_000L;
+    private static final long RUN_PROGRESS_LOG_INTERVAL_MILLIS = 60_000L;
 
     private final FileTransferRunEntity run;
     private final FileTransferRunMapper runMapper;
     private final FileTransferRunItemMapper itemMapper;
     private final FileTransferMetricSampleMapper metricMapper;
     private final FileTransferStateMutationService mutationService;
+    private final LongSupplier timeSource;
     private final Map<String, Long> bytesByItem = new HashMap<String, Long>();
     /** Observed stream bytes are display-only and never advance a checkpoint. */
     private final Map<String, Long> observedBytesByItem = new HashMap<String, Long>();
@@ -36,8 +42,13 @@ final class StudioTransferEventListener implements TransferEventListener {
     private final Map<String, Long> activityBytesByItem = new HashMap<String, Long>();
     private final Map<String, Long> resumedBytesByItem = new HashMap<String, Long>();
     private final Map<String, Long> lastItemUpdateAt = new HashMap<String, Long>();
+    private final Map<String, Long> lastItemProgressLogAt = new HashMap<String, Long>();
+    private final Map<String, Long> currentSpeedByItem = new HashMap<String, Long>();
+    private final Map<String, TransferItemStatus> lastStatusByItem = new HashMap<String, TransferItemStatus>();
+    private final Map<String, ItemLogContext> itemLogContexts = new HashMap<String, ItemLogContext>();
     private final Map<String, ProgressMark> progressMarks = new HashMap<String, ProgressMark>();
     private long lastSampleAt;
+    private long lastRunProgressLogAt;
     private long lastSampleBytes;
     private long lastSampleObservedBytes;
     private long retryCount;
@@ -46,7 +57,7 @@ final class StudioTransferEventListener implements TransferEventListener {
                                 FileTransferRunMapper runMapper,
                                 FileTransferRunItemMapper itemMapper,
                                 FileTransferMetricSampleMapper metricMapper) {
-        this(run, runMapper, itemMapper, metricMapper, null);
+        this(run, runMapper, itemMapper, metricMapper, null, System::currentTimeMillis);
     }
 
     StudioTransferEventListener(FileTransferRunEntity run,
@@ -54,12 +65,23 @@ final class StudioTransferEventListener implements TransferEventListener {
                                 FileTransferRunItemMapper itemMapper,
                                 FileTransferMetricSampleMapper metricMapper,
                                 FileTransferStateMutationService mutationService) {
+        this(run, runMapper, itemMapper, metricMapper, mutationService, System::currentTimeMillis);
+    }
+
+    StudioTransferEventListener(FileTransferRunEntity run,
+                                FileTransferRunMapper runMapper,
+                                FileTransferRunItemMapper itemMapper,
+                                FileTransferMetricSampleMapper metricMapper,
+                                FileTransferStateMutationService mutationService,
+                                LongSupplier timeSource) {
         this.run = run;
         this.runMapper = runMapper;
         this.itemMapper = itemMapper;
         this.metricMapper = metricMapper;
         this.mutationService = mutationService;
-        this.lastSampleAt = System.currentTimeMillis();
+        this.timeSource = timeSource == null ? System::currentTimeMillis : timeSource;
+        this.lastSampleAt = this.timeSource.getAsLong();
+        this.lastRunProgressLogAt = this.lastSampleAt;
         long initialTransferredBytes = 0L;
         for (FileTransferRunItemEntity item : itemMapper.selectList(new LambdaQueryWrapper<FileTransferRunItemEntity>()
                         .eq(FileTransferRunItemEntity::getRunId, run.getId()))
@@ -69,6 +91,13 @@ final class StudioTransferEventListener implements TransferEventListener {
             observedBytesByItem.put(item.getCoreItemId(), transferredBytes);
             activityBytesByItem.put(item.getCoreItemId(), transferredBytes);
             resumedBytesByItem.put(item.getCoreItemId(), value(item.getResumedBytes()));
+            currentSpeedByItem.put(item.getCoreItemId(), value(item.getCurrentBytesPerSecond()));
+            TransferItemStatus persistedStatus = status(item.getStatus());
+            if (persistedStatus != null) {
+                lastStatusByItem.put(item.getCoreItemId(), persistedStatus);
+            }
+            itemLogContexts.put(item.getCoreItemId(), new ItemLogContext(
+                    item.getSourcePath(), item.getTargetPath(), value(item.getFileSize())));
             initialTransferredBytes += transferredBytes;
         }
         this.lastSampleBytes = initialTransferredBytes == 0L
@@ -81,7 +110,7 @@ final class StudioTransferEventListener implements TransferEventListener {
         if (event == null) {
             return;
         }
-        long now = System.currentTimeMillis();
+        long now = timeSource.getAsLong();
         if (event.itemId() != null) {
             if (restartedFromZero(event)) {
                 bytesByItem.put(event.itemId(), 0L);
@@ -101,8 +130,9 @@ final class StudioTransferEventListener implements TransferEventListener {
         if (event.type() == TransferEventType.ITEM_RETRYING) {
             retryCount++;
         }
+        boolean accepted = true;
         if (event.type() == TransferEventType.ITEM_STATUS_CHANGED) {
-            persistStatus(event, now);
+            accepted = persistStatus(event, now);
         } else if (event.type() == TransferEventType.ITEM_PROGRESS
                 && (due(lastItemUpdateAt.get(event.itemId()), now, ITEM_UPDATE_INTERVAL_MILLIS)
                 || Boolean.TRUE.equals(event.details().get("verificationComplete")))) {
@@ -113,23 +143,26 @@ final class StudioTransferEventListener implements TransferEventListener {
             }
             lastItemUpdateAt.put(event.itemId(), now);
         }
+        if (accepted) {
+            logEvent(event, now);
+        }
         if (now - lastSampleAt >= SAMPLE_INTERVAL_MILLIS) {
             persistSample(now);
         }
     }
 
     synchronized void flushSample() {
-        persistSample(System.currentTimeMillis());
+        persistSample(timeSource.getAsLong());
     }
 
-    private void persistStatus(TransferEvent event, long now) {
+    private boolean persistStatus(TransferEvent event, long now) {
         TransferItemStatus status = event.itemStatus();
         FileTransferRunEntity latestRun = runMapper.selectById(run.getId());
         // A transfer event already in flight may arrive after the user pause
         // request. Never let that stale event resurrect an item to TRANSFERRING.
         if (status == TransferItemStatus.TRANSFERRING && latestRun != null
                 && "PAUSED".equalsIgnoreCase(latestRun.getStatus())) {
-            return;
+            return false;
         }
         LambdaUpdateWrapper<FileTransferRunItemEntity> update = new LambdaUpdateWrapper<FileTransferRunItemEntity>()
                 .set(FileTransferRunItemEntity::getStatus, status == null ? null : status.name())
@@ -157,6 +190,7 @@ final class StudioTransferEventListener implements TransferEventListener {
         updateItem(event.itemId(), update, false, true);
         updateRunStatus(status, event.message());
         persistProgress(event, now);
+        return true;
     }
 
     private void persistProgress(TransferEvent event, long now) {
@@ -172,6 +206,7 @@ final class StudioTransferEventListener implements TransferEventListener {
             speed = Math.max(0L, (activityBytes - previous.bytes) * 1000L
                     / (now - previous.atMillis));
         }
+        currentSpeedByItem.put(event.itemId(), speed);
         LambdaUpdateWrapper<FileTransferRunItemEntity> update = new LambdaUpdateWrapper<FileTransferRunItemEntity>()
                 .set(FileTransferRunItemEntity::getTransferredBytes, event.transferredBytes())
                 .set(FileTransferRunItemEntity::getCurrentBytesPerSecond, speed)
@@ -193,6 +228,7 @@ final class StudioTransferEventListener implements TransferEventListener {
         if (previous != null && now > previous.atMillis) {
             speed = Math.max(0L, (activityBytes - previous.bytes) * 1000L / (now - previous.atMillis));
         }
+        currentSpeedByItem.put(event.itemId(), speed);
         LambdaUpdateWrapper<FileTransferRunItemEntity> update = new LambdaUpdateWrapper<FileTransferRunItemEntity>()
                 .set(FileTransferRunItemEntity::getCurrentBytesPerSecond, speed)
                 .set(FileTransferRunItemEntity::getAttempts, event.attempt())
@@ -216,6 +252,214 @@ final class StudioTransferEventListener implements TransferEventListener {
         copyDetail(event, payload, "verificationTotalBytes");
         copyDetail(event, payload, "verificationComplete");
         mutationService().updateItemAndEvent(run.getId(), event.itemId(), update, payload, true, false);
+    }
+
+    private void logEvent(TransferEvent event, long now) {
+        if (event.itemId() == null) {
+            logRunProgressIfDue(now);
+            return;
+        }
+        if (event.type() == TransferEventType.ITEM_RETRYING) {
+            log.warn("[FT_ITEM_RETRYING] 文件传输项准备重试 runId={} itemId={} attempt={} "
+                            + "errorCode={} delayMillis={} restartFromZero={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.attempt(), event.errorCode(),
+                    detailLong(event, "delayMillis"), detailBoolean(event, "restartFromZero"),
+                    itemContext(event.itemId()).sourcePath, itemContext(event.itemId()).targetPath);
+        } else if (event.type() == TransferEventType.CHECKPOINT_SAVED) {
+            log.debug("[FT_CHECKPOINT_SAVED] 文件传输断点已保存 runId={} itemId={} confirmedBytes={}",
+                    run.getId(), event.itemId(), event.transferredBytes());
+        } else if (event.type() == TransferEventType.ITEM_STATUS_CHANGED) {
+            logStatusChange(event, now);
+        } else if (event.type() == TransferEventType.ITEM_PROGRESS
+                && due(lastItemProgressLogAt.get(event.itemId()), now,
+                ITEM_PROGRESS_LOG_INTERVAL_MILLIS)) {
+            logItemProgress(event);
+            lastItemProgressLogAt.put(event.itemId(), now);
+        }
+        logRunProgressIfDue(now);
+    }
+
+    private void logStatusChange(TransferEvent event, long now) {
+        TransferItemStatus status = event.itemStatus();
+        TransferItemStatus previous = lastStatusByItem.put(event.itemId(), status);
+        if (status == null) {
+            return;
+        }
+        ItemLogContext context = itemContext(event.itemId());
+        if (status == previous) {
+            // Recovery can persist TRANSFERRING before the core emits its
+            // resume decision. Keep lifecycle logs deduplicated, but never
+            // hide the checkpoint decision that explains retained bytes.
+            if (status == TransferItemStatus.TRANSFERRING
+                    && detail(event, "resumePhase") != null) {
+                logResumeDecision(event, context);
+            }
+            return;
+        }
+        if (status == TransferItemStatus.TRANSFERRING) {
+            if (previous == TransferItemStatus.PAUSED) {
+                log.info("[FT_ITEM_RESUMED] 文件传输项已恢复 runId={} itemId={} confirmedBytes={} "
+                                + "sourcePath={} targetPath={}",
+                        run.getId(), event.itemId(), event.transferredBytes(),
+                        context.sourcePath, context.targetPath);
+            } else {
+                log.info("[FT_ITEM_START] 文件传输项开始 runId={} itemId={} attempt={} totalBytes={} "
+                                + "sourcePath={} targetPath={}",
+                        run.getId(), event.itemId(), event.attempt(), event.totalBytes(),
+                        context.sourcePath, context.targetPath);
+            }
+            logResumeDecision(event, context);
+            lastItemProgressLogAt.put(event.itemId(), now);
+            return;
+        }
+        if (status == TransferItemStatus.VERIFYING) {
+            log.info("[FT_ITEM_VERIFYING] 文件传输项开始校验 runId={} itemId={} confirmedBytes={} "
+                            + "verificationPhase={} verificationMode={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(),
+                    detail(event, "verificationPhase"), detail(event, "verificationModeEffective"),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.COMMITTING) {
+            log.info("[FT_ITEM_COMMITTING] 文件传输项开始提交临时目标 runId={} itemId={} "
+                            + "confirmedBytes={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.PAUSED) {
+            currentSpeedByItem.put(event.itemId(), 0L);
+            log.info("[FT_ITEM_PAUSED] 文件传输项已暂停 runId={} itemId={} confirmedBytes={} "
+                            + "observedBytes={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(), observedBytes(event),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.SUCCESS) {
+            log.info("[FT_ITEM_SUCCESS] 文件传输项成功 runId={} itemId={} transferredBytes={} "
+                            + "resumedBytes={} attempts={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(), value(resumedBytes(event)),
+                    event.attempt(), context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.SKIPPED) {
+            log.info("[FT_ITEM_SKIPPED] 文件传输项已跳过 runId={} itemId={} reason={} "
+                            + "sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.message(), context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.CANCELED) {
+            currentSpeedByItem.put(event.itemId(), 0L);
+            log.info("[FT_ITEM_CANCELED] 文件传输项已取消 runId={} itemId={} confirmedBytes={} "
+                            + "sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.CONFLICT) {
+            log.warn("[FT_ITEM_CONFLICT] 文件传输目标冲突 runId={} itemId={} errorCode={} "
+                            + "message={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.errorCode(), event.message(),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.POST_ACTION_FAILED) {
+            log.warn("[FT_ITEM_POST_ACTION_FAILED] 文件传输源端后置动作失败 runId={} itemId={} "
+                            + "errorCode={} message={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.errorCode(), event.message(),
+                    context.sourcePath, context.targetPath);
+        } else if (status == TransferItemStatus.FAILED) {
+            currentSpeedByItem.put(event.itemId(), 0L);
+        }
+    }
+
+    private void logResumeDecision(TransferEvent event, ItemLogContext context) {
+        String resumePhase = detail(event, "resumePhase");
+        if ("RESUMING_TRANSFER".equalsIgnoreCase(resumePhase)) {
+            log.info("[FT_RESUME_ACCEPTED] 已从断点恢复 runId={} itemId={} confirmedBytes={} "
+                            + "resumedBytes={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(), value(resumedBytes(event)),
+                    context.sourcePath, context.targetPath);
+        } else if ("REBUILDING_CHECKSUM".equalsIgnoreCase(resumePhase)) {
+            log.info("[FT_RESUME_CHECKSUM_REBUILD] 正在重建断点摘要 runId={} itemId={} "
+                            + "confirmedBytes={} activityBytes={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), event.transferredBytes(), activityBytes(event),
+                    context.sourcePath, context.targetPath);
+        } else if ("RESTARTED_FROM_ZERO".equalsIgnoreCase(resumePhase)) {
+            log.warn("[FT_RESUME_RESTART_FROM_ZERO] 断点无法安全恢复，已从零开始 runId={} itemId={} "
+                            + "reason={} sourcePath={} targetPath={}",
+                    run.getId(), event.itemId(), detail(event, "restartReason"),
+                    context.sourcePath, context.targetPath);
+        }
+    }
+
+    private void logItemProgress(TransferEvent event) {
+        ItemLogContext context = itemContext(event.itemId());
+        log.info("[FT_ITEM_PROGRESS] 文件传输项进度 runId={} itemId={} status={} "
+                        + "confirmedBytes={} observedBytes={} activityBytes={} resumedBytes={} "
+                        + "totalBytes={} currentBps={} sourcePath={} targetPath={}",
+                run.getId(), event.itemId(), event.itemStatus(), event.transferredBytes(),
+                observedBytes(event), activityBytes(event), value(resumedBytesByItem.get(event.itemId())),
+                event.totalBytes(), value(currentSpeedByItem.get(event.itemId())),
+                context.sourcePath, context.targetPath);
+    }
+
+    private void logRunProgressIfDue(long now) {
+        if (now - lastRunProgressLogAt < RUN_PROGRESS_LOG_INTERVAL_MILLIS) {
+            return;
+        }
+        long confirmedBytes = sum(bytesByItem);
+        long observedBytes = sum(observedBytesByItem);
+        long activityBytes = sum(activityBytesByItem);
+        long resumedBytes = sum(resumedBytesByItem);
+        long currentBps = sum(currentSpeedByItem);
+        long activeFiles = lastStatusByItem.values().stream()
+                .filter(status -> status == TransferItemStatus.TRANSFERRING
+                        || status == TransferItemStatus.VERIFYING
+                        || status == TransferItemStatus.COMMITTING)
+                .count();
+        log.info("[FT_RUN_PROGRESS] 文件传输运行进度 runId={} confirmedBytes={} observedBytes={} "
+                        + "activityBytes={} resumedBytes={} currentBps={} activeFiles={} totalFiles={}",
+                run.getId(), confirmedBytes, observedBytes, activityBytes, resumedBytes,
+                currentBps, activeFiles, bytesByItem.size());
+        lastRunProgressLogAt = now;
+    }
+
+    private ItemLogContext itemContext(String itemId) {
+        ItemLogContext cached = itemLogContexts.get(itemId);
+        if (cached != null) {
+            return cached;
+        }
+        FileTransferRunItemEntity item = itemMapper.selectOne(
+                new LambdaQueryWrapper<FileTransferRunItemEntity>()
+                        .eq(FileTransferRunItemEntity::getRunId, run.getId())
+                        .eq(FileTransferRunItemEntity::getCoreItemId, itemId)
+                        .last("limit 1"));
+        ItemLogContext context = item == null
+                ? new ItemLogContext(null, null, 0L)
+                : new ItemLogContext(item.getSourcePath(), item.getTargetPath(), value(item.getFileSize()));
+        itemLogContexts.put(itemId, context);
+        return context;
+    }
+
+    private long sum(Map<String, Long> values) {
+        long total = 0L;
+        for (Long value : values.values()) {
+            total += value(value);
+        }
+        return total;
+    }
+
+    private String detail(TransferEvent event, String key) {
+        Object value = event.details().get(key);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private Long detailLong(TransferEvent event, String key) {
+        Object value = event.details().get(key);
+        return value instanceof Number number ? number.longValue() : null;
+    }
+
+    private Boolean detailBoolean(TransferEvent event, String key) {
+        Object value = event.details().get(key);
+        return value instanceof Boolean bool ? bool : null;
+    }
+
+    private TransferItemStatus status(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return TransferItemStatus.valueOf(value.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private void copyDetail(TransferEvent event, Map<String, Object> payload, String key) {
@@ -406,5 +650,8 @@ final class StudioTransferEventListener implements TransferEventListener {
             this.bytes = bytes;
             this.atMillis = atMillis;
         }
+    }
+
+    private record ItemLogContext(String sourcePath, String targetPath, long totalBytes) {
     }
 }

@@ -130,11 +130,12 @@
 | FT-WEB-011 | API 契约 | SDK 只调用 `/api/v1`，分页读取 `PageView.items` |
 | FT-WEB-012 | SSE 队列更新 | 打开传输中心并让 Worker 更新运行/文件项 | 仅建立 `/file-transfer/runs/events` 长连接，事件驱动更新列表；无前端定时轮询；断线持续封顶退避重连 |
 | FT-WEB-013 | SSE 正常断连 | 建立队列长连接后离开页面并跨过服务端心跳周期 | Server 不写 `HttpMessageNotWritableException` 或断连 `ERROR`，普通 REST I/O 异常仍返回统一 500 |
-| FT-WEB-014 | 队列手动删除 | 对排队、终态运行和非活动文件项点击移出队列 | 有确认弹窗；活动运行不能直接删除；删除成功后依赖 SSE 移除本地行 |
+| FT-WEB-014 | 队列手动删除 | 对排队、终态运行和非活动文件项点击移出队列 | 有确认弹窗；活动运行不能直接删除；运行级移除使用 `/runs/{runId}/queue`，成功后依赖 SSE 移除本地行 |
 | FT-WEB-015 | 非结构化管理入口 | 从数据资产菜单进入非结构化管理 | 首次不自动选择集群/数据源/目录；选择集群后加载数据源，选择数据源后加载目录；无权限操作隐藏或禁用 |
 | FT-WEB-016 | 队列状态 Tab | 打开传输中心并让文件项进入终态 | 活动文件显示在“传输中”；成功、跳过、失败、冲突、取消和源端处理失败自动进入“已完成”；状态变化只由 SSE 驱动，不增加列表轮询，也不强制切换用户当前 Tab |
 | FT-WEB-017 | 最终校验展示 | 分别让强校验和部分校验文件保持在 `VERIFYING` | 队列和运行详情分别显示“目标校验”和“目标采样”进度及校验速度；完成或进入后续状态后不被迟到事件覆盖 |
 | FT-WEB-018 | 配置与有效模式展示 | 查看历史任务、部分校验任务、自动提升文件和不校验文件 | 历史显示强校验；任务列表显示 `n 帧 × 帧大小`；自动提升显示“强校验（采样范围已覆盖文件）”；不校验不展示摘要 |
+| FT-WEB-019 | 清理已完成保留历史 | 在传输中心点击“清理已完成”，然后分别刷新传输中心和运行记录 | 已结束运行不再出现在传输中心；运行记录、运行详情、文件项、指标和日志仍可查询；前端不调用 `DELETE /runs/{runId}` |
 
 ## 8. OSS 与 FTP 真实操作验收矩阵
 
@@ -165,3 +166,43 @@
 5. 执行 10 万小文件发现与传输，验证游标、数据库写入量和指标采样开销。
 
 性能通过线由部署环境基线确定，但内存不得随单文件大小线性增长，心跳、健康检查和普通 Dispatch 不得被文件操作长时间阻塞。
+
+## 10. 日志与诊断验收
+
+| ID | 场景 | 操作 | 预期 |
+|---|---|---|---|
+| FT-LOG-001 | 并行运行 MDC 隔离 | 同时执行两个运行，每个运行包含两个并行文件 | 子线程插件日志进入各自 `runRecordId` 运行日志；线程结束后恢复原 MDC，不串入其他运行或 Worker 主日志 |
+| FT-LOG-002 | 生命周期日志 | 完成一次成功运行并制造一次规划阶段失败 | 包含 dispatch、plan、run 开始/完成事件；失败带固定 `phase`、异常类型和脱敏堆栈，完整堆栈只在生命周期入口打印一次 |
+| FT-LOG-003 | 文件进度限频 | 让单文件持续传输超过 65 秒并高频产生进度事件 | `FT_ITEM_PROGRESS` 每个文件最多 30 秒一条，`FT_RUN_PROGRESS` 每个运行最多 60 秒一条；终态不被限频 |
+| FT-LOG-004 | 进度字段 | 执行新传输、断点恢复和摘要重建 | 日志分别显示 `confirmedBytes`、`observedBytes`、`activityBytes`、`resumedBytes`、`currentBps`，零字节与摘要重建不混淆 |
+| FT-LOG-005 | 恢复与终态 | 覆盖恢复接受、回零、暂停/恢复、重试、冲突、校验、提交、成功、跳过、取消、后置动作失败和最终失败 | 对应稳定事件码和正确级别完整；普通重试前的临时失败不误报为最终 `FT_ITEM_FAILED` |
+| FT-LOG-006 | checkpoint 安全 | 保存、加载、删除断点并制造反序列化失败 | 只在 `DEBUG` 记录 run/item、确认偏移和 schema 版本；不包含 checkpoint JSON、checksum state 或临时物理定位 |
+| FT-LOG-007 | 非结构化跨进程关联 | 对 OSS、FTP、SFTP 分别浏览并执行 mkdir、rename、move、delete、upload、download | Server 和 Worker 日志具有相同 `operationId`；请求结束和异步流结束后 MDC 被恢复 |
+| FT-LOG-008 | 预期拒绝分级 | 制造 ACL 拒绝、目标冲突、路径不存在、非空目录未确认和远端无权限，并让插件异常消息携带伪造堆栈 | 使用 `UF_ACL_DENIED` 或 `UF_OPERATION_REJECTED` 的 `WARN`；业务消息单行、脱敏、有界，不打印 `UF_WORKER_FAILED` 的 `ERROR` 堆栈 |
+| FT-LOG-009 | 非预期故障分级 | 制造网络断开、协议协商或插件运行异常 | Server `UF_ROUTE_FAILED` 与 Worker `UF_WORKER_FAILED` 为 `ERROR`，带 operationId、阶段/操作、异常类型、脱敏消息和有界有用堆栈 |
+| FT-LOG-010 | operationId 输入安全 | 内部头为空、合法 UUID、包含换行或超过 64 字符 | 合法值透传；不合法值被忽略且不污染 MDC、日志行或认证结果 |
+| FT-LOG-011 | Outbox/SSE 静默规则 | 观察空轮询、非空批次、首次快照、有效 replay、过期/超限 replay、发送失败、heartbeat 和清理 | 空轮询与 heartbeat 无日志；非空批次/首次快照为 `DEBUG`；有效 replay 和实际清理为 `INFO`；过期、超限、缺口和发送失败为 `WARN` |
+| FT-LOG-012 | 敏感信息回归 | 在异常消息或模拟配置中放入 password、Token、AccessKey、PrivateKey、Authorization、Cookie、JDBC URL 和 checkpoint state | 应用日志和运行日志不出现明文；Server 异常消息不超过 2 KiB、异常栈不超过 12 KiB；Outbox/SSE/审计不新增敏感字段 |
+| FT-LOG-013 | 统一入口真实验收 | 从 `http://127.0.0.1:8000/dfs/data-aggregation-studio/` 启动超过 65 秒的 SFTP 传输并执行暂停、恢复直至终态 | 运行日志抽屉可见开始、30 秒文件进度、60 秒运行汇总、checkpoint 恢复、暂停/恢复、校验、提交和终态；队列仍只使用 SSE，无新增轮询 |
+
+自动化至少执行：
+
+```powershell
+$env:JAVA_HOME='C:\dev\Java\jdk-17.0.12'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+cd DataAggregation/data-aggregation-studio/backend
+mvn -pl studio-worker -am `
+  "-Dtest=FileTransferNodeExecutorRetryTest,StudioTransferEventListenerTest,FileTransferTaskMdcTest,WorkerFileTransferDispatchTest,RuntimeDatasourceProbeExecutorFileOperationTest,UnstructuredManagementOperationAuditTest,UnstructuredManagementAclDecisionTest,UnstructuredManagementAclScopeTest,RuntimeDatasourceProbeRouterSecurityTest,InternalDatasourceProbeControllerTest,FileTransferEventServiceOutboxTest,FileTransferOutboxCleanupTest" `
+  "-Dsurefire.failIfNoSpecifiedTests=false" test
+```
+
+### 10.1 2026-08-15 执行结果
+
+- 自动化：SFTP 插件 7 项、Studio Commons 3 项、Studio Infra 27 项、Worker 内部 Controller 12 项，共 49 项通过，0 失败、0 错误；此前日志广覆盖回归 Infra 64 项、Worker 33 项和 `GlobalExceptionHandlerTest` 11 项通过。
+- `FT-LOG-001` 至 `FT-LOG-012`：MDC 隔离、限频、恢复阶段、checkpoint 安全、operationId、异常分级、Outbox 静默规则和敏感信息边界均已由定向测试覆盖。
+- `FT-LOG-013`：真实长传输已观察到 30 秒文件进度、60 秒运行汇总、暂停/恢复、Worker 重启后的 checkpoint 接管、恢复接受、SSE 更新和终态事件；文件传输前端未增加 `setInterval`。
+- 真实 SFTP 权限拒绝：接口保持 `400/BUSINESS_ERROR`；Server/Worker 的 `operationId` 一致，均记录 `UF_OPERATION_REJECTED/WARN`，插件记录无堆栈权限 `WARN`，没有 `UF_WORKER_FAILED` 或 Java 堆栈。
+- 运行环境：Server、Worker 为 `UP`，在线 Worker 数为 1，统一入口 `http://127.0.0.1:8000/dfs/data-aggregation-studio/` 返回 200；文件传输页面租户/项目与 API 上下文一致，控制台无新增错误或警告。
+- 安全扫描：从应用日志抽取 228 条 `FT_*`/`UF_*` 事件，凭据赋值、checkpoint JSON、checksum state、内部认证头、技术元数据和物理 endpoint 均为 0 命中。
+
+本日志工作包不要求数据库升级、前端构建产物变更或公共接口字段变更。Studio Server 和 Studio Worker 已重启并完成验收；回滚时只需回滚本工作包 Java 代码并重启，不处理数据库、审计或历史运行记录。

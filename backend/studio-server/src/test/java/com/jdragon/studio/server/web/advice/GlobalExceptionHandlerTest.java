@@ -1,8 +1,13 @@
 package com.jdragon.studio.server.web.advice;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -16,6 +21,51 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 class GlobalExceptionHandlerTest {
+
+    @Test
+    void shouldLogExpectedBusinessExceptionWithoutStackTrace() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new GlobalExceptionHandler().handleStudioException(new StudioException(
+                    StudioErrorCode.CONFLICT, "Target path already exists"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage()).contains("code=CONFLICT")
+                    .contains("Target path already exists");
+            assertThat(event.getThrowableProxy()).isNull();
+        });
+    }
+
+    @Test
+    void shouldRetainStackTraceForInternalStudioException() {
+        Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            new GlobalExceptionHandler().handleStudioException(new StudioException(
+                    StudioErrorCode.INTERNAL_SERVER_ERROR, "Worker execution failed",
+                    new IllegalStateException("SFTP channel closed")));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+            assertThat(event.getFormattedMessage()).contains("code=INTERNAL_SERVER_ERROR")
+                    .contains("Worker execution failed");
+            assertThat(event.getThrowableProxy()).isNotNull();
+        });
+    }
 
     @Test
     void shouldMapServiceUnavailableStatus() {

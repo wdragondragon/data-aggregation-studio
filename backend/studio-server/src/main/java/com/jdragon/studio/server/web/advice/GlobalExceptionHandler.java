@@ -32,7 +32,6 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(StudioException.class)
     public ResponseEntity<Result<Void>> handleStudioException(StudioException ex) {
-        log.warn("Studio business exception: code={}, message={}", ex.getCode(), ex.getMessage(), ex);
         HttpStatus status = HttpStatus.BAD_REQUEST;
         if (StudioErrorCode.UNAUTHORIZED.equals(ex.getCode())) {
             status = HttpStatus.UNAUTHORIZED;
@@ -46,6 +45,13 @@ public class GlobalExceptionHandler {
             status = HttpStatus.SERVICE_UNAVAILABLE;
         } else if (StudioErrorCode.INTERNAL_SERVER_ERROR.equals(ex.getCode())) {
             status = HttpStatus.INTERNAL_SERVER_ERROR;
+        }
+        if (status == HttpStatus.INTERNAL_SERVER_ERROR) {
+            log.error("Studio internal exception: code={}, message={}",
+                    ex.getCode(), ex.getMessage(), ex);
+        } else {
+            log.warn("Studio business exception: code={}, message={}",
+                    ex.getCode(), ex.getMessage());
         }
         return ResponseEntity.status(status).body(Result.error(ex.getCode(), ex.getMessage()));
     }

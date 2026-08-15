@@ -119,8 +119,9 @@ location = /dfs/data-aggregation-studio/api/v1/unstructured-management/download/
 - `backend/studio-server/src/main/resources/update/20260809/20260809-unstructured-management.sql`
 - `backend/studio-server/src/main/resources/update/20260811/20260811-unstructured-op-audit-message.sql`
 - `backend/studio-server/src/main/resources/update/20260812/20260812-file-transfer-event-outbox.sql`
+- `backend/studio-server/src/main/resources/update/20260816/20260816-file-transfer-queue-visibility.sql`
 
-升级内容包括 `runtime_cluster_id` 规范字段、`datasource_definition.created_by`、ACL、操作审计，以及 `file_transfer_event_outbox`、`file_transfer_event_consumer_cursor` 两张事件表和七个索引。其中 `20260811` 脚本将历史 MySQL 的审计消息升级为 `TEXT`；`20260812` 脚本可重复执行，并能重建无数据的半成品 Outbox/游标表。非空半成品表缺少事件、运行或游标身份列时会拒绝升级，必须先备份并由 DBA 回填或重建，不能让应用猜测历史事件归属。`OUTBOX` 模式下表缺失会使 Server 健康检查降为 `DOWN`，不会静默退回旧扫描。
+升级内容包括 `runtime_cluster_id` 规范字段、`datasource_definition.created_by`、ACL、操作审计，以及 `file_transfer_event_outbox`、`file_transfer_event_consumer_cursor` 两张事件表和七个索引。其中 `20260811` 脚本将历史 MySQL 的审计消息升级为 `TEXT`；`20260812` 脚本可重复执行，并能重建无数据的半成品 Outbox/游标表；`20260816` 为 `file_transfer_run` 增加默认值为 `1` 的 `queue_visible`，把“移出队列”与运行历史逻辑删除分离。非空半成品表缺少事件、运行或游标身份列时会拒绝升级，必须先备份并由 DBA 回填或重建，不能让应用猜测历史事件归属。`OUTBOX` 模式下表缺失会使 Server 健康检查降为 `DOWN`，不会静默退回旧扫描。
 
 ## 5. 发布顺序
 
@@ -131,6 +132,7 @@ location = /dfs/data-aggregation-studio/api/v1/unstructured-management/download/
 5. 检查项目、运行集群和 FTP/OSS/SFTP 数据源绑定；旧 SFTP 服务器只对目标数据源开启 `allowLegacyAlgorithms`。
 6. 最后发布 Web，确认 SSE `id:`、`Last-Event-ID` 重连和“非结构化管理”入口。
 7. 扩容第二个 Server，以不同实例 ID 连接同一 MySQL，确认两个实例游标独立推进且都能投递同一事件。
+8. 验证传输中心查询携带 `queueOnly=true`；“清理已完成”后队列不再返回该运行，运行记录查询仍可返回同一运行及其文件项、指标和日志。
 
 ## 6. 发布后健康检查
 
@@ -171,3 +173,47 @@ location = /dfs/data-aggregation-studio/api/v1/unstructured-management/download/
 ## 9. 回滚边界
 
 Outbox 回滚时先停止新增文件传输，将所有 Server 改为 `LEGACY_SCAN` 并重启，再回滚 Server、Worker 和 Web 应用代码。保留 Outbox、游标、ACL 表、新增字段和审计记录，不删除历史传输记录，也不同时开启两种事件模式。修复完成后重新按“Worker 先、Server 后”的顺序切回 `OUTBOX`；删除 Outbox 表必须单独评审和备份。
+
+## 10. 文件传输与非结构化管理日志
+
+本功能继续使用现有 `SLF4J + Logback` 的 `TRACE / DEBUG / INFO / WARN / ERROR`，不设置独立日志级别开关，不新增 Appender、日志表或日志服务。发布本日志增强只需要重启 Studio Server 和 Studio Worker，不需要数据库升级或前端发布。
+
+### 10.1 查看入口与关联字段
+
+- 文件传输的调度、规划、文件项、checkpoint 和终态日志通过 `runLogId`、`runLogPath` 进入现有运行日志归档，在前端 `RunLogDrawer` 中由用户显式刷新查看。
+- `file-transfer-*` 并行子线程继承当前运行 MDC，线程结束后恢复原上下文；排查串日志时优先比对 `runRecordId`、`runId`、`itemId` 和 `dispatchId`。
+- 非结构化浏览、写操作、上传和下载由 Server 生成 UUID，通过内部 `X-Studio-Operation-Id` 传到 Worker。排查跨进程问题时用相同 `operationId` 搜索 Server 与 Worker 应用日志。
+- `X-Studio-Operation-Id` 只允许 64 字符以内的字母、数字、点、下划线和连字符；不合法值被忽略。该头不参与认证、幂等、ACL 或业务响应。
+
+### 10.2 主要事件码与级别
+
+| 范围 | 级别 | 事件码 |
+|---|---|---|
+| 调度和运行 | INFO/WARN/ERROR | `FT_DISPATCH_START`、`FT_DISPATCH_COMPLETED`、`FT_DISPATCH_FAILED`、`FT_PLAN_START`、`FT_PLAN_COMPLETED`、`FT_RUN_START`、`FT_RUN_PARTIAL`、`FT_RUN_COMPLETED` |
+| 文件项 | INFO | `FT_ITEM_START`、`FT_ITEM_PROGRESS`、`FT_RUN_PROGRESS`、`FT_ITEM_VERIFYING`、`FT_ITEM_COMMITTING`、`FT_ITEM_PAUSED`、`FT_ITEM_RESUMED`、`FT_ITEM_SUCCESS`、`FT_ITEM_SKIPPED`、`FT_ITEM_CANCELED` |
+| 恢复和异常 | INFO/WARN/ERROR | `FT_RESUME_ACCEPTED`、`FT_RESUME_CHECKSUM_REBUILD`、`FT_RESUME_RESTART_FROM_ZERO`、`FT_ITEM_RETRYING`、`FT_ITEM_CONFLICT`、`FT_ITEM_POST_ACTION_FAILED`、`FT_ITEM_FAILED` |
+| checkpoint | DEBUG | `FT_CHECKPOINT_NOT_FOUND`、`FT_CHECKPOINT_LOADED`、`FT_CHECKPOINT_SAVED`、`FT_CHECKPOINT_REMOVED`、`FT_CHECKPOINT_LOAD_FAILED`、`FT_CHECKPOINT_SAVE_FAILED` |
+| Outbox/SSE | DEBUG/INFO/WARN | `FT_OUTBOX_BATCH`、`FT_SSE_SNAPSHOT_REQUIRED`、`FT_SSE_REPLAY_COMPLETED`、`FT_SSE_REPLAY_EXPIRED`、`FT_SSE_REPLAY_LIMIT_EXCEEDED`、`FT_SSE_REPLAY_GAP`、`FT_SSE_SEND_FAILED`、`FT_OUTBOX_CLEANUP_COMPLETED` |
+| 非结构化管理 | DEBUG/INFO/WARN/ERROR | `UF_BROWSE_START/COMPLETED`、`UF_STAT_START/COMPLETED`、`UF_OPERATION_START/COMPLETED`、`UF_UPLOAD_START/COMPLETED`、`UF_DOWNLOAD_START/COMPLETED`、`UF_ACL_DENIED`、`UF_OPERATION_REJECTED`、`UF_ABORT_FAILED`、`UF_ROUTE_FAILED`、`UF_WORKER_FAILED`、`UF_AUDIT_FAILED` |
+
+文件项进度最多每 30 秒记录一条，运行进度最多每 60 秒记录一条；终态、恢复决策、暂停、冲突和最终失败立即记录。`confirmedBytes` 是已持久化 checkpoint 的确认字节，`observedBytes` 是当前进程实际处理字节，`activityBytes` 还包含摘要重建读取，`resumedBytes` 是本次复用历史字节，`currentBps` 是当前活动速度。
+
+正常浏览和 stat 只使用 `DEBUG`。文件写操作、上传和下载使用 `INFO`；ACL 拒绝、路径不存在、目标冲突、非空目录未确认和权限不足属于 `WARN`；网络、协议、插件和不可预期故障才使用 `ERROR`。正常的 250 ms Outbox 空轮询、SSE heartbeat、单条 Outbox 行和每个 8 MiB 传输块不记录日志。
+
+### 10.3 脱敏边界
+
+允许记录运行和操作 ID、运行集群/数据源 ID 与类型、规范化逻辑路径、状态、字节、速度、耗时和异常类型。禁止记录密码、Token、Secret、AccessKey、PrivateKey、Authorization/Cookie、完整数据源配置、完整请求体、checkpoint JSON、checksum state、Worker 内部地址、对象存储物理凭据和可复用下载票据。
+
+Server 对非结构化外部异常消息和异常栈先执行 `StudioSensitiveLogSanitizer`，消息最多保留 2 KiB，异常栈最多保留 12 KiB；Worker 继续依赖现有 `SanitizingPatternLayoutEncoder` 和运行日志归档脱敏。不得为排障临时把凭据、请求体或技术元数据加入日志。
+
+外部插件异常可能把 Java 堆栈嵌入 `message`。Worker 执行层、内部 Controller 响应边界和 Server 领域日志必须使用 `StudioSensitiveLogSanitizer.sanitizeSingleLine(...)` 做二次收敛：先执行敏感字段替换，再保留首行、移除控制字符并限制长度。SFTP 的 `SSH_FX_PERMISSION_DENIED` 属于预期拒绝，插件、Worker 和 Server 均使用无堆栈 `WARN`；只有未知网络、协议或插件故障才使用带脱敏堆栈的 `ERROR`。
+
+### 10.4 发布后验收基线
+
+- Server 和 Worker 健康状态为 `UP`，目标集群在线 Worker 数符合部署规模，统一 Web 入口返回 200。
+- 从统一入口打开文件传输中心，确认租户/项目上下文正确、控制台无新增错误或警告，队列仍通过 `/file-transfer/runs/events` SSE 长连接更新且没有列表轮询。
+- 用一个持续超过 65 秒的文件验证 `FT_ITEM_PROGRESS`、`FT_RUN_PROGRESS`、暂停/恢复、checkpoint 接管、恢复接受和终态日志；并确认任务专属日志只进入对应运行日志。
+- 对 OSS、FTP、SFTP 各执行浏览和写操作，再制造一次 ACL 拒绝与一次 SFTP 远端权限拒绝。用 `operationId` 串联 Server/Worker，权限拒绝不得出现 `UF_WORKER_FAILED` 或 Java 堆栈。
+- 对 `FT_*`/`UF_*` 日志执行敏感扫描，只报告类别、文件和数量；不得在终端或验收文档回显命中整行。至少覆盖凭据赋值、checkpoint JSON、checksum state、内部认证头、技术元数据和物理 endpoint。
+
+2026-08-15 本地验收已达到以上基线：Server/Worker 为 `UP`、在线 Worker 数为 1、统一入口为 200；真实 SFTP 权限拒绝在 Server/Worker 使用同一 `operationId` 且均为 `UF_OPERATION_REJECTED/WARN`，应用日志 228 条文件事件的六类敏感扫描均为 0。日志增强不需要数据库或公共 API 变更。现有 Spring JCL/Commons Logging 类路径警告单独按依赖治理处理，不作为文件传输日志功能回滚条件。

@@ -1,5 +1,9 @@
 package com.jdragon.studio.worker.filetransfer;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
@@ -18,10 +22,12 @@ import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.time.Instant;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -47,6 +53,114 @@ class StudioTransferEventListenerTest {
             TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                     FileTransferRunItemEntity.class);
         }
+    }
+
+    @Test
+    void progressLogsAreRateLimitedAndTerminalLogsAreImmediate() {
+        FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
+        FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+        FileTransferMetricSampleMapper metricMapper = mock(FileTransferMetricSampleMapper.class);
+        FileTransferRunEntity run = run(911L, 0L);
+        FileTransferRunItemEntity item = item("item-1", 0L);
+        item.setRunId(911L);
+        item.setSourcePath("/upload/source.bin");
+        item.setTargetPath("/archive/target.bin");
+        item.setFileSize(10_000L);
+        when(runMapper.selectById(911L)).thenReturn(run);
+        when(runMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(itemMapper.selectList(any())).thenReturn(List.of(item));
+        when(itemMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        AtomicLong now = new AtomicLong(1_000L);
+        StudioTransferEventListener listener = new StudioTransferEventListener(
+                run, runMapper, itemMapper, metricMapper,
+                mutationService(runMapper, itemMapper, metricMapper), now::get);
+
+        Logger logger = (Logger) LoggerFactory.getLogger(StudioTransferEventListener.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            listener.onEvent(logEvent(TransferEventType.ITEM_STATUS_CHANGED,
+                    TransferItemStatus.TRANSFERRING, 0L, 0L, Map.of()));
+            now.set(20_000L);
+            listener.onEvent(logEvent(TransferEventType.ITEM_PROGRESS,
+                    TransferItemStatus.TRANSFERRING, 1_000L, 1_500L,
+                    Map.of("live", true, "observedBytes", 1_500L, "activityBytes", 1_500L)));
+            now.set(31_000L);
+            listener.onEvent(logEvent(TransferEventType.ITEM_PROGRESS,
+                    TransferItemStatus.TRANSFERRING, 2_000L, 2_500L,
+                    Map.of("live", true, "observedBytes", 2_500L, "activityBytes", 2_500L)));
+            now.set(61_000L);
+            listener.onEvent(logEvent(TransferEventType.ITEM_PROGRESS,
+                    TransferItemStatus.TRANSFERRING, 3_000L, 3_500L,
+                    Map.of("live", true, "observedBytes", 3_500L, "activityBytes", 3_500L)));
+            listener.onEvent(logEvent(TransferEventType.ITEM_STATUS_CHANGED,
+                    TransferItemStatus.SUCCESS, 10_000L, 10_000L, Map.of("resumedBytes", 512L)));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        List<String> messages = appender.list.stream()
+                .map(ILoggingEvent::getFormattedMessage).toList();
+        assertThat(messages).anyMatch(message -> message.contains("[FT_ITEM_START]")
+                && message.contains("/upload/source.bin"));
+        assertThat(messages.stream().filter(message -> message.contains("[FT_ITEM_PROGRESS]")).count())
+                .isEqualTo(2L);
+        assertThat(messages).anyMatch(message -> message.contains("[FT_ITEM_PROGRESS]")
+                && message.contains("confirmedBytes=2000")
+                && message.contains("observedBytes=2500")
+                && message.contains("activityBytes=2500"));
+        assertThat(messages.stream().filter(message -> message.contains("[FT_RUN_PROGRESS]")).count())
+                .isEqualTo(1L);
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.INFO
+                && event.getFormattedMessage().contains("[FT_ITEM_SUCCESS]")
+                && event.getFormattedMessage().contains("resumedBytes=512"));
+    }
+
+    @Test
+    void checkpointDecisionIsLoggedWhenRecoveredItemIsAlreadyTransferring() {
+        FileTransferRunMapper runMapper = mock(FileTransferRunMapper.class);
+        FileTransferRunItemMapper itemMapper = mock(FileTransferRunItemMapper.class);
+        FileTransferMetricSampleMapper metricMapper = mock(FileTransferMetricSampleMapper.class);
+        FileTransferRunEntity run = run(912L, 80L * 1024L * 1024L);
+        FileTransferRunItemEntity item = item("item-1", 80L * 1024L * 1024L);
+        item.setRunId(912L);
+        item.setStatus("TRANSFERRING");
+        item.setResumedBytes(80L * 1024L * 1024L);
+        item.setSourcePath("/upload/source.bin");
+        item.setTargetPath("/archive/target.bin");
+        when(runMapper.selectById(912L)).thenReturn(run);
+        when(runMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        when(itemMapper.selectList(any())).thenReturn(List.of(item));
+        when(itemMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+        StudioTransferEventListener listener = new StudioTransferEventListener(
+                run, runMapper, itemMapper, metricMapper,
+                mutationService(runMapper, itemMapper, metricMapper));
+
+        Logger logger = (Logger) LoggerFactory.getLogger(StudioTransferEventListener.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            listener.onEvent(new TransferEvent(TransferEventType.ITEM_STATUS_CHANGED, Instant.now(),
+                    "run-1", "item-1", TransferItemStatus.TRANSFERRING,
+                    80L * 1024L * 1024L, 4L * 1024L * 1024L * 1024L, 1,
+                    "checkpoint restored; transfer resumes from confirmed offset", null,
+                    Map.of("resumedBytes", 80L * 1024L * 1024L,
+                            "resumePhase", "RESUMING_TRANSFER",
+                            "activityBytes", 80L * 1024L * 1024L)));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+
+        assertThat(appender.list).anyMatch(event -> event.getLevel() == Level.INFO
+                && event.getFormattedMessage().contains("[FT_RESUME_ACCEPTED]")
+                && event.getFormattedMessage().contains("confirmedBytes=83886080")
+                && event.getFormattedMessage().contains("resumedBytes=83886080"));
+        assertThat(appender.list).noneMatch(event -> event.getFormattedMessage()
+                .contains("[FT_ITEM_START]"));
     }
 
     @Test
@@ -429,6 +543,13 @@ class StudioTransferEventListenerTest {
     private TransferEvent event(TransferItemStatus status, long transferredBytes) {
         return new TransferEvent(TransferEventType.ITEM_STATUS_CHANGED, Instant.now(), "run-1", "item-1",
                 status, transferredBytes, 20L, 1, status.name(), null, Map.of());
+    }
+
+    private TransferEvent logEvent(TransferEventType type, TransferItemStatus status,
+                                   long confirmedBytes, long observedBytes,
+                                   Map<String, Object> details) {
+        return new TransferEvent(type, Instant.now(), "core-run-1", "item-1", status,
+                confirmedBytes, 10_000L, 1, status.name(), null, details);
     }
 
     private Object updateValue(LambdaUpdateWrapper<?> update, String column) {

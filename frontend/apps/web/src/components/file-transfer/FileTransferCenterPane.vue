@@ -862,7 +862,7 @@ async function removeQueueRow(row: QueueRow) {
   }
   try {
     if (row.synthetic || row.id == null) {
-      await studioApi.fileTransfer.runs.remove(row.runId);
+      await studioApi.fileTransfer.runs.dismiss(row.runId);
       removeRunLocally(row.runId);
     } else {
       await studioApi.fileTransfer.runs.removeItem(row.runId, row.id);
@@ -885,7 +885,7 @@ async function clearCompleted() {
   const failed: EntityId[] = [];
   for (const run of completed) {
     try {
-      await studioApi.fileTransfer.runs.remove(run.id as EntityId);
+      await studioApi.fileTransfer.runs.dismiss(run.id as EntityId);
       removeRunLocally(run.id as EntityId);
     } catch {
       failed.push(run.id as EntityId);

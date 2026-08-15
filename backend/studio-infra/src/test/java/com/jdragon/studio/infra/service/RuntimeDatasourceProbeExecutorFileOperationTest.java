@@ -1,5 +1,9 @@
 package com.jdragon.studio.infra.service;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
@@ -9,6 +13,7 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -202,6 +207,91 @@ class RuntimeDatasourceProbeExecutorFileOperationTest {
 
         assertInstanceOf(FileAlreadyExistsException.class, failure.getCause());
         verify(fileSystem, never()).prepareWrite(anyString(), anyString());
+    }
+
+    @Test
+    void expectedUploadConflictUsesWarningInsteadOfWorkerFailureError() throws Exception {
+        when(fileSystem.transferExists("/target.txt")).thenReturn(true);
+        when(fileSystem.stat("/target.txt")).thenReturn(file("/target.txt", 10L));
+        Logger logger = (Logger) LoggerFactory.getLogger(RuntimeDatasourceProbeExecutor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThrows(IllegalStateException.class,
+                    () -> executor.upload(datasource, "/target.txt", false, 1L,
+                            new ByteArrayInputStream(new byte[]{1})));
+
+            org.assertj.core.api.Assertions.assertThat(appender.list)
+                    .anySatisfy(event -> {
+                        org.assertj.core.api.Assertions.assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                        org.assertj.core.api.Assertions.assertThat(event.getFormattedMessage())
+                                .contains("[UF_OPERATION_REJECTED]");
+                    })
+                    .noneSatisfy(event -> org.assertj.core.api.Assertions.assertThat(event.getFormattedMessage())
+                            .contains("[UF_WORKER_FAILED]"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void permissionDeniedUsesSanitizedSingleLineWarningAndSafeEnvelope() throws Exception {
+        when(fileSystem.transferExists("/denied")).thenThrow(new java.io.IOException(
+                "Permission denied token=plain-secret\r\n"
+                        + "\tat example.sftp.Plugin.mkdir(Plugin.java:42)"));
+        Logger logger = (Logger) LoggerFactory.getLogger(RuntimeDatasourceProbeExecutor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> executor.operate(datasource, "CREATE_DIRECTORY", "/denied", null, false));
+
+            org.assertj.core.api.Assertions.assertThat(failure.getMessage())
+                    .isEqualTo("File operation failed: Permission denied token=******")
+                    .doesNotContain("plain-secret", "Plugin.java", "\r", "\n");
+            org.assertj.core.api.Assertions.assertThat(appender.list)
+                    .anySatisfy(event -> {
+                        org.assertj.core.api.Assertions.assertThat(event.getLevel()).isEqualTo(Level.WARN);
+                        org.assertj.core.api.Assertions.assertThat(event.getFormattedMessage())
+                                .contains("[UF_OPERATION_REJECTED]")
+                                .contains("message=Permission denied token=******")
+                                .doesNotContain("plain-secret", "Plugin.java", "\r", "\n");
+                    })
+                    .noneSatisfy(event -> org.assertj.core.api.Assertions.assertThat(event.getFormattedMessage())
+                            .contains("[UF_WORKER_FAILED]"));
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
+    }
+
+    @Test
+    void unexpectedFailureStillUsesErrorWithThrowable() throws Exception {
+        java.io.IOException transportFailure = new java.io.IOException("Connection reset");
+        when(fileSystem.transferExists("/failed")).thenThrow(transportFailure);
+        Logger logger = (Logger) LoggerFactory.getLogger(RuntimeDatasourceProbeExecutor.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            assertThrows(IllegalStateException.class,
+                    () -> executor.operate(datasource, "CREATE_DIRECTORY", "/failed", null, false));
+
+            org.assertj.core.api.Assertions.assertThat(appender.list)
+                    .anySatisfy(event -> {
+                        org.assertj.core.api.Assertions.assertThat(event.getLevel()).isEqualTo(Level.ERROR);
+                        org.assertj.core.api.Assertions.assertThat(event.getFormattedMessage())
+                                .contains("[UF_WORKER_FAILED]")
+                                .contains("message=Connection reset");
+                        org.assertj.core.api.Assertions.assertThat(event.getThrowableProxy()).isNotNull();
+                    });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 
     @Test

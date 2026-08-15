@@ -55,6 +55,11 @@ public class FileTransferOutboxCleanupService {
             lastDeletedCount = deleted;
             lastCleanupError = null;
             increment(deleted);
+            if (deleted > 0L) {
+                log.info("[FT_OUTBOX_CLEANUP_COMPLETED] 文件传输 Outbox 清理完成 deletedEvents={} "
+                                + "retentionDays={} batchSize={}",
+                        deleted, retentionDays(), cleanupBatchSize());
+            }
         } catch (RuntimeException exception) {
             lastCleanupError = exception.getMessage();
             log.error("Failed to clean file transfer Outbox", exception);

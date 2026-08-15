@@ -57,8 +57,10 @@ public class FileTransferRunController {
             @RequestParam(value = "taskId", required = false) Long taskId,
             @RequestParam(value = "status", required = false) String status,
             @RequestParam(value = "triggerType", required = false) String triggerType,
-            @RequestParam(value = "statusGroup", required = false) String statusGroup) {
-        return Result.success(runService.listPage(pageNo, pageSize, taskId, status, triggerType, statusGroup));
+            @RequestParam(value = "statusGroup", required = false) String statusGroup,
+            @RequestParam(value = "queueOnly", required = false) Boolean queueOnly) {
+        return Result.success(runService.listPage(
+                pageNo, pageSize, taskId, status, triggerType, statusGroup, queueOnly));
     }
 
     @GetMapping("/{runId}")
@@ -98,6 +100,13 @@ public class FileTransferRunController {
     @DeleteMapping("/{runId}")
     public Result<Void> remove(@PathVariable("runId") Long runId) {
         runService.removeManualRun(runId);
+        eventService.publishRunRemoved(runId);
+        return Result.success(null);
+    }
+
+    @DeleteMapping("/{runId}/queue")
+    public Result<Void> dismissFromQueue(@PathVariable("runId") Long runId) {
+        runService.dismissManualRunFromQueue(runId);
         eventService.publishRunRemoved(runId);
         return Result.success(null);
     }

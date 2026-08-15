@@ -177,6 +177,12 @@ public class RuntimeDatasourceProbeRouter {
 
     public FileTransferBrowserPageView browse(DataSourceDefinition datasource, Long clusterId,
                                               String path, String cursor, Integer pageSize) {
+        return browse(datasource, clusterId, path, cursor, pageSize, null);
+    }
+
+    public FileTransferBrowserPageView browse(DataSourceDefinition datasource, Long clusterId,
+                                              String path, String cursor, Integer pageSize,
+                                              String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -186,7 +192,7 @@ public class RuntimeDatasourceProbeRouter {
         payload.setPageSize(pageSize);
         try {
             return post(endpoint, payload, "/internal/runtime/datasource/file-browser",
-                    FileTransferBrowserPageView.class);
+                    FileTransferBrowserPageView.class, operationId);
         } catch (RemoteRuntimeException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -195,6 +201,11 @@ public class RuntimeDatasourceProbeRouter {
     }
 
     public FileTransferFileEntryView stat(DataSourceDefinition datasource, Long clusterId, String path) {
+        return stat(datasource, clusterId, path, null);
+    }
+
+    public FileTransferFileEntryView stat(DataSourceDefinition datasource, Long clusterId,
+                                          String path, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -202,7 +213,7 @@ public class RuntimeDatasourceProbeRouter {
         payload.setPath(path);
         try {
             return post(endpoint, payload, "/internal/runtime/datasource/file-stat",
-                    FileTransferFileEntryView.class);
+                    FileTransferFileEntryView.class, operationId);
         } catch (RemoteRuntimeException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -212,6 +223,12 @@ public class RuntimeDatasourceProbeRouter {
 
     public void operate(DataSourceDefinition datasource, Long clusterId, String operation,
                         String sourcePath, String targetPath, Boolean recursiveConfirmed) {
+        operate(datasource, clusterId, operation, sourcePath, targetPath, recursiveConfirmed, null);
+    }
+
+    public void operate(DataSourceDefinition datasource, Long clusterId, String operation,
+                        String sourcePath, String targetPath, Boolean recursiveConfirmed,
+                        String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -221,7 +238,7 @@ public class RuntimeDatasourceProbeRouter {
         payload.setOperationTargetPath(targetPath);
         payload.setRecursiveConfirmed(recursiveConfirmed);
         try {
-            postPayload(endpoint, payload, "/internal/runtime/datasource/file-operation");
+            postPayload(endpoint, payload, "/internal/runtime/datasource/file-operation", operationId);
         } catch (RemoteRuntimeException ex) {
             throw ex;
         } catch (Exception ex) {
@@ -231,6 +248,11 @@ public class RuntimeDatasourceProbeRouter {
 
     public void download(DataSourceDefinition datasource, Long clusterId, String path,
                          OutputStream output) {
+        download(datasource, clusterId, path, output, null);
+    }
+
+    public void download(DataSourceDefinition datasource, Long clusterId, String path,
+                         OutputStream output, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -243,7 +265,7 @@ public class RuntimeDatasourceProbeRouter {
                     runtimeEndpointSecurityService.validateRequestTarget(baseUrl + "/internal/runtime/datasource/file-download");
             if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
             RuntimeEndpointHttpClient.StreamingResponse response = runtimeEndpointHttpClient.executeStreaming(
-                    target, "POST", runtimeRequestHeaders(endpoint),
+                    target, "POST", runtimeRequestHeaders(endpoint, operationId),
                     serializePayload(payload).getBytes(StandardCharsets.UTF_8),
                     timeout(endpoint.getConnectTimeoutMillis(), 3000),
                     downloadReadIdleTimeout(), output);
@@ -264,6 +286,11 @@ public class RuntimeDatasourceProbeRouter {
 
     public void downloadArchive(DataSourceDefinition datasource, Long clusterId,
                                 List<String> paths, OutputStream output) {
+        downloadArchive(datasource, clusterId, paths, output, null);
+    }
+
+    public void downloadArchive(DataSourceDefinition datasource, Long clusterId,
+                                List<String> paths, OutputStream output, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -273,7 +300,7 @@ public class RuntimeDatasourceProbeRouter {
         payload.setPaths(paths == null ? new ArrayList<String>() : new ArrayList<String>(paths));
         try {
             executeStreamingDownload(endpoint, payload,
-                    "/internal/runtime/datasource/file-archive", output);
+                    "/internal/runtime/datasource/file-archive", output, operationId);
         } catch (RemoteRuntimeException ex) {
             throw ex;
         } catch (StudioException ex) {
@@ -285,6 +312,12 @@ public class RuntimeDatasourceProbeRouter {
 
     public long upload(DataSourceDefinition datasource, Long clusterId, String targetPath,
                        boolean overwrite, long contentLength, InputStream input) {
+        return upload(datasource, clusterId, targetPath, overwrite, contentLength, input, null);
+    }
+
+    public long upload(DataSourceDefinition datasource, Long clusterId, String targetPath,
+                       boolean overwrite, long contentLength, InputStream input,
+                       String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
         if (endpoint == null || !online(cluster)) throw unavailable();
@@ -301,7 +334,7 @@ public class RuntimeDatasourceProbeRouter {
                     runtimeEndpointSecurityService.validateRequestTarget(
                             baseUrl + "/internal/runtime/datasource/file-upload");
             if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
-            Map<String, List<String>> headers = runtimeRequestHeaders(endpoint);
+            Map<String, List<String>> headers = runtimeRequestHeaders(endpoint, operationId);
             headers.put("Content-Type", List.of("application/octet-stream"));
             addHeader(headers, RuntimeInternalHeaders.RUNTIME_REQUEST_HEADER,
                     Base64.getUrlEncoder().withoutPadding().encodeToString(
@@ -378,7 +411,12 @@ public class RuntimeDatasourceProbeRouter {
     }
     private <T> T post(RuntimeEndpointEntity endpoint, RuntimeDatasourceProbeRequest payload,
                        String path, Class<T> valueType) throws Exception {
-        return objectMapper.convertValue(postPayload(endpoint, payload, path), valueType);
+        return post(endpoint, payload, path, valueType, null);
+    }
+
+    private <T> T post(RuntimeEndpointEntity endpoint, RuntimeDatasourceProbeRequest payload,
+                       String path, Class<T> valueType, String operationId) throws Exception {
+        return objectMapper.convertValue(postPayload(endpoint, payload, path, operationId), valueType);
     }
 
     private RuntimeDatasourceProbeRequest payload(RuntimeClusterEntity cluster,
@@ -459,6 +497,11 @@ public class RuntimeDatasourceProbeRouter {
 
     private Object postPayload(RuntimeEndpointEntity endpoint, RuntimeDatasourceProbeRequest payload,
                                String path) throws Exception {
+        return postPayload(endpoint, payload, path, null);
+    }
+
+    private Object postPayload(RuntimeEndpointEntity endpoint, RuntimeDatasourceProbeRequest payload,
+                               String path, String operationId) throws Exception {
         String endpointUrl = encryption.decrypt(endpoint.getEndpointCiphertext());
         String validatedEndpointUrl = runtimeEndpointSecurityService.validate(endpointUrl).toString();
         String baseUrl = validatedEndpointUrl.replaceAll("/+$", "");
@@ -466,7 +509,7 @@ public class RuntimeDatasourceProbeRouter {
                 runtimeEndpointSecurityService.validateRequestTarget(baseUrl + path);
         if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
         String requestBody = serializePayload(payload);
-        Map<String, List<String>> requestHeaders = runtimeRequestHeaders(endpoint);
+        Map<String, List<String>> requestHeaders = runtimeRequestHeaders(endpoint, operationId);
         RuntimeEndpointHttpClient.Response response = runtimeEndpointHttpClient.execute(
                 target, "POST", requestHeaders, requestBody.getBytes(StandardCharsets.UTF_8),
                 timeout(endpoint.getConnectTimeoutMillis(), 3000),
@@ -489,13 +532,21 @@ public class RuntimeDatasourceProbeRouter {
                                           RuntimeDatasourceProbeRequest payload,
                                           String path,
                                           OutputStream output) throws Exception {
+        executeStreamingDownload(endpoint, payload, path, output, null);
+    }
+
+    private void executeStreamingDownload(RuntimeEndpointEntity endpoint,
+                                          RuntimeDatasourceProbeRequest payload,
+                                          String path,
+                                          OutputStream output,
+                                          String operationId) throws Exception {
         String endpointUrl = encryption.decrypt(endpoint.getEndpointCiphertext());
         String baseUrl = runtimeEndpointSecurityService.validate(endpointUrl).toString().replaceAll("/+$", "");
         RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target =
                 runtimeEndpointSecurityService.validateRequestTarget(baseUrl + path);
         if (!StringUtils.hasText(properties.getInternalApiToken())) throw unavailable();
         RuntimeEndpointHttpClient.StreamingResponse response = runtimeEndpointHttpClient.executeStreaming(
-                target, "POST", runtimeRequestHeaders(endpoint),
+                target, "POST", runtimeRequestHeaders(endpoint, operationId),
                 serializePayload(payload).getBytes(StandardCharsets.UTF_8),
                 timeout(endpoint.getConnectTimeoutMillis(), 3000),
                 downloadReadIdleTimeout(), output);
@@ -508,6 +559,11 @@ public class RuntimeDatasourceProbeRouter {
     }
 
     private Map<String, List<String>> runtimeRequestHeaders(RuntimeEndpointEntity endpoint) throws Exception {
+        return runtimeRequestHeaders(endpoint, null);
+    }
+
+    private Map<String, List<String>> runtimeRequestHeaders(RuntimeEndpointEntity endpoint,
+                                                            String operationId) throws Exception {
         if (endpoint == null || endpoint.getRuntimeClusterId() == null) {
             throw unavailable();
         }
@@ -534,6 +590,10 @@ public class RuntimeDatasourceProbeRouter {
         // identity owned by the selected endpoint so configured endpoint headers cannot spoof it.
         addHeader(requestHeaders, TARGET_CLUSTER_ID_HEADER,
                 String.valueOf(endpoint.getRuntimeClusterId()));
+        String safeOperationId = RuntimeInternalHeaders.normalizeOperationId(operationId);
+        if (safeOperationId != null) {
+            addHeader(requestHeaders, RuntimeInternalHeaders.OPERATION_ID_HEADER, safeOperationId);
+        }
         return requestHeaders;
     }
 

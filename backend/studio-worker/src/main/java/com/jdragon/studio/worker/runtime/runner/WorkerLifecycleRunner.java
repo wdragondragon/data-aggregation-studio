@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -704,7 +705,14 @@ public class WorkerLifecycleRunner {
                     return;
                 }
                 runLogScope = runLogFileService.openScope(preparedRunLog);
-                log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
+                if (isFileTransferTask(task)) {
+                    log.info("[FT_DISPATCH_START] 文件传输调度开始 dispatchId={} runRecordId={} "
+                                    + "runId={} taskId={} workerInstanceId={}",
+                            task.getId(), runRecord.getId(), resolveFileTransferRunId(task),
+                            task.getFileTransferTaskId(), clusterInstanceIdentity.instanceId());
+                } else {
+                    log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
+                }
                 runtimeContext.put("jobId", runRecord.getId());
                 runtimeContext.put("runRecordId", runRecord.getId());
                 runtimeContext.put("runLogId", String.valueOf(runRecord.getId()));
@@ -723,7 +731,11 @@ public class WorkerLifecycleRunner {
                 Map<String, Object> result = executeWithTaskContext(task, runtimeContext);
                 String resultStatus = resolveExecutionStatus(result);
                 LocalDateTime endedAt = LocalDateTime.now();
-                if ("FAILED".equalsIgnoreCase(resultStatus)) {
+                if (isFileTransferTask(task)) {
+                    log.info("[FT_DISPATCH_COMPLETED] 文件传输调度结束 dispatchId={} runRecordId={} "
+                                    + "runId={} status={}",
+                            task.getId(), runRecord.getId(), resolveFileTransferRunId(task), resultStatus);
+                } else if ("FAILED".equalsIgnoreCase(resultStatus)) {
                     log.warn("Dispatch task {} completed with FAILED result as runRecord {}", task.getId(), runRecord.getId());
                 } else {
                     log.info("Completed dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
@@ -753,7 +765,16 @@ public class WorkerLifecycleRunner {
                             logStorageResult, result);
                 }
             } catch (Throwable e) {
-                log.error("Dispatch task {} failed", task.getId(), e);
+                if (isFileTransferTask(task)) {
+                    log.error("[FT_DISPATCH_FAILED] 文件传输调度失败 dispatchId={} runRecordId={} "
+                                    + "runId={} taskId={} phase={} exceptionType={} message={}",
+                            task.getId(), runRecord == null ? null : runRecord.getId(),
+                            resolveFileTransferRunId(task), task.getFileTransferTaskId(),
+                            runtimeContext.getOrDefault("fileTransferPhase", "LOAD_RUN"),
+                            e.getClass().getName(), StudioSensitiveLogSanitizer.sanitize(e.getMessage()), e);
+                } else {
+                    log.error("Dispatch task {} failed", task.getId(), e);
+                }
                 closeRunLogScope(runLogScope);
                 runLogScope = null;
                 task.setStatus("FAILED");

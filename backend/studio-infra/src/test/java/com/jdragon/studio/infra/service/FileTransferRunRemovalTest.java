@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.FileTransferRunView;
@@ -14,6 +15,8 @@ import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.mapper.FileTransferMetricSampleMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunItemMapper;
 import com.jdragon.studio.infra.mapper.FileTransferRunMapper;
+import com.jdragon.studio.infra.model.FileTransferEventIntent;
+import com.jdragon.studio.infra.model.FileTransferOutboxEventType;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -25,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -62,6 +67,46 @@ class FileTransferRunRemovalTest {
                 ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
         verify(fixture.dispatchTaskMapper).update(isNull(), dispatchUpdate.capture());
         assertTrue(dispatchUpdate.getValue().getParamNameValuePairs().containsValue("CANCELED"));
+    }
+
+    @Test
+    void terminalManualRunShouldBeDismissedWithoutDeletingRunHistoryOrItems() {
+        Fixture fixture = fixture("SUCCESS");
+        when(fixture.runMapper.update(isNull(), any(LambdaUpdateWrapper.class))).thenReturn(1);
+
+        fixture.service.dismissManualRunFromQueue(100L);
+
+        verify(fixture.runMapper).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(fixture.runMapper, never()).deleteById(any(Long.class));
+        verify(fixture.itemMapper, never()).delete(any(LambdaQueryWrapper.class));
+        assertEquals(false, fixture.run.getQueueVisible());
+        ArgumentCaptor<FileTransferEventIntent> event = ArgumentCaptor.forClass(FileTransferEventIntent.class);
+        verify(fixture.outboxWriter).appendProgress(event.capture(), anyString(), eq(true));
+        assertEquals(FileTransferOutboxEventType.RUN_REMOVED, event.getValue().getEventType());
+    }
+
+    @Test
+    void queueOnlyRunListShouldFilterQueueVisibilityButHistoryListShouldNot() {
+        Fixture fixture = fixture("SUCCESS");
+        when(fixture.runMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        fixture.service.listPage(1, 20, null, null, null, null, true);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<FileTransferRunEntity>> queueQuery =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(fixture.runMapper).selectPage(any(Page.class), queueQuery.capture());
+        assertTrue(queueQuery.getValue().getSqlSegment().contains("queue_visible"));
+
+        Fixture historyFixture = fixture("SUCCESS");
+        when(historyFixture.runMapper.selectPage(any(Page.class), any(LambdaQueryWrapper.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        historyFixture.service.listPage(1, 20, null, null, null, null, null);
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaQueryWrapper<FileTransferRunEntity>> historyQuery =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(historyFixture.runMapper).selectPage(any(Page.class), historyQuery.capture());
+        assertTrue(!historyQuery.getValue().getSqlSegment().contains("queue_visible"));
     }
 
     @Test
@@ -259,18 +304,20 @@ class FileTransferRunRemovalTest {
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         RuntimeClusterSelectionService runtimeClusterSelectionService = mock(RuntimeClusterSelectionService.class);
         DataSourceService dataSourceService = mock(DataSourceService.class);
+        FileTransferOutboxWriter outboxWriter = mock(FileTransferOutboxWriter.class);
         FileTransferRunEntity run = new FileTransferRunEntity();
         run.setId(100L);
         run.setTenantId("default");
         run.setProjectId(10L);
         run.setTriggerType("MANUAL");
         run.setStatus(status);
+        run.setQueueVisible(true);
         when(runMapper.selectById(100L)).thenReturn(run);
         when(projectAccess.requireCurrentProjectId()).thenReturn(10L);
         when(securityService.currentTenantId()).thenReturn("default");
         FileTransferStateMutationService mutationService = new FileTransferStateMutationService(
                 runMapper, itemMapper, mock(FileTransferMetricSampleMapper.class),
-                mock(FileTransferOutboxWriter.class));
+                outboxWriter);
         mutationService.setDispatchTaskMapper(dispatchTaskMapper);
         FileTransferRunService service = new FileTransferRunService(
                 runMapper,
@@ -286,7 +333,7 @@ class FileTransferRunRemovalTest {
                 new ObjectMapper(),
                 mutationService);
         return new Fixture(service, runMapper, itemMapper, dispatchTaskMapper,
-                runtimeClusterSelectionService, dataSourceService, run);
+                runtimeClusterSelectionService, dataSourceService, outboxWriter, run);
     }
 
     private static void initialize(Class<?> entityType) {
@@ -303,6 +350,7 @@ class FileTransferRunRemovalTest {
                            DispatchTaskMapper dispatchTaskMapper,
                            RuntimeClusterSelectionService runtimeClusterSelectionService,
                            DataSourceService dataSourceService,
+                           FileTransferOutboxWriter outboxWriter,
                            FileTransferRunEntity run) {
     }
 }

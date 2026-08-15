@@ -26,6 +26,15 @@ assert.match(runs, /loading\.value\)\s*runsReloadRequested\s*=\s*true/,
   "run-list events received during a snapshot load must schedule one merged reload");
 assert.match(apiClient, /triggerType\?:\s*string/, "run list client must expose the triggerType query");
 assert.match(apiClient, /statusGroup\?:\s*"ACTIVE"\s*\|\s*"TERMINAL"/, "run list client must expose bounded status groups");
+assert.match(apiClient, /queueOnly\?:\s*boolean/, "run list client must expose queue visibility filtering");
+assert.match(apiClient, /dismiss\(runId:[\s\S]*?\/queue`[\s\S]*?method:\s*"DELETE"/,
+  "the SDK must expose a non-destructive queue dismissal endpoint");
+assert.doesNotMatch(center, /runs\.remove\(/,
+  "queue cleanup must never call the run-history deletion endpoint");
+assert.match(center, /clearCompleted\(\)[\s\S]*?runs\.dismiss\(run\.id as EntityId\)/,
+  "clearing completed queue entries must preserve run history");
+assert.match(runs, /type === "RUN_REMOVED"[\s\S]*?void loadRuns\(\)/,
+  "run history must reload instead of treating queue dismissal as history deletion");
 assert.doesNotMatch(center + runs, /setInterval\s*\(/, "file transfer views must not poll");
 assert.match(unstructuredManagement, /@update:datasource-id="selectSource"/,
   "the browser datasource selector must update the management page selection");
@@ -107,8 +116,8 @@ assert.equal(calls.filter((call) => call.statusGroup === "TERMINAL").length, 1,
   "terminal history must require exactly one bounded request");
 assert.deepEqual(calls.filter((call) => call.statusGroup === "ACTIVE").map((call) => call.pageNo), [1, 2],
   "active runs may paginate without scanning terminal history");
-assert.ok(calls.every((call) => call.triggerType === "MANUAL" && call.statusGroup),
-  "every queue request must be server-filtered");
+assert.ok(calls.every((call) => call.triggerType === "MANUAL" && call.statusGroup && call.queueOnly === true),
+  "every queue request must be server-filtered and restricted to visible queue entries");
 
 const transitionedRun = { id: "transitioned", status: "RUNNING", createdAt: "2026-08-10T10:00:00" };
 const transitionedResult = queueModule.selectQueueRuns([

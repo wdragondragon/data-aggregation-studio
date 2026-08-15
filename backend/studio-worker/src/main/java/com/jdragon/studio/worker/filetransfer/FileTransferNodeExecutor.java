@@ -40,9 +40,12 @@ import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -54,6 +57,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 @Component
+@Slf4j
 public class FileTransferNodeExecutor implements NodeExecutor {
 
     private final FileTransferRunMapper runMapper;
@@ -104,6 +108,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     @Override
     public Map<String, Object> execute(WorkflowNodeDefinition definition,
                                        Map<String, Object> runtimeContext) {
+        setPhase(runtimeContext, "LOAD_RUN");
         Long runId = optionalLong(definition.getConfig().get("fileTransferRunId"))
                 .orElseThrow(() -> new IllegalArgumentException("fileTransferRunId is required"));
         FileTransferRunEntity run = runMapper.selectById(runId);
@@ -119,6 +124,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         Long runRecordId = optionalLong(runtimeContext.get("runRecordId")).orElse(null);
         markStarted(run, runRecordId);
 
+        setPhase(runtimeContext, "RESOLVE_SPEC");
         Map<String, Object> runSnapshot = copy(run.getResolvedSpecJson());
         if (optionalLong(runSnapshot.get("plannedAtMillis")).isEmpty()) {
             runSnapshot.put("plannedAtMillis", Instant.now().toEpochMilli());
@@ -137,7 +143,9 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         List<TransferResult> results = new ArrayList<TransferResult>();
         try {
             try (PluginRuntimeSession pluginSession = PluginRuntimeSession.open()) {
-                TransferEngine engine = new TransferEngine(pluginSession::bind);
+                Map<String, String> transferMdc = MDC.getCopyOfContextMap();
+                TransferEngine engine = new TransferEngine(
+                        task -> bindTransferContext(pluginSession, transferMdc, task));
                 TransferPlanner planner = new TransferPlanner();
                 List<PreparedExecution> preparedExecutions = new ArrayList<PreparedExecution>();
                 long totalFiles = 0L;
@@ -145,8 +153,15 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 int index = 0;
                 boolean retryItemMatched = retryCoreItemId == null;
                 for (TransferExecution execution : executions) {
+                    setPhase(runtimeContext, "PLAN");
                     String coreRunId = run.getId() + "-" + (++index);
                     TransferSpec spec = configurationMapper.map(Configuration.from(execution.spec));
+                    long planStartedAt = System.nanoTime();
+                    log.info("[FT_PLAN_START] 开始生成文件传输计划 runId={} runRecordId={} batch={} "
+                                    + "sourceDatasourceId={} sourceType={} targetDatasourceId={} targetType={}",
+                            run.getId(), runRecordId, index,
+                            execution.sourceDatasourceId, endpointType(execution, "source"),
+                            execution.targetDatasourceId, endpointType(execution, "target"));
                     PreparedTransfer prepared;
                     if (postActionOnly) {
                         Optional<PreparedTransfer> retryPrepared = preparePostActionRetry(
@@ -174,9 +189,15 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                     retryItemMatched = true;
                     persistPlan(run, execution, prepared);
                     preparedExecutions.add(new PreparedExecution(execution, prepared));
-                    totalFiles += prepared.plan().items().size();
-                    totalBytes += prepared.plan().items().stream()
+                    long plannedFiles = prepared.plan().items().size();
+                    long plannedBytes = prepared.plan().items().stream()
                             .mapToLong(item -> item.sourceSnapshot().size()).sum();
+                    totalFiles += plannedFiles;
+                    totalBytes += plannedBytes;
+                    log.info("[FT_PLAN_COMPLETED] 文件传输计划生成完成 runId={} runRecordId={} batch={} "
+                                    + "files={} totalBytes={} durationMillis={}",
+                            run.getId(), runRecordId, index, plannedFiles, plannedBytes,
+                            elapsedMillis(planStartedAt));
                 }
                 if (!retryItemMatched) {
                     throw new IllegalStateException("Retry file transfer item is not part of the current run plan");
@@ -185,10 +206,23 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 if (retryCoreItemId == null) {
                     updatePlanTotals(run, totalFiles, totalBytes);
                 }
+                if (!preparedExecutions.isEmpty()) {
+                    PreparedTransfer first = preparedExecutions.get(0).prepared;
+                    log.info("[FT_RUN_START] 文件传输运行开始 runId={} runRecordId={} taskId={} "
+                                    + "runtimeClusterId={} batches={} files={} totalBytes={} concurrency={} "
+                                    + "verificationMode={} conflictPolicy={} checkpointRecoveryMode={}",
+                            run.getId(), runRecordId, run.getTaskId(), run.getRuntimeClusterId(),
+                            preparedExecutions.size(), totalFiles, totalBytes,
+                            first.resolvedSpec().runtime().concurrency(),
+                            first.resolvedSpec().policy().verificationMode(),
+                            first.resolvedSpec().policy().conflictPolicy(),
+                            first.resolvedSpec().runtime().checkpointRecoveryMode());
+                }
                 for (PreparedExecution preparedExecution : preparedExecutions) {
                     if (isCanceled(run.getId())) {
                         break;
                     }
+                    setPhase(runtimeContext, "TRANSFER");
                     TransferResult result = postActionOnly
                             ? retryPostAction(run, preparedExecution.prepared,
                                     preparedExecution.execution.sourceFactory,
@@ -201,10 +235,12 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                                      listener,
                                      new DatabaseTransferControl(run.getId(), runMapper));
                     results.add(result);
+                    setPhase(runtimeContext, "PERSIST_RESULT");
                     persistResults(run, preparedExecution.prepared, result);
                 }
                 runtimeContext.put("pluginRevisions", pluginSession.revisions());
             }
+            setPhase(runtimeContext, "FINISH");
             return finish(run, results);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -524,6 +560,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 .set(FileTransferRunEntity::getResolvedSpecJson, snapshot,
                         "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
                 .eq(FileTransferRunEntity::getId, run.getId()), false, true);
+
     }
 
     private Instant plannedAt(Map<String, Object> snapshot) {
@@ -613,6 +650,14 @@ public class FileTransferNodeExecutor implements NodeExecutor {
             }
             update.set(FileTransferRunItemEntity::getUpdatedAt, LocalDateTime.now());
             updateItem(run.getId(), value.itemId(), update, false, true);
+            if (value.status() == TransferItemStatus.FAILED) {
+                log.error("[FT_ITEM_FAILED] 文件传输项重试耗尽后失败 runId={} runRecordId={} "
+                                + "itemId={} attempts={} errorCode={} message={} transferredBytes={} "
+                                + "sourcePath={} targetPath={}",
+                        run.getId(), run.getRunRecordId(), value.itemId(), value.attempts(),
+                        value.errorCode(), value.errorMessage(), value.transferredBytes(),
+                        plan == null ? null : plan.sourcePath(), plan == null ? null : plan.targetPath());
+            }
         }
     }
 
@@ -745,6 +790,20 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         metricSummary.put("transformerFailedRecords", 0L);
         metricSummary.put("transformerFilterRecords", 0L);
         summary.put("summary", metricSummary);
+
+        long durationMillis = run.getStartedAt() == null || run.getEndedAt() == null
+                ? 0L : Math.max(0L, Duration.between(run.getStartedAt(), run.getEndedAt()).toMillis());
+        if ("PARTIAL_SUCCESS".equals(finalStatus)) {
+            log.warn("[FT_RUN_PARTIAL] 文件传输部分成功 runId={} runRecordId={} successFiles={} "
+                            + "skippedFiles={} failedFiles={} conflictFiles={} postActionFailedFiles={}",
+                    run.getId(), run.getRunRecordId(), success, skipped, failed, conflicts, postActionFailed);
+        }
+        log.info("[FT_RUN_COMPLETED] 文件传输运行结束 runId={} runRecordId={} status={} "
+                        + "successFiles={} skippedFiles={} failedFiles={} conflictFiles={} resumedFiles={} "
+                        + "transferredBytes={} totalBytes={} peakBytesPerSecond={} durationMillis={}",
+                run.getId(), run.getRunRecordId(), finalStatus, success, skipped, failed, conflicts,
+                resumedFiles, transferred, value(run.getTotalBytes()), value(run.getPeakBytesPerSecond()),
+                durationMillis);
         return summary;
     }
 
@@ -796,6 +855,42 @@ public class FileTransferNodeExecutor implements NodeExecutor {
             throw new IllegalStateException("File transfer state mutation service is required");
         }
         return mutationService;
+    }
+
+    private void setPhase(Map<String, Object> runtimeContext, String phase) {
+        if (runtimeContext != null) {
+            runtimeContext.put("fileTransferPhase", phase);
+        }
+    }
+
+    static Runnable bindTransferContext(PluginRuntimeSession pluginSession,
+                                        Map<String, String> context,
+                                        Runnable task) {
+        return pluginSession.bind(() -> {
+            Map<String, String> previous = MDC.getCopyOfContextMap();
+            try {
+                if (context == null || context.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(context);
+                }
+                task.run();
+            } finally {
+                if (previous == null || previous.isEmpty()) {
+                    MDC.clear();
+                } else {
+                    MDC.setContextMap(previous);
+                }
+            }
+        });
+    }
+
+    private String endpointType(TransferExecution execution, String endpoint) {
+        return text(map(execution.spec.get(endpoint)).get("plugin"), "UNKNOWN");
+    }
+
+    private long elapsedMillis(long startedAtNanos) {
+        return Math.max(0L, (System.nanoTime() - startedAtNanos) / 1_000_000L);
     }
 
     private long countStatus(List<FileTransferRunItemEntity> items, String status) {

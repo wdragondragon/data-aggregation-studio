@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -33,6 +34,7 @@ import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.worker.filetransfer.FileTransferPreviewExecutor;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -61,6 +63,9 @@ import java.net.URLEncoder;
 @RestController
 @RequestMapping("/internal/runtime/datasource")
 public class InternalDatasourceProbeController {
+
+    private static final int MAX_ERROR_MESSAGE_LENGTH = 2 * 1024;
+    private static final String UNKNOWN_ERROR_MESSAGE = "Runtime datasource operation failed";
 
     private final RuntimeDatasourceProbeExecutor executor;
     private final StudioPlatformProperties properties;
@@ -142,14 +147,16 @@ public class InternalDatasourceProbeController {
     @PostMapping("/file-browser")
     public Result<FileTransferBrowserPageView> fileBrowser(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         return execute(token, request, false, datasource -> executor.browse(
-                datasource, request.getPath(), request.getCursor(), request.getPageSize()));
+                datasource, request.getPath(), request.getCursor(), request.getPageSize()), operationId);
     }
 
     @PostMapping("/file-stat")
     public Result<FileTransferFileEntryView> fileStat(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         return execute(token, request, false, datasource -> {
             try {
@@ -160,14 +167,15 @@ public class InternalDatasourceProbeController {
                             "File path was not found", exception);
                 }
                 throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
-                        exception.getMessage(), exception);
+                        safeErrorMessage(exception), exception);
             }
-        });
+        }, operationId);
     }
 
     @PostMapping("/file-operation")
     public Result<Void> fileOperation(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         return execute(token, request, false, datasource -> {
             try {
@@ -175,18 +183,23 @@ public class InternalDatasourceProbeController {
                         request.getOperationTargetPath(), request.getRecursiveConfirmed());
             } catch (IllegalStateException exception) {
                 throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
-                        exception.getMessage(), exception);
+                        safeErrorMessage(exception), exception);
             }
             return null;
-        });
+        }, operationId);
+    }
+
+    public Result<Void> fileOperation(String token, RuntimeDatasourceProbeRequest request) {
+        return fileOperation(token, null, request);
     }
 
     @PostMapping("/file-download")
     public ResponseEntity<StreamingResponseBody> fileDownload(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         StudioRequestContext previous = StudioRequestContextHolder.getContext();
-        try {
+        try (OperationMdcScope ignored = bindOperationId(operationId)) {
             DataSourceDefinition datasource = prepare(token, request, false);
             FileTransferFileEntryView entry = executor.stat(datasource, request.getPath());
             if (Boolean.TRUE.equals(entry.getDirectory())) {
@@ -194,7 +207,11 @@ public class InternalDatasourceProbeController {
             }
             String name = entry.getName() == null ? "download" : entry.getName();
             String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
-            StreamingResponseBody body = output -> executor.download(datasource, request.getPath(), output);
+            StreamingResponseBody body = output -> {
+                try (OperationMdcScope streamScope = bindOperationId(operationId)) {
+                    executor.download(datasource, request.getPath(), output);
+                }
+            };
             return ResponseEntity.ok()
                     .contentType(MediaType.APPLICATION_OCTET_STREAM)
                     .contentLength(entry.getSize() == null ? 0L : entry.getSize())
@@ -210,10 +227,11 @@ public class InternalDatasourceProbeController {
     @PostMapping(value = "/file-upload", consumes = MediaType.APPLICATION_OCTET_STREAM_VALUE)
     public ResponseEntity<Result<UnstructuredUploadResultView>> fileUpload(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @RequestHeader(RuntimeInternalHeaders.RUNTIME_REQUEST_HEADER) String encodedRequest,
             HttpServletRequest servletRequest) throws java.io.IOException {
         StudioRequestContext previous = StudioRequestContextHolder.getContext();
-        try {
+        try (OperationMdcScope ignored = bindOperationId(operationId)) {
             RuntimeDatasourceUploadRequest request = decodeUploadRequest(encodedRequest);
             if (servletRequest.getContentLengthLong() != request.getContentLength()) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -233,24 +251,33 @@ public class InternalDatasourceProbeController {
         } catch (IllegalStateException exception) {
             if (hasCause(exception, FileAlreadyExistsException.class)) {
                 return ResponseEntity.status(HttpStatus.CONFLICT)
-                        .body(Result.error(StudioErrorCode.CONFLICT, exception.getMessage()));
+                        .body(Result.error(StudioErrorCode.CONFLICT, safeErrorMessage(exception)));
             }
             return ResponseEntity.badRequest()
-                    .body(Result.error(StudioErrorCode.BUSINESS_ERROR, exception.getMessage()));
+                    .body(Result.error(StudioErrorCode.BUSINESS_ERROR, safeErrorMessage(exception)));
         } finally {
             restoreContext(previous);
         }
     }
 
+    public ResponseEntity<Result<UnstructuredUploadResultView>> fileUpload(
+            String token, String encodedRequest, HttpServletRequest servletRequest) throws java.io.IOException {
+        return fileUpload(token, null, encodedRequest, servletRequest);
+    }
+
     @PostMapping("/file-archive")
     public ResponseEntity<StreamingResponseBody> fileArchive(
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
+            @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceArchiveRequest request) {
         StudioRequestContext previous = StudioRequestContextHolder.getContext();
-        try {
+        try (OperationMdcScope ignored = bindOperationId(operationId)) {
             DataSourceDefinition datasource = prepare(token, request, false);
-            StreamingResponseBody body = output -> executor.downloadArchive(
-                    datasource, request.getPaths(), output);
+            StreamingResponseBody body = output -> {
+                try (OperationMdcScope streamScope = bindOperationId(operationId)) {
+                    executor.downloadArchive(datasource, request.getPaths(), output);
+                }
+            };
             return ResponseEntity.ok()
                     .contentType(MediaType.parseMediaType("application/zip"))
                     .header(HttpHeaders.CONTENT_DISPOSITION,
@@ -278,12 +305,20 @@ public class InternalDatasourceProbeController {
                                   RuntimeDatasourceProbeRequest request,
                                   boolean draftAllowed,
                                   Function<DataSourceDefinition, T> action) {
+        return execute(token, request, draftAllowed, action, null);
+    }
+
+    private <T> Result<T> execute(String token,
+                                  RuntimeDatasourceProbeRequest request,
+                                  boolean draftAllowed,
+                                  Function<DataSourceDefinition, T> action,
+                                  String operationId) {
         StudioRequestContext previous = StudioRequestContextHolder.getContext();
-        try {
+        try (OperationMdcScope ignored = bindOperationId(operationId)) {
             DataSourceDefinition datasource = prepare(token, request, draftAllowed);
             return Result.success(action.apply(datasource));
         } catch (StudioException exception) {
-            return Result.error(exception.getCode(), exception.getMessage());
+            return Result.error(exception.getCode(), safeErrorMessage(exception));
         } finally {
             restoreContext(previous);
         }
@@ -314,6 +349,13 @@ public class InternalDatasourceProbeController {
             current = current.getCause();
         }
         return false;
+    }
+
+    private static String safeErrorMessage(Throwable throwable) {
+        String message = throwable == null ? null : throwable.getMessage();
+        String sanitized = StudioSensitiveLogSanitizer.sanitizeSingleLine(
+                message, MAX_ERROR_MESSAGE_LENGTH);
+        return sanitized == null || sanitized.isBlank() ? UNKNOWN_ERROR_MESSAGE : sanitized;
     }
 
     private DataSourceDefinition prepare(String token, RuntimeDatasourceProbeRequest request,
@@ -436,6 +478,37 @@ public class InternalDatasourceProbeController {
             StudioRequestContextHolder.clear();
         } else {
             StudioRequestContextHolder.setContext(previous);
+        }
+    }
+
+    private OperationMdcScope bindOperationId(String operationId) {
+        return new OperationMdcScope(operationId);
+    }
+
+    private static final class OperationMdcScope implements AutoCloseable {
+        private final Map<String, String> previous;
+
+        private OperationMdcScope(String operationId) {
+            this.previous = MDC.getCopyOfContextMap();
+            String safeOperationId = safeOperationId(operationId);
+            if (safeOperationId != null) {
+                MDC.put("operationId", safeOperationId);
+            } else {
+                MDC.remove("operationId");
+            }
+        }
+
+        private static String safeOperationId(String operationId) {
+            return RuntimeInternalHeaders.normalizeOperationId(operationId);
+        }
+
+        @Override
+        public void close() {
+            if (previous == null || previous.isEmpty()) {
+                MDC.clear();
+            } else {
+                MDC.setContextMap(previous);
+            }
         }
     }
 }

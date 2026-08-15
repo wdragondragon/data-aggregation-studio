@@ -135,6 +135,8 @@ public class FileTransferEventService {
             try {
                 long maximumId = maximumEventId(scope);
                 if (connection.lastSentEventId.get() < 0L) {
+                    log.debug("[FT_SSE_SNAPSHOT_REQUIRED] 文件传输事件流首次连接，要求加载快照 eventId={}",
+                            maximumId);
                     sendSnapshot(connection, maximumId);
                 } else {
                     replay(connection, maximumId);
@@ -256,6 +258,9 @@ public class FileTransferEventService {
                 }
                 increment("studio.file-transfer.outbox.events-polled", "mode", "OUTBOX", events.size());
                 List<OutboundEvent> outbound = buildOutboundEvents(scope, events);
+                log.debug("[FT_OUTBOX_BATCH] 文件传输 Outbox 批次已读取 fromEventId={} "
+                                + "scannedEvents={} outboundEvents={} connections={}",
+                        lastEventId, events.size(), outbound.size(), connections.size());
                 for (OutboundEvent candidate : outbound) {
                     publishOutbox(scope, candidate, false);
                 }
@@ -280,19 +285,41 @@ public class FileTransferEventService {
         long requestedId = connection.lastSentEventId.get();
         long minimumId = minimumEventId(connection.scope);
         if (requestedId > maximumId || (minimumId > 0L && requestedId < minimumId - 1L)) {
+            log.warn("[FT_SSE_REPLAY_EXPIRED] 文件传输事件游标已超出保留窗口，改用快照 "
+                            + "requestedEventId={} minimumEventId={} maximumEventId={}",
+                    requestedId, minimumId, maximumId);
             sendSnapshot(connection, maximumId);
             return;
         }
         int replayLimit = replayMaxEvents();
         List<FileTransferEventOutboxEntity> events = selectEventsAfter(connection.scope, requestedId, replayLimit + 1);
         if (events.size() > replayLimit) {
+            log.warn("[FT_SSE_REPLAY_LIMIT_EXCEEDED] 文件传输事件补发超过上限，改用快照 "
+                            + "requestedEventId={} maximumEventId={} replayLimit={}",
+                    requestedId, maximumId, replayLimit);
             sendSnapshot(connection, maximumId);
             return;
         }
-        for (OutboundEvent event : buildOutboundEvents(connection.scope, events)) {
-            sendOutbox(connection, event, true);
+        List<OutboundEvent> outbound = buildOutboundEvents(connection.scope, events);
+        boolean replayCompleted = true;
+        for (OutboundEvent event : outbound) {
+            if (!sendOutbox(connection, event, true)) {
+                replayCompleted = false;
+                break;
+            }
+        }
+        if (!events.isEmpty() && replayCompleted) {
+            log.info("[FT_SSE_REPLAY_COMPLETED] 文件传输事件补发完成 requestedEventId={} "
+                            + "maximumEventId={} scannedEvents={} outboundEvents={}",
+                    requestedId, maximumId, events.size(), outbound.size());
+        }
+        if (!replayCompleted) {
+            return;
         }
         if (events.isEmpty() && requestedId < maximumId) {
+            log.warn("[FT_SSE_REPLAY_GAP] 文件传输事件补发存在不可用缺口，改用快照 "
+                            + "requestedEventId={} maximumEventId={}",
+                    requestedId, maximumId);
             sendSnapshot(connection, maximumId);
         }
     }
@@ -475,9 +502,9 @@ public class FileTransferEventService {
         }
     }
 
-    private void sendOutbox(EmitterConnection connection, OutboundEvent event, boolean replay) {
+    private boolean sendOutbox(EmitterConnection connection, OutboundEvent event, boolean replay) {
         if (event.eventId <= connection.lastSentEventId.get()) {
-            return;
+            return true;
         }
         try {
             connection.emitter.send(SseEmitter.event()
@@ -487,9 +514,14 @@ public class FileTransferEventService {
             connection.lastSentEventId.set(event.eventId);
             increment(replay ? "studio.file-transfer.outbox.events-replayed"
                     : "studio.file-transfer.outbox.events-published", "result", "success", 1D);
+            return true;
         } catch (IOException | IllegalStateException exception) {
             increment("studio.file-transfer.outbox.send-failures", "result", "failure", 1D);
+            log.warn("[FT_SSE_SEND_FAILED] 文件传输事件发送失败，连接将被清理 eventId={} "
+                            + "eventName={} exceptionType={} message={}",
+                    event.eventId, event.eventName, exception.getClass().getName(), exception.getMessage());
             removeConnection(connection);
+            return false;
         }
     }
 
@@ -663,6 +695,7 @@ public class FileTransferEventService {
         List<FileTransferRunEntity> runs = runMapper.selectList(new LambdaQueryWrapper<FileTransferRunEntity>()
                 .eq(FileTransferRunEntity::getTenantId, scope.tenantId)
                 .eq(FileTransferRunEntity::getProjectId, scope.projectId)
+                .eq(FileTransferRunEntity::getQueueVisible, true)
                 .and(query -> query.in(FileTransferRunEntity::getStatus, ACTIVE_RUN_STATUSES)
                         .or().ge(FileTransferRunEntity::getUpdatedAt, changedSince))
                 .orderByDesc(FileTransferRunEntity::getUpdatedAt)
@@ -733,6 +766,7 @@ public class FileTransferEventService {
                 .eq(FileTransferRunEntity::getId, runId)
                 .eq(FileTransferRunEntity::getTenantId, scope.tenantId)
                 .eq(FileTransferRunEntity::getProjectId, scope.projectId)
+                .eq(FileTransferRunEntity::getQueueVisible, true)
                 .last("limit 1"));
     }
 

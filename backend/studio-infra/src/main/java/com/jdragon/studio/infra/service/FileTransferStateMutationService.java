@@ -114,6 +114,7 @@ public class FileTransferStateMutationService {
                 : "Resume requested; checkpoint recovery queued";
         int updated = runMapper.update(null, new LambdaUpdateWrapper<FileTransferRunEntity>()
                 .set(FileTransferRunEntity::getStatus, status)
+                .set(FileTransferRunEntity::getQueueVisible, true)
                 .set(FileTransferRunEntity::getMessage, message)
                 .set(FileTransferRunEntity::getEndedAt, null)
                 .set(FileTransferRunEntity::getUpdatedAt, LocalDateTime.now())
@@ -321,6 +322,17 @@ public class FileTransferStateMutationService {
         runMapper.deleteById(run.getId());
         append(run, FileTransferOutboxEventType.RUN_REMOVED, null,
                 Map.of("source", "SERVER"), false, true);
+    }
+
+    @Transactional
+    public int dismissRunFromQueueAndEvent(FileTransferRunEntity run,
+                                            LambdaUpdateWrapper<FileTransferRunEntity> update) {
+        int updated = runMapper.update(null, update);
+        if (updated > 0) {
+            append(requireRun(run.getId()), FileTransferOutboxEventType.RUN_REMOVED, null,
+                    Map.of("source", "SERVER_QUEUE_DISMISS"), false, true);
+        }
+        return updated;
     }
 
     @Transactional
