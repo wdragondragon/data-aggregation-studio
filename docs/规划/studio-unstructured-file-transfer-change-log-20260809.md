@@ -370,3 +370,12 @@ GET    /api/v1/unstructured-management/users/options
 - 自动化结果：JDK 17 下 `FileTransferRunRemovalTest`、`FileTransferSchemaIntegrationTest`、`FileTransferEventServiceTest`、`FileTransferEventServiceOutboxTest` 共 39 项通过，Server 公共路由 4 项通过，全部 0 失败、0 错误。Web 文件传输队列回归通过，独立 `vue-tsc --noEmit` 和 4,331 模块生产构建通过，`git diff --check` 通过。
 - 环境结果：发布前只读查询确认活动文件传输为 0；重启 Server/Worker 后健康状态均为 `UP`，唯一运行集群在线 Worker 数为 1，统一 `8000` 入口返回 HTTP 200。新版 `queueOnly=true` 查询成功，证明当前 MySQL 字段升级已生效。环境没有可用于非破坏性操作验证的既有运行，未人为创建或删除业务运行；接口事务和前端行为由上述自动化覆盖。
 - 发布与回滚：本次需要升级数据库、重启 Server 并发布 Web；Worker 同步重启后恢复为在线。回滚代码前可将队列查询暂时停止传入 `queueOnly`，保留 `queue_visible` 字段和历史值，不删除该列；旧版本会忽略新增字段。
+
+## 19. W12：非结构化管理多选删除修复
+
+- 实施日期：2026-08-16；状态：代码和自动化已完成。
+- 缺陷根因：文件浏览器能够返回全部勾选项，但管理页的 `deleteSelected()` 固定读取 `selectedEntries[0]`，因此一次确认只向 `/unstructured-management/operations` 提交一个路径，其余选择项没有进入请求链路。
+- 修复行为：页面在确认前冻结运行集群、数据源和完整选择快照，经过一次确认后顺序删除每个条目；文件使用普通删除，目录携带递归确认。顺序执行避免 FTP/SFTP 文件操作并发干扰，单项失败不阻断其余条目，整批结束后只刷新一次目录和权限，并展示成功数、失败数及有限失败摘要。
+- 安全边界：批处理中切换数据源不会把剩余路径发送到新数据源；所有请求继续由 Server 逐项执行 ACL、路径规范化、递归保护、Worker 路由和操作审计。该交互允许部分成功，不承诺跨文件原子事务。
+- 接口与数据库：继续复用单项 `POST /api/v1/unstructured-management/operations`，不新增或修改公共接口、数据库表、字段、索引和 SQL；只需要发布 Studio Web，不需要重启 Server 或 Worker。
+- 自动化与页面验收：Web 回归脚本验证三个选择项均按顺序提交、目录递归标志正确、中间项失败后仍继续删除后续文件，并精确返回成功/失败集合；文件传输队列回归、独立 `vue-tsc --noEmit`、4,332 模块生产构建和 `git diff --check` 均通过。统一 `8000` 入口实际选择 FTP 源的两个目录后显示“2 项已选”，删除确认框明确展示 2 项和 2 个递归目录，取消确认后选择保持且测试源数据未改变，控制台无错误或警告。

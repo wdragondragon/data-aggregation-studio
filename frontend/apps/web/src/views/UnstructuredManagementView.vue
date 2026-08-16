@@ -61,7 +61,7 @@
           <el-button :icon="EditPen" :disabled="selectedEntries.length !== 1 || !canEdit" @click="renameSelected">重命名</el-button>
           <el-button :icon="Rank" :disabled="selectedEntries.length !== 1 || !canEdit" @click="moveSelected">移动</el-button>
           <el-button :icon="Download" :loading="loading.download" :disabled="selectedEntries.length === 0 || !canDownload || loading.download" @click="downloadSelected">下载</el-button>
-          <el-button type="danger" :icon="Delete" :disabled="selectedEntries.length === 0 || !canDelete" @click="deleteSelected">删除</el-button>
+          <el-button type="danger" :icon="Delete" :loading="loading.delete" :disabled="selectedEntries.length === 0 || !canDelete || loading.delete" @click="deleteSelected">删除</el-button>
           <el-button v-if="selectedSource?.aclManageable" :icon="Lock" @click="openAcl">ACL</el-button>
         </div>
         <div class="permission-strip">
@@ -110,6 +110,7 @@ import { resolveStudioApiBaseUrl, studioApi } from "@/api/studio";
 import { useAuthStore } from "@/stores/auth";
 import FileTransferBrowserPanel from "@/components/file-transfer/FileTransferBrowserPanel.vue";
 import { normalizeTransferPath, parentTransferPath } from "@/utils/fileTransfer";
+import { deleteUnstructuredEntries } from "@/utils/unstructuredManagement";
 
 const authStore = useAuthStore();
 const runtimeClusters = ref<RuntimeClusterView[]>([]);
@@ -124,7 +125,7 @@ const selectedEntries = ref<FileTransferFileEntryView[]>([]);
 const cursorHistory = ref<Array<string | undefined>>([undefined]);
 const nextCursor = ref<string>();
 const hasMore = ref(false);
-const loading = reactive({ sources: false, browser: false, acl: false, upload: false, download: false });
+const loading = reactive({ sources: false, browser: false, acl: false, upload: false, download: false, delete: false });
 const uploadInput = ref<HTMLInputElement>();
 const uploadProgress = ref(0);
 const permissions = ref<UnstructuredPermissionView>({ effectivePermissions: [] });
@@ -207,8 +208,39 @@ async function createDirectory() {
 async function renameSelected() { const entry = selectedEntries.value[0]; if (!entry) return; try { const { value } = await ElMessageBox.prompt("新名称", "重命名", { inputValue: entry.name }); await submitOperation("RENAME", entry.path, `${parentTransferPath(entry.path)}/${value}`); } catch { /* cancelled */ } }
 async function moveSelected() { const entry = selectedEntries.value[0]; if (!entry) return; try { const { value } = await ElMessageBox.prompt("目标路径", "移动文件", { inputValue: path.value }); await submitOperation("MOVE", entry.path, `${normalizeTransferPath(value)}/${entry.name}`); } catch { /* cancelled */ } }
 async function deleteSelected() {
-  const entry = selectedEntries.value[0]; if (!entry) return;
-  try { await ElMessageBox.confirm(entry.directory ? "非空目录需要递归删除，确认继续？" : `确认删除 ${entry.name}？`, "删除文件", { type: "warning" }); await submitOperation("DELETE", entry.path, undefined, Boolean(entry.directory)); } catch { /* cancelled */ }
+  const selection = [...selectedEntries.value];
+  const selectedClusterId = runtimeClusterId.value;
+  const selectedDatasourceId = datasourceId.value;
+  if (!selection.length || !selectedClusterId || !selectedDatasourceId || loading.delete) return;
+
+  const directoryCount = selection.filter((entry) => entry.directory).length;
+  const confirmation = selection.length === 1
+    ? (selection[0].directory ? `确认递归删除目录 ${selection[0].name} 及其内容？` : `确认删除 ${selection[0].name}？`)
+    : `确认删除所选 ${selection.length} 项${directoryCount ? `（包含 ${directoryCount} 个目录，将递归删除目录内容）` : ""}？`;
+  try {
+    await ElMessageBox.confirm(confirmation, "删除文件", { type: "warning" });
+  } catch {
+    return;
+  }
+
+  loading.delete = true;
+  try {
+    const result = await deleteUnstructuredEntries(selection, (request) => studioApi.unstructuredManagement.operate({
+      runtimeClusterId: selectedClusterId,
+      datasourceId: selectedDatasourceId,
+      operation: "DELETE",
+      ...request,
+    }));
+    const scopeUnchanged = String(runtimeClusterId.value) === String(selectedClusterId)
+      && String(datasourceId.value) === String(selectedDatasourceId);
+    showDeleteResult(result, selection.length);
+    if (scopeUnchanged) {
+      await loadBrowser();
+      await loadPermissions();
+    }
+  } finally {
+    loading.delete = false;
+  }
 }
 async function submitOperation(operation: string, sourcePath: string, targetPath?: string, recursiveConfirmed = false) { if (!runtimeClusterId.value || !datasourceId.value) return; try { await studioApi.unstructuredManagement.operate({ runtimeClusterId: runtimeClusterId.value, datasourceId: datasourceId.value, operation, sourcePath, targetPath, recursiveConfirmed }); ElMessage.success("操作完成"); await loadBrowser(); await loadPermissions(); } catch (error) { showError(error, "文件操作失败"); } }
 
@@ -308,7 +340,23 @@ async function openAcl() { if (!datasourceId.value) return; const selected = sel
 function toAclDraft(entry: { principalType: string; userId?: EntityId; permission: string; effect: string }): UnstructuredAclEntryRequest { return { principalType: entry.principalType, userId: entry.userId, permission: entry.permission, effect: entry.effect }; }
 function addAclRow(target: typeof sourceAclDraft.value) { target.push({ principalType: "PROJECT", permission: "BROWSE", effect: "ALLOW" }); }
 async function saveAcl() { if (!datasourceId.value) return; loading.acl = true; try { await studioApi.unstructuredManagement.replaceSourceAcl(datasourceId.value, { datasourceId: datasourceId.value, entries: sourceAclDraft.value }); await studioApi.unstructuredManagement.replacePathAcl({ datasourceId: datasourceId.value, path: aclPath.value, directory: aclDirectory.value, entries: pathAclDraft.value }); aclDialogVisible.value = false; await loadPermissions(); ElMessage.success("ACL 已保存"); } catch (error) { showError(error, "保存 ACL 失败"); } finally { loading.acl = false; } }
-function showError(error: unknown, fallback: string) { ElMessage.error(error instanceof Error && error.message ? error.message : fallback); }
+function errorMessage(error: unknown, fallback: string) { return error instanceof Error && error.message ? error.message : fallback; }
+function showError(error: unknown, fallback: string) { ElMessage.error(errorMessage(error, fallback)); }
+function showDeleteResult(result: Awaited<ReturnType<typeof deleteUnstructuredEntries<FileTransferFileEntryView>>>, total: number) {
+  if (!result.failed.length) {
+    ElMessage.success(total === 1 ? "删除成功" : `已删除 ${total} 项`);
+    return;
+  }
+  const failureSummary = result.failed.slice(0, 3)
+    .map(({ entry, error }) => `${entry.name}：${errorMessage(error, "删除失败")}`)
+    .join("；");
+  const moreFailures = result.failed.length > 3 ? `；另有 ${result.failed.length - 3} 项失败` : "";
+  if (result.succeeded.length) {
+    ElMessage.warning(`已删除 ${result.succeeded.length} 项，${result.failed.length} 项失败。${failureSummary}${moreFailures}`);
+    return;
+  }
+  ElMessage.error(`所选 ${total} 项均删除失败。${failureSummary}${moreFailures}`);
+}
 
 onMounted(async () => { try { await loadRuntimeClusters(); } catch (error) { showError(error, "加载运行集群失败"); } });
 </script>

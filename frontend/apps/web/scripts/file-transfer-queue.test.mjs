@@ -10,10 +10,15 @@ const apiClient = await readFile(new URL("../../../packages/api-sdk/src/client.t
 const queueSource = await readFile(new URL("../src/utils/fileTransferQueue.ts", import.meta.url), "utf8");
 const eventSource = await readFile(new URL("../src/utils/fileTransferEvents.ts", import.meta.url), "utf8");
 const fileTransferUtils = await readFile(new URL("../src/utils/fileTransfer.ts", import.meta.url), "utf8");
+const unstructuredManagementUtils = await readFile(new URL("../src/utils/unstructuredManagement.ts", import.meta.url), "utf8");
 const queueModuleSource = ts.transpileModule(queueSource, {
   compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
 }).outputText;
 const queueModule = await import(`data:text/javascript;base64,${Buffer.from(queueModuleSource).toString("base64")}`);
+const unstructuredManagementModuleSource = ts.transpileModule(unstructuredManagementUtils, {
+  compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+}).outputText;
+const unstructuredManagementModule = await import(`data:text/javascript;base64,${Buffer.from(unstructuredManagementModuleSource).toString("base64")}`);
 
 assert.match(center, /pageSize:\s*1000/, "queue must page through run items at the backend maximum page size");
 assert.match(center, /items\.length\s*>=\s*page\.total/, "queue item pagination must continue to the reported total");
@@ -50,6 +55,10 @@ assert.match(unstructuredManagement, /initialPathPending\s*=\s*true[\s\S]*?page\
   "unstructured management must apply the remote pwd only when a datasource is first selected");
 assert.doesNotMatch(unstructuredManagement, /setInterval\s*\(/,
   "unstructured management must not poll");
+assert.match(unstructuredManagement, /const selection = \[\.\.\.selectedEntries\.value\]/,
+  "multi-delete must freeze the complete current selection before sending requests");
+assert.match(unstructuredManagement, /deleteUnstructuredEntries\(selection,[\s\S]*?operation:\s*"DELETE"[\s\S]*?\.\.\.request/,
+  "multi-delete must submit every selected path through the delete operation endpoint");
 assert.match(unstructuredManagement, /createDownloadTicket\s*\(/,
   "unstructured management must create a short-lived ticket before downloading");
 assert.match(unstructuredManagement, /resolveStudioApiBaseUrl\("\/unstructured-management\/download\/native"\)/,
@@ -138,5 +147,24 @@ await queueModule.mapWithConcurrency(Array.from({ length: 12 }, (_, index) => in
   activeWorkers -= 1;
 });
 assert.equal(peakWorkers, 3, "item loading must honor its concurrency bound");
+
+const deleteAttempts = [];
+const deleteResult = await unstructuredManagementModule.deleteUnstructuredEntries([
+  { name: "a.txt", path: "/a.txt", directory: false },
+  { name: "folder", path: "/folder", directory: true },
+  { name: "b.txt", path: "/b.txt", directory: false },
+], async (request) => {
+  deleteAttempts.push(request);
+  if (request.sourcePath === "/folder") throw new Error("permission denied");
+});
+assert.deepEqual(deleteAttempts, [
+  { sourcePath: "/a.txt", recursiveConfirmed: false },
+  { sourcePath: "/folder", recursiveConfirmed: true },
+  { sourcePath: "/b.txt", recursiveConfirmed: false },
+], "multi-delete must visit every selected path in order and confirm recursive directory deletion");
+assert.deepEqual(deleteResult.succeeded.map((entry) => entry.path), ["/a.txt", "/b.txt"],
+  "a failed deletion must not prevent later selected files from being deleted");
+assert.deepEqual(deleteResult.failed.map(({ entry }) => entry.path), ["/folder"],
+  "multi-delete must report the exact entries that failed");
 
 console.log("file transfer queue regression checks passed");
