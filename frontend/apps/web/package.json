@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build"
+    "build": "vue-tsc --noEmit && vite build",
+    "test:model-field-json-import": "node scripts/model-field-json-import.test.mjs"
   },
   "dependencies": {
     "@studio/api-sdk": "0.1.0",

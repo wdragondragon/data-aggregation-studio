@@ -715,6 +715,10 @@ export function useModelMetadataSupport(options: ModelMetadataSupportOptions) {
     options.modelForm.businessMetadata = setBusinessMetaModelRows(options.modelForm.businessMetadata, section.schema, rows);
   }
 
+  function replaceSectionRows(section: ModelMetaSection, rows: Record<string, unknown>[]) {
+    setSectionRows(section, rows.map((row) => ({ ...row })));
+  }
+
   function appendSectionRow(section: ModelMetaSection) {
     const rows = editorSectionRows(section);
     rows.push(buildDefaultMetadata(section.fields));
@@ -889,6 +893,7 @@ export function useModelMetadataSupport(options: ModelMetadataSupportOptions) {
     buildModelQueryRequest,
     appendSectionRow,
     editorSectionRows,
+    replaceSectionRows,
     resolveRowEditorComponent,
     resolveRowEditorProps,
     updateSectionRowField,
