@@ -27,12 +27,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 
 @Service
 public class FileTransferTaskService {
 
-    private static final Set<String> FILE_TYPES = Set.of("local", "ftp", "sftp", "minio", "oss");
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 200;
 
@@ -42,6 +40,7 @@ public class FileTransferTaskService {
     private final ProjectResourceAccessService projectResourceAccessService;
     private final StudioSecurityService securityService;
     private final UnstructuredManagementService unstructuredManagementService;
+    private final DatasourceTypeCapabilityService capabilityService;
     private final ObjectMapper objectMapper;
 
     public FileTransferTaskService(FileTransferTaskDefinitionMapper mapper,
@@ -50,6 +49,7 @@ public class FileTransferTaskService {
                                    ProjectResourceAccessService projectResourceAccessService,
                                    StudioSecurityService securityService,
                                    UnstructuredManagementService unstructuredManagementService,
+                                   DatasourceTypeCapabilityService capabilityService,
                                    ObjectMapper objectMapper) {
         this.mapper = mapper;
         this.dataSourceService = dataSourceService;
@@ -57,6 +57,7 @@ public class FileTransferTaskService {
         this.projectResourceAccessService = projectResourceAccessService;
         this.securityService = securityService;
         this.unstructuredManagementService = unstructuredManagementService;
+        this.capabilityService = capabilityService;
         this.objectMapper = objectMapper;
     }
 
@@ -106,6 +107,8 @@ public class FileTransferTaskService {
                 runtimeClusterId, List.of(entity.getSourceDatasourceId()));
         runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(),
                 runtimeClusterId, List.of(entity.getTargetDatasourceId()));
+        requireFileDatasource(entity.getProjectId(), entity.getSourceDatasourceId(), "transferSource");
+        requireFileDatasource(entity.getProjectId(), entity.getTargetDatasourceId(), "transferTarget");
         assertTransferPermissions(runtimeClusterId, entity.getSourceDatasourceId(), entity.getSelectionJson(),
                 entity.getTargetDatasourceId(), entity.getMappingJson());
         return entity;
@@ -118,8 +121,10 @@ public class FileTransferTaskService {
                 ? new FileTransferTaskDefinitionEntity() : requireWritable(request.getId());
         validateRequest(projectId, request);
         ensureUnique(projectId, request.getName(), request.getCode(), entity.getId());
-        DataSourceDefinition source = requireFileDatasource(projectId, request.getSourceDatasourceId());
-        DataSourceDefinition target = requireFileDatasource(projectId, request.getTargetDatasourceId());
+        DataSourceDefinition source = requireFileDatasource(
+                projectId, request.getSourceDatasourceId(), "transferSource");
+        DataSourceDefinition target = requireFileDatasource(
+                projectId, request.getTargetDatasourceId(), "transferTarget");
         Long runtimeClusterId = requireSingleCluster(request.getRuntimeClusterId(),
                 request.getSourceRuntimeClusterId(), request.getTargetRuntimeClusterId());
         runtimeClusterSelectionService.validateDatasourceSelection(projectId,
@@ -172,8 +177,8 @@ public class FileTransferTaskService {
                         "File transfer task not found: " + id));
         FileTransferTaskSaveRequest request = toSaveRequest(entity);
         validateRequest(entity.getProjectId(), request);
-        requireFileDatasource(entity.getProjectId(), entity.getSourceDatasourceId());
-        requireFileDatasource(entity.getProjectId(), entity.getTargetDatasourceId());
+        requireFileDatasource(entity.getProjectId(), entity.getSourceDatasourceId(), "transferSource");
+        requireFileDatasource(entity.getProjectId(), entity.getTargetDatasourceId(), "transferTarget");
         Long runtimeClusterId = requireSingleCluster(entity.getRuntimeClusterId(),
                 entity.getSourceRuntimeClusterId(), entity.getTargetRuntimeClusterId());
         runtimeClusterSelectionService.validateDatasourceSelection(entity.getProjectId(),
@@ -279,15 +284,13 @@ public class FileTransferTaskService {
         request.setPolicy(FileTransferPolicyNormalizer.normalize(request.getPolicy()));
     }
 
-    private DataSourceDefinition requireFileDatasource(Long projectId, Long datasourceId) {
+    private DataSourceDefinition requireFileDatasource(Long projectId, Long datasourceId,
+                                                       String runtimeCapability) {
         DataSourceDefinition datasource = dataSourceService.getInternalForProject(projectId, datasourceId);
         if (datasource == null) {
             throw new StudioException(StudioErrorCode.NOT_FOUND, "Datasource not found: " + datasourceId);
         }
-        String type = datasource.getTypeCode() == null ? "" : datasource.getTypeCode().trim().toLowerCase();
-        if (!FILE_TYPES.contains(type)) {
-            throw bad("Datasource type does not support binary file transfer: " + datasource.getTypeCode());
-        }
+        capabilityService.ensureRuntimeCapability(datasource.getTypeCode(), runtimeCapability);
         return datasource;
     }
 

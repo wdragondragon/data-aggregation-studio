@@ -32,6 +32,7 @@ import com.jdragon.studio.infra.service.RuntimeDatasourceProbeExecutor;
 import com.jdragon.studio.infra.service.RuntimeInternalHeaders;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.worker.filetransfer.FileTransferPreviewExecutor;
+import com.jdragon.studio.worker.unstructured.UnstructuredFileExecutor;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.MDC;
@@ -75,6 +76,7 @@ public class InternalDatasourceProbeController {
     private final DataSourceService dataSourceService;
     private final ObjectMapper objectMapper;
     private FileTransferPreviewExecutor fileTransferPreviewExecutor;
+    private UnstructuredFileExecutor unstructuredFileExecutor;
 
     public InternalDatasourceProbeController(RuntimeDatasourceProbeExecutor executor,
                                              StudioPlatformProperties properties,
@@ -95,6 +97,11 @@ public class InternalDatasourceProbeController {
     @Autowired
     void setFileTransferPreviewExecutor(FileTransferPreviewExecutor fileTransferPreviewExecutor) {
         this.fileTransferPreviewExecutor = fileTransferPreviewExecutor;
+    }
+
+    @Autowired
+    void setUnstructuredFileExecutor(UnstructuredFileExecutor unstructuredFileExecutor) {
+        this.unstructuredFileExecutor = unstructuredFileExecutor;
     }
 
     @PostMapping("/probe")
@@ -149,7 +156,7 @@ public class InternalDatasourceProbeController {
             @RequestHeader(value = "X-Studio-Internal-Token", required = false) String token,
             @RequestHeader(value = RuntimeInternalHeaders.OPERATION_ID_HEADER, required = false) String operationId,
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
-        return execute(token, request, false, datasource -> executor.browse(
+        return execute(token, request, false, datasource -> unstructuredFileExecutor.browse(
                 datasource, request.getPath(), request.getCursor(), request.getPageSize()), operationId);
     }
 
@@ -160,7 +167,7 @@ public class InternalDatasourceProbeController {
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         return execute(token, request, false, datasource -> {
             try {
-                return executor.stat(datasource, request.getPath());
+                return unstructuredFileExecutor.stat(datasource, request.getPath());
             } catch (IllegalStateException exception) {
                 if (hasCause(exception, java.nio.file.NoSuchFileException.class)) {
                     throw new StudioException(StudioErrorCode.NOT_FOUND,
@@ -179,7 +186,7 @@ public class InternalDatasourceProbeController {
             @Valid @RequestBody RuntimeDatasourceProbeRequest request) {
         return execute(token, request, false, datasource -> {
             try {
-                executor.operate(datasource, request.getFileOperation(), request.getOperationPath(),
+                unstructuredFileExecutor.operate(datasource, request.getFileOperation(), request.getOperationPath(),
                         request.getOperationTargetPath(), request.getRecursiveConfirmed());
             } catch (IllegalStateException exception) {
                 throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
@@ -201,7 +208,7 @@ public class InternalDatasourceProbeController {
         StudioRequestContext previous = StudioRequestContextHolder.getContext();
         try (OperationMdcScope ignored = bindOperationId(operationId)) {
             DataSourceDefinition datasource = prepare(token, request, false);
-            FileTransferFileEntryView entry = executor.stat(datasource, request.getPath());
+            FileTransferFileEntryView entry = unstructuredFileExecutor.stat(datasource, request.getPath());
             if (Boolean.TRUE.equals(entry.getDirectory())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only files can be downloaded");
             }
@@ -209,7 +216,7 @@ public class InternalDatasourceProbeController {
             String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
             StreamingResponseBody body = output -> {
                 try (OperationMdcScope streamScope = bindOperationId(operationId)) {
-                    executor.download(datasource, request.getPath(), output);
+                    unstructuredFileExecutor.download(datasource, request.getPath(), output);
                 }
             };
             return ResponseEntity.ok()
@@ -238,7 +245,7 @@ public class InternalDatasourceProbeController {
                         "Upload content length does not match the runtime request");
             }
             DataSourceDefinition datasource = prepare(token, request, false);
-            long bytes = executor.upload(datasource, request.getTargetPath(),
+            long bytes = unstructuredFileExecutor.upload(datasource, request.getTargetPath(),
                     Boolean.TRUE.equals(request.getOverwrite()), request.getContentLength(),
                     servletRequest.getInputStream());
             UnstructuredUploadResultView result = new UnstructuredUploadResultView();
@@ -275,7 +282,7 @@ public class InternalDatasourceProbeController {
             DataSourceDefinition datasource = prepare(token, request, false);
             StreamingResponseBody body = output -> {
                 try (OperationMdcScope streamScope = bindOperationId(operationId)) {
-                    executor.downloadArchive(datasource, request.getPaths(), output);
+                    unstructuredFileExecutor.downloadArchive(datasource, request.getPaths(), output);
                 }
             };
             return ResponseEntity.ok()

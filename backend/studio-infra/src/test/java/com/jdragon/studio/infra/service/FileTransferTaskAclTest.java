@@ -73,6 +73,7 @@ class FileTransferTaskAclTest {
         ProjectResourceAccessService projectAccess = mock(ProjectResourceAccessService.class);
         StudioSecurityService securityService = mock(StudioSecurityService.class);
         UnstructuredManagementService permissionService = mock(UnstructuredManagementService.class);
+        DatasourceTypeCapabilityService capabilityService = mock(DatasourceTypeCapabilityService.class);
         when(projectAccess.requireCurrentProjectId()).thenReturn(10L);
         when(securityService.currentTenantId()).thenReturn("default");
         when(securityService.currentUserId()).thenReturn(99L);
@@ -83,7 +84,7 @@ class FileTransferTaskAclTest {
                 .thenAnswer(invocation -> invocation.getArgument(2));
         FileTransferTaskService service = new FileTransferTaskService(
                 mapper, dataSourceService, clusterSelection, projectAccess, securityService,
-                permissionService, new ObjectMapper());
+                permissionService, capabilityService, new ObjectMapper());
         return new Fixture(service, mapper, permissionService);
     }
 

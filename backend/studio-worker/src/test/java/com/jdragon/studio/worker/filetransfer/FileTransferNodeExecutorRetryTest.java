@@ -37,6 +37,7 @@ import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.FileTransferOutboxWriter;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
+import com.jdragon.studio.infra.service.StudioFileTransferContractAdapter;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
@@ -298,8 +299,7 @@ class FileTransferNodeExecutorRetryTest {
                 runWithProject(), Map.of(), List.of(manualItem));
         Map<String, Object> rawSpec = (Map<String, Object>) ReflectionTestUtils
                 .invokeMethod(executions.get(0), "spec");
-        TransferSpec spec = new com.jdragon.aggregation.transfer.plugin.TransferConfigurationMapper()
-                .map(com.jdragon.aggregation.commons.util.Configuration.from(rawSpec));
+        TransferSpec spec = new StudioFileTransferContractAdapter().map(rawSpec);
         TransferFileSystem source = mock(TransferFileSystem.class);
         when(source.capabilities()).thenReturn(new StorageCapabilities(
                 true, true, true, false, false, false, Set.of("SHA-256"), true));

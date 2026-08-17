@@ -42,7 +42,8 @@ class FileTransferStateMutationTransactionTest {
                     "id integer primary key, tenant_id text not null, project_id integer not null," +
                     "deleted integer not null default 0, created_at text, updated_at text," +
                     "run_record_id integer, task_id integer, task_name_snapshot text, trigger_type text," +
-                    "direction text, channel text, status text, runtime_cluster_id integer," +
+                    "direction text, channel text, status text, queue_visible integer not null default 1," +
+                    "runtime_cluster_id integer," +
                     "source_runtime_cluster_id integer, source_datasource_id integer," +
                     "target_runtime_cluster_id integer, target_datasource_id integer," +
                     "total_files integer, success_files integer, skipped_files integer, failed_files integer," +
@@ -218,7 +219,8 @@ class FileTransferStateMutationTransactionTest {
                     "id integer primary key, tenant_id text not null, project_id integer not null," +
                     "deleted integer not null default 0, created_at text, updated_at text," +
                     "run_record_id integer, task_id integer, task_name_snapshot text, trigger_type text," +
-                    "direction text, channel text, status text, runtime_cluster_id integer," +
+                    "direction text, channel text, status text, queue_visible integer not null default 1," +
+                    "runtime_cluster_id integer," +
                     "source_runtime_cluster_id integer, source_datasource_id integer," +
                     "target_runtime_cluster_id integer, target_datasource_id integer," +
                     "total_files integer, success_files integer, skipped_files integer, failed_files integer," +

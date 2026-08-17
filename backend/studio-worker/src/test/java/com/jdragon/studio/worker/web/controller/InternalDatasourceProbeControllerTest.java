@@ -17,6 +17,7 @@ import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.RuntimeDatasourceProbeExecutor;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
+import com.jdragon.studio.worker.unstructured.UnstructuredFileExecutor;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -326,6 +327,7 @@ class InternalDatasourceProbeControllerTest {
         InternalDatasourceProbeController controller = new InternalDatasourceProbeController(
                 executor, properties, clusterMapper, authorizationService, bindingMapper,
                 dataSourceService, new ObjectMapper());
+        controller.setUnstructuredFileExecutor(new UnstructuredFileExecutor(executor));
         return new Fixture(controller, executor, bindingMapper, dataSourceService);
     }
 

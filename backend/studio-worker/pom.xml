@@ -58,11 +58,11 @@
         </dependency>
         <dependency>
             <groupId>com.jdragon.aggregation</groupId>
-            <artifactId>file-transfer-core</artifactId>
+            <artifactId>file-transfer-contract</artifactId>
         </dependency>
         <dependency>
             <groupId>com.jdragon.aggregation</groupId>
-            <artifactId>file-transfer-plugin</artifactId>
+            <artifactId>file-transfer-core</artifactId>
         </dependency>
         <!-- Flink's bundled Calcite JDBC adapter references DBCP without shading it. -->
         <dependency>

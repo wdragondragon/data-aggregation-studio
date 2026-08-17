@@ -1,18 +1,17 @@
 package com.jdragon.studio.worker.filetransfer;
 
-import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.file.transfer.TransferFileSystem;
 import com.jdragon.aggregation.transfer.PreparedTransfer;
-import com.jdragon.aggregation.transfer.TransferPlanner;
 import com.jdragon.aggregation.transfer.model.TransferMapping;
 import com.jdragon.aggregation.transfer.model.TransferPlanItem;
 import com.jdragon.aggregation.transfer.model.TransferSelection;
 import com.jdragon.aggregation.transfer.model.TransferSpec;
-import com.jdragon.aggregation.transfer.plugin.TransferConfigurationMapper;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FileTransferPreviewItemView;
 import com.jdragon.studio.dto.model.FileTransferSelectionPreviewView;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import com.jdragon.studio.infra.service.StudioFileTransferContractAdapter;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -26,10 +25,21 @@ import java.util.UUID;
 public class FileTransferPreviewExecutor {
 
     private final AggregationSourceCapabilityProvider sourceCapabilityProvider;
-    private final TransferConfigurationMapper configurationMapper = new TransferConfigurationMapper();
+    private final StudioFileTransferContractAdapter contractAdapter;
+    private final FileTransferEnginePort enginePort;
 
     public FileTransferPreviewExecutor(AggregationSourceCapabilityProvider sourceCapabilityProvider) {
+        this(sourceCapabilityProvider, new StudioFileTransferContractAdapter(),
+                new DataAggregationFileTransferEngineAdapter());
+    }
+
+    @Autowired
+    public FileTransferPreviewExecutor(AggregationSourceCapabilityProvider sourceCapabilityProvider,
+                                       StudioFileTransferContractAdapter contractAdapter,
+                                       FileTransferEnginePort enginePort) {
         this.sourceCapabilityProvider = sourceCapabilityProvider;
+        this.contractAdapter = contractAdapter;
+        this.enginePort = enginePort;
     }
 
     public FileTransferSelectionPreviewView preview(DataSourceDefinition datasource,
@@ -52,9 +62,9 @@ public class FileTransferPreviewExecutor {
         String previewId = "preview-" + UUID.randomUUID();
         Instant plannedAt = Instant.now();
         try (TransferFileSystem source = sourceCapabilityProvider.openTransferFileSystem(datasource)) {
-            TransferSpec transferSpec = configurationMapper.map(Configuration.from(spec));
-            PreparedTransfer prepared = new TransferPlanner().prepare(
-                    transferSpec, source, previewId, plannedAt, null);
+            TransferSpec transferSpec = contractAdapter.map(spec);
+            PreparedTransfer prepared = enginePort.prepare(
+                    transferSpec, source, null, previewId, plannedAt, null);
             return toView(prepared, sampleLimit);
         } catch (Exception exception) {
             throw new IllegalStateException("File transfer preview failed: " + exception.getMessage(), exception);

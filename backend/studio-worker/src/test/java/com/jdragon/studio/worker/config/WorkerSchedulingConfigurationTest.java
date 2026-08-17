@@ -1,7 +1,9 @@
 package com.jdragon.studio.worker.config;
 
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
+import com.jdragon.studio.infra.mapper.DispatchTaskMapper;
 import com.jdragon.studio.infra.service.DispatchProtectedPayloadService;
+import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
 import org.junit.jupiter.api.Test;
@@ -98,6 +100,9 @@ class WorkerSchedulingConfigurationTest {
                         () -> mock(RuntimeClusterHeartbeatService.class))
                 .withBean(DispatchProtectedPayloadService.class,
                         () -> mock(DispatchProtectedPayloadService.class))
+                .withBean(FileTransferStateMutationService.class,
+                        () -> mock(FileTransferStateMutationService.class))
+                .withBean(DispatchTaskMapper.class, () -> mock(DispatchTaskMapper.class))
                 .withBean(StudioPlatformProperties.class, StudioPlatformProperties::new);
 
         contextRunner.run(context -> {
@@ -122,6 +127,9 @@ class WorkerSchedulingConfigurationTest {
                         () -> mock(RuntimeClusterHeartbeatService.class))
                 .withBean(DispatchProtectedPayloadService.class,
                         () -> mock(DispatchProtectedPayloadService.class))
+                .withBean(FileTransferStateMutationService.class,
+                        () -> mock(FileTransferStateMutationService.class))
+                .withBean(DispatchTaskMapper.class, () -> mock(DispatchTaskMapper.class))
                 .withBean(StudioPlatformProperties.class, () -> {
                     StudioPlatformProperties properties = new StudioPlatformProperties();
                     properties.getDispatch().setWorkerSchedulerPoolSize(1);
