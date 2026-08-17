@@ -118,12 +118,16 @@ flowchart LR
 
 ### 5.1 模块与插件类型
 
-- 新增 `file-transfer-core`：传输领域模型、文件系统能力接口、队列执行器、状态机、摘要、检查点和事件。
-- 新增 `file-transfer-plugin`：DataAggregation 文件传输作业插件实现。
-- 新增 `file-transfer-cli`：本地验证、浏览、计划生成、运行和恢复入口。
+- DataAggregation 根目录使用 `file-transfer/` 聚合能力域，内部包含 `file-transfer-contract`、`file-transfer-core`、`file-transfer-plugin` 和 `file-transfer-cli`，已有 artifactId 和 Java 包名保持兼容。
+- `file-transfer-contract`：仅依赖 JDK，持有传输领域模型、事件、检查点、控制接口、契约版本和统一配置规范化逻辑。
+- `file-transfer-core`：依赖 contract 和共享文件系统 SPI，持有发现、计划、执行、状态机、摘要与校验实现。
+- `file-transfer-plugin`：DataAggregation 独立作业插件和 `Configuration` 兼容映射入口，不作为 Studio 的编译或运行依赖。
+- `file-transfer-cli`：复用独立插件，提供本地验证、浏览、计划生成、运行和恢复入口。
 - 在 `PluginType` 中新增 `FILE_TRANSFER("file-transfer")`。
 - 插件发行目录固定为 `aggregation/plugin/file-transfer/filetransfer`，包含 `plugin.json`、插件类和依赖。
 - 文件传输插件 内部仍通过 `SourcePluginType.SOURCE` 加载 Local、FTP、SFTP、MinIO/OSS source 插件。
+- Studio Worker 仅内嵌 `file-transfer-contract` 和 `file-transfer-core`，运行时动态加载 Local、FTP、SFTP、MinIO、OSS 数据源插件；Studio 无需部署 `aggregation/plugin/file-transfer/filetransfer`。
+- 文件协议插件继续位于 `data-source-plugins`，作为文件浏览、非结构化管理和文件传输共享能力。
 
 文件传输不能包装成结构化 Reader/Writer 的 `Record` 流。Reader/Writer 的通道背压、脏记录和行转换语义不适用于二进制文件、目录树、文件级提交和断点恢复，因此必须使用独立作业类型。
 
@@ -551,7 +555,7 @@ Outbox 默认保留 `7` 天。由全局 `ClusterLockService` 锁定的清理任�
 
 截至 2026-08-07，原三阶段文件传输版本已经完成；2026-08-09 起执行单集群和非结构化管理改造：
 
-- 阶段一：`file-transfer-core`、`file-transfer-plugin`、`file-transfer-cli`，以及 Local、FTP、SFTP、MinIO、OSS 文件系统适配已经落地。
+- 阶段一：`file-transfer/` 聚合目录、`file-transfer-contract`、`file-transfer-core`、`file-transfer-plugin`、`file-transfer-cli`，以及 Local、FTP、SFTP、MinIO、OSS 文件系统适配已经落地；Studio Worker 已解除对独立 file-transfer 插件的依赖。
 - 阶段二：浏览路由、即时运行、预设任务、定时调度、Dispatch、单 Worker 执行、暂停/恢复/取消、重启恢复、精确文件重试、仅后处理重试、工作流、通用指标和专用指标已经落地；Relay 运行组件、配置和调用链已移除。
 - 阶段三：传输中心、预设任务、运行记录、传输指标和工作流 `FILE_TRANSFER` 节点已经落地，并完成桌面/移动端浏览器验收。
 - MySQL、SQLite 全量结构、启动时幂等升级和 `20260807-file-transfer.sql` 增量脚本已经交付。

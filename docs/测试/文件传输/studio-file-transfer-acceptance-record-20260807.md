@@ -1,4 +1,4 @@
-# Studio 非结构化文件传输验收记录（2026-08-07，2026-08-12 修订）
+# Studio 非结构化文件传输验收记录（2026-08-07，2026-08-17 修订）
 
 > 结论：三阶段文件传输及 2026-08-09 单集群、单 Worker、非结构化管理、ACL、队列删除和 SSE 改造已完成；2026-08-11 的 OSS 非空目录保护、终态峰值保留、管理页数据源下拉和 SSE 超时断连缺陷均已修复。原 OSS/FTP 小样本验收已经通过；用户新增的 SFTP 4 GiB 四方向与三源文件管理扩展验收正在执行，尚未形成最终通过结论。
 >
@@ -24,13 +24,15 @@
 
 ```powershell
 $env:JAVA_HOME='C:\dev\Java\jdk-17.0.12'
-mvn -q -pl file-transfer-core,file-transfer-plugin,file-transfer-cli,`
-data-source-plugins/data-source-handler-file-local,`
+mvn -q -f file-transfer/pom.xml test
+mvn -q -pl data-source-plugins/data-source-handler-file-local,`
 data-source-plugins/data-source-handler-file-ftp,`
 data-source-plugins/data-source-handler-file-sftp,`
 data-source-plugins/data-source-handler-file-s3-minio,`
 data-source-plugins/data-source-handler-file-oss -am test
 ```
+
+`file-transfer/pom.xml` 是新的能力域 Reactor 入口；DataAggregation 根 POM 只声明该聚合模块。`file-transfer-contract/core/plugin/cli` 的 artifactId 和 Java 包名保持不变。
 
 结果：6 个测试类、36 项测试，0 失败、0 错误。
 
