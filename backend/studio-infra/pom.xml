@@ -130,6 +130,10 @@
 
         <dependency>
             <groupId>com.jdragon.aggregation</groupId>
+            <artifactId>file-transfer-contract</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.jdragon.aggregation</groupId>
             <artifactId>commons</artifactId>
             <optional>true</optional>
         </dependency>

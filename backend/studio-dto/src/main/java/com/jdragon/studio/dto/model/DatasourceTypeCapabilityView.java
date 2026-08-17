@@ -4,7 +4,9 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -20,6 +22,7 @@ public class DatasourceTypeCapabilityView extends BaseDefinition {
     private String sourcePlugin;
     private List<String> readerPlugins = new ArrayList<String>();
     private List<String> writerPlugins = new ArrayList<String>();
+    private Map<String, Object> runtimeCapabilities = new LinkedHashMap<String, Object>();
     private Integer sortOrder;
     private String description;
 }

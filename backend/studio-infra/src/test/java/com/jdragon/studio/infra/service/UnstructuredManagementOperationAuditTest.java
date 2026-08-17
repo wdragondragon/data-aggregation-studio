@@ -35,9 +35,11 @@ class UnstructuredManagementOperationAuditTest {
     private final StudioSecurityService securityService = mock(StudioSecurityService.class);
     private final RuntimeDatasourceProbeRouter runtimeRouter = mock(RuntimeDatasourceProbeRouter.class);
     private final UnstructuredOpAuditMapper auditMapper = mock(UnstructuredOpAuditMapper.class);
+    private final DatasourceTypeCapabilityService capabilityService =
+            mock(DatasourceTypeCapabilityService.class);
     private final UnstructuredManagementService service = new UnstructuredManagementService(
             dataSourceService, clusterSelectionService, projectAccess, securityService, runtimeRouter,
-            null, null, auditMapper, null, null);
+            null, null, auditMapper, null, null, capabilityService);
 
     @BeforeEach
     void setUp() {

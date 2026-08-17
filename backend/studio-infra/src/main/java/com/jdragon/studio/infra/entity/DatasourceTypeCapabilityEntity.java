@@ -7,7 +7,9 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
@@ -28,6 +30,9 @@ public class DatasourceTypeCapabilityEntity extends BaseTenantEntity {
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private List<String> writerPluginsJson = new ArrayList<String>();
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Map<String, Object> runtimeCapabilitiesJson = new LinkedHashMap<String, Object>();
 
     private Integer sortOrder;
     private String description;

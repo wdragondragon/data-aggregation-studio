@@ -268,6 +268,7 @@ create table if not exists datasource_type_capability (
     source_plugin varchar(128),
     reader_plugins_json json,
     writer_plugins_json json,
+    runtime_capabilities_json json,
     sort_order int default 0,
     description varchar(1000),
     unique key uk_datasource_type_capability_code (tenant_id, type_code)

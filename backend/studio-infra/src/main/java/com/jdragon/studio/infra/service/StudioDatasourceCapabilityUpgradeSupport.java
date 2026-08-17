@@ -30,15 +30,19 @@ final class StudioDatasourceCapabilityUpgradeSupport {
                 "source_plugin varchar(128)," +
                 "reader_plugins_json json," +
                 "writer_plugins_json json," +
+                "runtime_capabilities_json json," +
                 "sort_order int default 0," +
                 "description varchar(1000)" +
                 ")");
         ensureColumn("datasource_type_capability", "source_category",
                 "alter table datasource_type_capability add column source_category varchar(32) not null default 'DATABASE' after sql_executable");
+        ensureColumn("datasource_type_capability", "runtime_capabilities_json",
+                "alter table datasource_type_capability add column runtime_capabilities_json json after writer_plugins_json");
         ensureIndex("datasource_type_capability", "uk_datasource_type_capability_code",
                 "alter table datasource_type_capability add unique key uk_datasource_type_capability_code (tenant_id, type_code)");
         backfillDatasourceTypeCapabilityCategoriesMysql();
         seedDatasourceTypeCapabilitiesMysql();
+        backfillDatasourceTypeRuntimeCapabilitiesMysql();
         normalizeDatasourceTypeCapabilityMetadataMysql();
     }
 
@@ -47,9 +51,11 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         insertDatasourceTypeCapabilityMysql("oracle", "Oracle", "DATABASE", 1, 1, 0, 1, 1, "oracle", "[\"oracle\"]", "[]", 20, "Oracle 数据库");
         insertDatasourceTypeCapabilityMysql("postgres", "PostgreSQL", "DATABASE", 1, 1, 1, 1, 1, "postgres", "[\"postgresql\"]", "[\"postgresql\"]", 30, "PostgreSQL 数据库");
         insertDatasourceTypeCapabilityMysql("dm", "达梦数据库", "DATABASE", 1, 1, 1, 1, 1, "dm", "[\"dm\"]", "[\"dm\"]", 40, "达梦数据库");
+        insertDatasourceTypeCapabilityMysql("local", "Local File", "FILE_SYSTEM", 1, 0, 0, 1, 0, "local", "[]", "[]", 45, "本地文件系统");
         insertDatasourceTypeCapabilityMysql("ftp", "FTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "ftp", "[]", "[]", 50, "FTP 文件数据源");
         insertDatasourceTypeCapabilityMysql("sftp", "SFTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "sftp", "[]", "[]", 60, "SFTP 文件数据源");
         insertDatasourceTypeCapabilityMysql("minio", "MinIO", "FILE_SYSTEM", 1, 0, 0, 1, 0, "minio", "[]", "[]", 70, "MinIO 对象存储");
+        insertDatasourceTypeCapabilityMysql("oss", "Aliyun OSS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "oss", "[]", "[]", 75, "阿里云 OSS 对象存储");
         insertDatasourceTypeCapabilityMysql("kafka", "Kafka", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "kafka", "[\"kafka\"]", "[\"kafka\"]", 80, "Kafka 消息队列");
         insertDatasourceTypeCapabilityMysql("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
         insertDatasourceTypeCapabilityMysql("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
@@ -96,11 +102,16 @@ final class StudioDatasourceCapabilityUpgradeSupport {
     }
 
     private void backfillDatasourceTypeCapabilityCategoriesMysql() {
-        jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('ftp', 'sftp', 'minio', 'tbds-hdfs', 'tbds-hdfs3')");
+        jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('local', 'ftp', 'sftp', 'minio', 'oss', 'tbds-hdfs', 'tbds-hdfs3')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'MESSAGE_QUEUE' where type_code in ('kafka', 'rocketmq', 'rabbitmq')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'HTTP_API' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set writable = 1, writer_plugins_json = '[\"httpwriter\"]' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'DATABASE' where source_category is null or source_category = ''");
+    }
+
+    private void backfillDatasourceTypeRuntimeCapabilitiesMysql() {
+        jdbcTemplate.update("update datasource_type_capability set runtime_capabilities_json = json_object() where runtime_capabilities_json is null");
+        jdbcTemplate.update("update datasource_type_capability set runtime_capabilities_json = '{\"binaryFile\":{\"browse\":true,\"read\":true,\"write\":true,\"manage\":true,\"transferSource\":true,\"transferTarget\":true}}' where type_code in ('local', 'ftp', 'sftp', 'minio', 'oss')");
     }
 
     private void normalizeDatasourceTypeCapabilityMetadataMysql() {
@@ -108,9 +119,11 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         normalizeDatasourceTypeCapabilityMetadataMysql("oracle", "Oracle", "DATABASE", "Oracle 数据库");
         normalizeDatasourceTypeCapabilityMetadataMysql("postgres", "PostgreSQL", "DATABASE", "PostgreSQL 数据库");
         normalizeDatasourceTypeCapabilityMetadataMysql("dm", "达梦数据库", "DATABASE", "达梦数据库");
+        normalizeDatasourceTypeCapabilityMetadataMysql("local", "Local File", "FILE_SYSTEM", "本地文件系统");
         normalizeDatasourceTypeCapabilityMetadataMysql("ftp", "FTP", "FILE_SYSTEM", "FTP 文件数据源");
         normalizeDatasourceTypeCapabilityMetadataMysql("sftp", "SFTP", "FILE_SYSTEM", "SFTP 文件数据源");
         normalizeDatasourceTypeCapabilityMetadataMysql("minio", "MinIO", "FILE_SYSTEM", "MinIO 对象存储");
+        normalizeDatasourceTypeCapabilityMetadataMysql("oss", "Aliyun OSS", "FILE_SYSTEM", "阿里云 OSS 对象存储");
         normalizeDatasourceTypeCapabilityMetadataMysql("kafka", "Kafka", "MESSAGE_QUEUE", "Kafka 消息队列");
         normalizeDatasourceTypeCapabilityMetadataMysql("rocketmq", "RocketMQ", "MESSAGE_QUEUE", "RocketMQ 消息队列");
         normalizeDatasourceTypeCapabilityMetadataMysql("http", "HTTP", "HTTP_API", "HTTP 接口数据源");
@@ -150,14 +163,18 @@ final class StudioDatasourceCapabilityUpgradeSupport {
                 "source_plugin text," +
                 "reader_plugins_json text," +
                 "writer_plugins_json text," +
+                "runtime_capabilities_json text," +
                 "sort_order integer default 0," +
                 "description text" +
                 ")");
         ensureColumn("datasource_type_capability", "source_category",
                 "alter table datasource_type_capability add column source_category text not null default 'DATABASE'");
+        ensureColumn("datasource_type_capability", "runtime_capabilities_json",
+                "alter table datasource_type_capability add column runtime_capabilities_json text");
         jdbcTemplate.execute("create unique index if not exists uk_datasource_type_capability_code on datasource_type_capability(tenant_id, type_code)");
         backfillDatasourceTypeCapabilityCategoriesSqlite();
         seedDatasourceTypeCapabilitiesSqlite();
+        backfillDatasourceTypeRuntimeCapabilitiesSqlite();
         normalizeDatasourceTypeCapabilityMetadataSqlite();
     }
 
@@ -166,9 +183,11 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         insertDatasourceTypeCapabilitySqlite("oracle", "Oracle", "DATABASE", 1, 1, 0, 1, 1, "oracle", "[\"oracle\"]", "[]", 20, "Oracle 数据库");
         insertDatasourceTypeCapabilitySqlite("postgres", "PostgreSQL", "DATABASE", 1, 1, 1, 1, 1, "postgres", "[\"postgresql\"]", "[\"postgresql\"]", 30, "PostgreSQL 数据库");
         insertDatasourceTypeCapabilitySqlite("dm", "达梦数据库", "DATABASE", 1, 1, 1, 1, 1, "dm", "[\"dm\"]", "[\"dm\"]", 40, "达梦数据库");
+        insertDatasourceTypeCapabilitySqlite("local", "Local File", "FILE_SYSTEM", 1, 0, 0, 1, 0, "local", "[]", "[]", 45, "本地文件系统");
         insertDatasourceTypeCapabilitySqlite("ftp", "FTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "ftp", "[]", "[]", 50, "FTP 文件数据源");
         insertDatasourceTypeCapabilitySqlite("sftp", "SFTP", "FILE_SYSTEM", 1, 0, 0, 1, 0, "sftp", "[]", "[]", 60, "SFTP 文件数据源");
         insertDatasourceTypeCapabilitySqlite("minio", "MinIO", "FILE_SYSTEM", 1, 0, 0, 1, 0, "minio", "[]", "[]", 70, "MinIO 对象存储");
+        insertDatasourceTypeCapabilitySqlite("oss", "Aliyun OSS", "FILE_SYSTEM", 1, 0, 0, 1, 0, "oss", "[]", "[]", 75, "阿里云 OSS 对象存储");
         insertDatasourceTypeCapabilitySqlite("kafka", "Kafka", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "kafka", "[\"kafka\"]", "[\"kafka\"]", 80, "Kafka 消息队列");
         insertDatasourceTypeCapabilitySqlite("rocketmq", "RocketMQ", "MESSAGE_QUEUE", 1, 1, 1, 1, 0, "rocketmq", "[\"rocketmq\"]", "[\"rocketmq\"]", 90, "RocketMQ 消息队列");
         insertDatasourceTypeCapabilitySqlite("http", "HTTP", "HTTP_API", 1, 1, 1, 1, 0, "http", "[\"httpreader\"]", "[\"httpwriter\"]", 95, "HTTP 接口数据源");
@@ -214,11 +233,16 @@ final class StudioDatasourceCapabilityUpgradeSupport {
     }
 
     private void backfillDatasourceTypeCapabilityCategoriesSqlite() {
-        jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('ftp', 'sftp', 'minio', 'tbds-hdfs', 'tbds-hdfs3')");
+        jdbcTemplate.update("update datasource_type_capability set source_category = 'FILE_SYSTEM' where type_code in ('local', 'ftp', 'sftp', 'minio', 'oss', 'tbds-hdfs', 'tbds-hdfs3')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'MESSAGE_QUEUE' where type_code in ('kafka', 'rocketmq', 'rabbitmq')");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'HTTP_API' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set writable = 1, writer_plugins_json = '[\"httpwriter\"]' where type_code = 'http'");
         jdbcTemplate.update("update datasource_type_capability set source_category = 'DATABASE' where source_category is null or source_category = ''");
+    }
+
+    private void backfillDatasourceTypeRuntimeCapabilitiesSqlite() {
+        jdbcTemplate.update("update datasource_type_capability set runtime_capabilities_json = '{}' where runtime_capabilities_json is null");
+        jdbcTemplate.update("update datasource_type_capability set runtime_capabilities_json = '{\"binaryFile\":{\"browse\":true,\"read\":true,\"write\":true,\"manage\":true,\"transferSource\":true,\"transferTarget\":true}}' where type_code in ('local', 'ftp', 'sftp', 'minio', 'oss')");
     }
 
     private void normalizeDatasourceTypeCapabilityMetadataSqlite() {
@@ -226,9 +250,11 @@ final class StudioDatasourceCapabilityUpgradeSupport {
         normalizeDatasourceTypeCapabilityMetadataSqlite("oracle", "Oracle", "DATABASE", "Oracle 数据库");
         normalizeDatasourceTypeCapabilityMetadataSqlite("postgres", "PostgreSQL", "DATABASE", "PostgreSQL 数据库");
         normalizeDatasourceTypeCapabilityMetadataSqlite("dm", "达梦数据库", "DATABASE", "达梦数据库");
+        normalizeDatasourceTypeCapabilityMetadataSqlite("local", "Local File", "FILE_SYSTEM", "本地文件系统");
         normalizeDatasourceTypeCapabilityMetadataSqlite("ftp", "FTP", "FILE_SYSTEM", "FTP 文件数据源");
         normalizeDatasourceTypeCapabilityMetadataSqlite("sftp", "SFTP", "FILE_SYSTEM", "SFTP 文件数据源");
         normalizeDatasourceTypeCapabilityMetadataSqlite("minio", "MinIO", "FILE_SYSTEM", "MinIO 对象存储");
+        normalizeDatasourceTypeCapabilityMetadataSqlite("oss", "Aliyun OSS", "FILE_SYSTEM", "阿里云 OSS 对象存储");
         normalizeDatasourceTypeCapabilityMetadataSqlite("kafka", "Kafka", "MESSAGE_QUEUE", "Kafka 消息队列");
         normalizeDatasourceTypeCapabilityMetadataSqlite("rocketmq", "RocketMQ", "MESSAGE_QUEUE", "RocketMQ 消息队列");
         normalizeDatasourceTypeCapabilityMetadataSqlite("http", "HTTP", "HTTP_API", "HTTP 接口数据源");

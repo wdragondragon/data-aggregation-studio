@@ -22,6 +22,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 @Service
@@ -37,9 +38,11 @@ public class DatasourceTypeCapabilityService {
             capability("oracle", "Oracle", CATEGORY_DATABASE, true, true, false, true, true, "oracle", list("oracle"), list(), 20, "Oracle 数据库"),
             capability("postgres", "PostgreSQL", CATEGORY_DATABASE, true, true, true, true, true, "postgres", list("postgresql"), list("postgresql"), 30, "PostgreSQL 数据库"),
             capability("dm", "达梦数据库", CATEGORY_DATABASE, true, true, true, true, true, "dm", list("dm"), list("dm"), 40, "达梦数据库"),
+            capability("local", "Local File", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "local", list(), list(), 45, "本地文件系统"),
             capability("ftp", "FTP", CATEGORY_FILE_SYSTEM, true, true, true, true, false, "ftp", list("ftp"), list("ftp"), 50, "FTP 文件数据源"),
             capability("sftp", "SFTP", CATEGORY_FILE_SYSTEM, true, true, true, true, false, "sftp", list("sftp"), list("sftp"), 60, "SFTP 文件数据源"),
             capability("minio", "MinIO", CATEGORY_FILE_SYSTEM, true, true, true, true, false, "minio", list("minio"), list("minio"), 70, "MinIO / OSS 对象存储"),
+            capability("oss", "Aliyun OSS", CATEGORY_FILE_SYSTEM, true, false, false, true, false, "oss", list(), list(), 75, "阿里云 OSS 对象存储"),
             capability("kafka", "Kafka", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "kafka", list("kafka"), list("kafka"), 80, "Kafka 消息队列"),
             capability("rocketmq", "RocketMQ", CATEGORY_MESSAGE_QUEUE, true, true, true, true, false, "rocketmq", list("rocketmq"), list("rocketmq"), 90, "RocketMQ 消息队列"),
             capability("http", "HTTP", CATEGORY_HTTP_API, true, true, true, true, false, "http", list("httpreader"), list("httpwriter"), 95, "HTTP 接口数据源"),
@@ -86,6 +89,9 @@ public class DatasourceTypeCapabilityService {
             entity.setSourcePlugin(capability.sourcePlugin);
             entity.setReaderPluginsJson(new ArrayList<String>(capability.readerPlugins));
             entity.setWriterPluginsJson(new ArrayList<String>(capability.writerPlugins));
+            if (hasRuntimeCapabilitiesColumn()) {
+                entity.setRuntimeCapabilitiesJson(runtimeCapabilitiesFor(capability.typeCode));
+            }
             entity.setSortOrder(capability.sortOrder);
             entity.setDescription(capability.description);
             mapper.insert(entity);
@@ -94,10 +100,12 @@ public class DatasourceTypeCapabilityService {
 
     @Transactional
     public void syncStandardRuntimePluginCapabilities() {
+        syncDefaultCapability("local");
         syncDefaultCapability("postgres");
         syncDefaultCapability("ftp");
         syncDefaultCapability("sftp");
         syncDefaultCapability("minio");
+        syncDefaultCapability("oss");
         syncDefaultCapability("http");
         syncDefaultCapability("odps");
     }
@@ -129,6 +137,7 @@ public class DatasourceTypeCapabilityService {
             row.put("sqlExecutable", Boolean.TRUE.equals(view.getSqlExecutable()));
             row.put("readerPlugins", view.getReaderPlugins());
             row.put("writerPlugins", view.getWriterPlugins());
+            row.put("runtimeCapabilities", view.getRuntimeCapabilities());
             rows.add(row);
         }
         return rows;
@@ -239,6 +248,43 @@ public class DatasourceTypeCapabilityService {
         return new ArrayList<String>(types);
     }
 
+    public boolean hasRuntimeCapability(String typeCode, String capability) {
+        DatasourceTypeCapabilityEntity entity = findEnabledEntity(typeCode);
+        if (entity == null || capability == null || capability.isBlank()) {
+            return false;
+        }
+        Object binary = safeMap(entity.getRuntimeCapabilitiesJson()).get("binaryFile");
+        Object value = safeMap(binary).get(capability);
+        return Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    public void ensureRuntimeCapability(String typeCode, String capability) {
+        if (!hasRuntimeCapability(typeCode, capability)) {
+            throw unsupported("binaryFile." + capability, typeCode);
+        }
+    }
+
+    public Set<String> typesWithRuntimeCapability(String capability, boolean includeAliases) {
+        Set<String> result = new LinkedHashSet<String>();
+        for (DatasourceTypeCapabilityView view : listEnabled()) {
+            Object binary = safeMap(view.getRuntimeCapabilities()).get("binaryFile");
+            Object value = safeMap(binary).get(capability);
+            if (Boolean.TRUE.equals(value) || "true".equalsIgnoreCase(String.valueOf(value))) {
+                result.add(view.getTypeCode());
+            }
+        }
+        if (includeAliases && result.contains("local")) {
+            result.add("file");
+            result.add("local_file");
+        }
+        if (includeAliases && result.contains("oss")) {
+            result.add("aliyun");
+            result.add("aliyun_oss");
+            result.add("aliyun-oss");
+        }
+        return result;
+    }
+
     private void syncDefaultCapability(String typeCode) {
         DefaultCapability capability = findDefaultCapability(typeCode);
         if (capability == null) {
@@ -271,6 +317,12 @@ public class DatasourceTypeCapabilityService {
         }
         if (hasSourceCategoryColumn() && !capability.sourceCategory.equalsIgnoreCase(resolveSourceCategory(existing.getTypeCode(), existing.getSourceCategory()))) {
             existing.setSourceCategory(capability.sourceCategory);
+            changed = true;
+        }
+        Map<String, Object> runtimeCapabilities = runtimeCapabilitiesFor(capability.typeCode);
+        if (hasRuntimeCapabilitiesColumn()
+                && !Objects.equals(safeMap(existing.getRuntimeCapabilitiesJson()), runtimeCapabilities)) {
+            existing.setRuntimeCapabilitiesJson(runtimeCapabilities);
             changed = true;
         }
         if (changed) {
@@ -329,6 +381,7 @@ public class DatasourceTypeCapabilityService {
         view.setSourcePlugin(entity.getSourcePlugin());
         view.setReaderPlugins(safeList(entity.getReaderPluginsJson()));
         view.setWriterPlugins(safeList(entity.getWriterPluginsJson()));
+        view.setRuntimeCapabilities(safeMap(entity.getRuntimeCapabilitiesJson()));
         view.setSortOrder(entity.getSortOrder());
         view.setDescription(entity.getDescription());
         return view;
@@ -380,8 +433,20 @@ public class DatasourceTypeCapabilityService {
                 "Datasource type " + typeCode + " is not " + capability + " by datasource_type_capability");
     }
 
+    public static String normalizeTypeCode(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+        if ("file".equals(normalized) || "local_file".equals(normalized)) {
+            return "local";
+        }
+        if ("aliyun".equals(normalized) || "aliyun_oss".equals(normalized)
+                || "aliyun-oss".equals(normalized)) {
+            return "oss";
+        }
+        return normalized;
+    }
+
     private static String normalize(String value) {
-        return value == null ? "" : value.trim().toLowerCase(Locale.ENGLISH);
+        return normalizeTypeCode(value);
     }
 
     private static String normalizePlugin(String value) {
@@ -439,14 +504,26 @@ public class DatasourceTypeCapabilityService {
         if (hasSourceCategoryColumn()) {
             columns.add("source_category");
         }
+        if (hasRuntimeCapabilitiesColumn()) {
+            columns.add("runtime_capabilities_json");
+        }
         query.select(columns);
         return query;
     }
 
     private boolean hasSourceCategoryColumn() {
+        return hasColumn("source_category");
+    }
+
+    private boolean hasRuntimeCapabilitiesColumn() {
+        return hasColumn("runtime_capabilities_json");
+    }
+
+    private boolean hasColumn(String columnName) {
         return Boolean.TRUE.equals(jdbcTemplate.execute((ConnectionCallback<Boolean>) connection -> {
             DatabaseMetaData metaData = connection.getMetaData();
-            ResultSet lowerCaseColumns = metaData.getColumns(connection.getCatalog(), null, "datasource_type_capability", "source_category");
+            ResultSet lowerCaseColumns = metaData.getColumns(connection.getCatalog(), null,
+                    "datasource_type_capability", columnName.toLowerCase(Locale.ENGLISH));
             try {
                 if (lowerCaseColumns.next()) {
                     return true;
@@ -454,13 +531,43 @@ public class DatasourceTypeCapabilityService {
             } finally {
                 lowerCaseColumns.close();
             }
-            ResultSet upperCaseColumns = metaData.getColumns(connection.getCatalog(), null, "DATASOURCE_TYPE_CAPABILITY", "SOURCE_CATEGORY");
+            ResultSet upperCaseColumns = metaData.getColumns(connection.getCatalog(), null,
+                    "DATASOURCE_TYPE_CAPABILITY", columnName.toUpperCase(Locale.ENGLISH));
             try {
                 return upperCaseColumns.next();
             } finally {
                 upperCaseColumns.close();
             }
         }));
+    }
+
+    private static Map<String, Object> runtimeCapabilitiesFor(String typeCode) {
+        String normalized = normalize(typeCode);
+        if (!Set.of("local", "ftp", "sftp", "minio", "oss").contains(normalized)) {
+            return new LinkedHashMap<String, Object>();
+        }
+        Map<String, Object> binaryFile = new LinkedHashMap<String, Object>();
+        binaryFile.put("browse", Boolean.TRUE);
+        binaryFile.put("read", Boolean.TRUE);
+        binaryFile.put("write", Boolean.TRUE);
+        binaryFile.put("manage", Boolean.TRUE);
+        binaryFile.put("transferSource", Boolean.TRUE);
+        binaryFile.put("transferTarget", Boolean.TRUE);
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("binaryFile", binaryFile);
+        return result;
+    }
+
+    private static Map<String, Object> safeMap(Object source) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (source instanceof Map<?, ?> values) {
+            values.forEach((key, value) -> {
+                if (key != null) {
+                    result.put(String.valueOf(key), value);
+                }
+            });
+        }
+        return result;
     }
 
     private static List<String> list(String... items) {

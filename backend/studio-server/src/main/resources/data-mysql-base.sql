@@ -61,3 +61,15 @@ insert into datasource_type_capability (id, tenant_id, deleted, created_at, upda
 (2047489208028782599, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'influxdb', 'InfluxDB', 1, 0, 0, 1, 0, 'DATABASE', 'influxdb', '[]', '[]', 160, 'InfluxDB 数据源'),
 (2047489208028782600, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'influxdbv1', 'InfluxDB v1', 1, 1, 1, 1, 0, 'DATABASE', 'influxdbv1', '["influxdbv1"]', '["influxdbv1"]', 170, 'InfluxDB v1 数据源');
 
+insert into datasource_type_capability (id, tenant_id, deleted, created_at, updated_at, type_code, type_name, enabled, readable, writable, executable, sql_executable, source_category, source_plugin, reader_plugins_json, writer_plugins_json, runtime_capabilities_json, sort_order, description) values
+(2047489207961673728, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'local', 'Local File', 1, 0, 0, 1, 0, 'FILE_SYSTEM', 'local', '[]', '[]', '{"binaryFile":{"browse":true,"read":true,"write":true,"manage":true,"transferSource":true,"transferTarget":true}}', 45, '本地文件系统'),
+(2047489207961673729, 'default', 0, '2026-04-24 09:34:02', '2026-04-24 09:34:02', 'oss', 'Aliyun OSS', 1, 0, 0, 1, 0, 'FILE_SYSTEM', 'oss', '[]', '[]', '{"binaryFile":{"browse":true,"read":true,"write":true,"manage":true,"transferSource":true,"transferTarget":true}}', 75, '阿里云 OSS 对象存储');
+
+update datasource_type_capability
+set runtime_capabilities_json = '{}'
+where runtime_capabilities_json is null;
+
+update datasource_type_capability
+set runtime_capabilities_json = '{"binaryFile":{"browse":true,"read":true,"write":true,"manage":true,"transferSource":true,"transferTarget":true}}'
+where type_code in ('local', 'ftp', 'sftp', 'minio', 'oss');
+

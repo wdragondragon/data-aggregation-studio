@@ -27,9 +27,11 @@ class UnstructuredManagementAclDecisionTest {
     private final UnstructuredSourceAclMapper sourceAclMapper = mock(UnstructuredSourceAclMapper.class);
     private final UnstructuredPathAclMapper pathAclMapper = mock(UnstructuredPathAclMapper.class);
     private final ProjectMemberMapper projectMemberMapper = mock(ProjectMemberMapper.class);
+    private final DatasourceTypeCapabilityService capabilityService =
+            mock(DatasourceTypeCapabilityService.class);
     private final UnstructuredManagementService service = new UnstructuredManagementService(
             dataSourceService, null, projectAccess, securityService, null,
-            sourceAclMapper, pathAclMapper, null, projectMemberMapper, null);
+            sourceAclMapper, pathAclMapper, null, projectMemberMapper, null, capabilityService);
     private final DataSourceDefinition datasource = datasource();
 
     @BeforeEach

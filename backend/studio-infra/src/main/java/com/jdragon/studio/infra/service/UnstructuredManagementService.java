@@ -1,14 +1,8 @@
 package com.jdragon.studio.infra.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
-import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
-import com.jdragon.studio.dto.enums.UnstructuredAclEffect;
 import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
-import com.jdragon.studio.dto.enums.UnstructuredAclPrincipalType;
 import com.jdragon.studio.dto.enums.UnstructuredFileOperation;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.DataSourceOptionView;
@@ -20,64 +14,69 @@ import com.jdragon.studio.dto.model.UnstructuredOperationResultView;
 import com.jdragon.studio.dto.model.UnstructuredPermissionView;
 import com.jdragon.studio.dto.model.UnstructuredSourceView;
 import com.jdragon.studio.dto.model.UnstructuredUploadResultView;
-import com.jdragon.studio.dto.model.request.UnstructuredAclEntryRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredOperationRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredPathAclRequest;
 import com.jdragon.studio.dto.model.request.UnstructuredSourceAclRequest;
-import com.jdragon.studio.infra.entity.ProjectMemberEntity;
-import com.jdragon.studio.infra.entity.StudioUserEntity;
-import com.jdragon.studio.infra.entity.UnstructuredOpAuditEntity;
 import com.jdragon.studio.infra.entity.UnstructuredPathAclEntity;
-import com.jdragon.studio.infra.entity.UnstructuredSourceAclEntity;
 import com.jdragon.studio.infra.mapper.ProjectMemberMapper;
 import com.jdragon.studio.infra.mapper.StudioUserMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredOpAuditMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredPathAclMapper;
 import com.jdragon.studio.infra.mapper.UnstructuredSourceAclMapper;
+import com.jdragon.studio.infra.service.unstructured.UnstructuredAclService;
+import com.jdragon.studio.infra.service.unstructured.UnstructuredAuditService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 
 @Service
 public class UnstructuredManagementService {
     private static final Logger log = LoggerFactory.getLogger(UnstructuredManagementService.class);
-    private static final Set<String> FILE_TYPES = Set.of(
-            "local", "local_file", "file", "ftp", "sftp", "minio", "oss", "aliyun", "aliyun_oss", "aliyun-oss");
-    private static final int MAX_AUDIT_MESSAGE_LENGTH = 1800;
-    private static final String AUDIT_MESSAGE_TRUNCATED_SUFFIX = " ...[truncated]";
-    private static final int MAX_SANITIZED_STACK_TRACE_LENGTH = 12 * 1024;
-    private static final int MAX_SANITIZED_ERROR_MESSAGE_LENGTH = 2 * 1024;
-    private static final String STACK_TRACE_TRUNCATED_SUFFIX = "\n...[truncated]";
 
     private final DataSourceService dataSourceService;
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final StudioSecurityService securityService;
     private final RuntimeDatasourceProbeRouter runtimeRouter;
-    private final UnstructuredSourceAclMapper sourceAclMapper;
-    private final UnstructuredPathAclMapper pathAclMapper;
-    private final UnstructuredOpAuditMapper auditMapper;
-    private final ProjectMemberMapper projectMemberMapper;
-    private final StudioUserMapper userMapper;
+    private final DatasourceTypeCapabilityService capabilityService;
+    private final UnstructuredAclService aclService;
+    private final UnstructuredAuditService auditService;
 
+    @Autowired
+    public UnstructuredManagementService(DataSourceService dataSourceService,
+                                         RuntimeClusterSelectionService runtimeClusterSelectionService,
+                                         ProjectResourceAccessService projectResourceAccessService,
+                                         StudioSecurityService securityService,
+                                         RuntimeDatasourceProbeRouter runtimeRouter,
+                                         DatasourceTypeCapabilityService capabilityService,
+                                         UnstructuredAclService aclService,
+                                         UnstructuredAuditService auditService) {
+        this.dataSourceService = dataSourceService;
+        this.runtimeClusterSelectionService = runtimeClusterSelectionService;
+        this.projectResourceAccessService = projectResourceAccessService;
+        this.securityService = securityService;
+        this.runtimeRouter = runtimeRouter;
+        this.capabilityService = capabilityService;
+        this.aclService = aclService;
+        this.auditService = auditService;
+    }
+
+    /**
+     * Compatibility constructor retained for focused unit tests and external embedders.
+     */
     public UnstructuredManagementService(DataSourceService dataSourceService,
                                          RuntimeClusterSelectionService runtimeClusterSelectionService,
                                          ProjectResourceAccessService projectResourceAccessService,
@@ -87,27 +86,31 @@ public class UnstructuredManagementService {
                                          UnstructuredPathAclMapper pathAclMapper,
                                          UnstructuredOpAuditMapper auditMapper,
                                          ProjectMemberMapper projectMemberMapper,
-                                         StudioUserMapper userMapper) {
+                                         StudioUserMapper userMapper,
+                                         DatasourceTypeCapabilityService capabilityService) {
         this.dataSourceService = dataSourceService;
         this.runtimeClusterSelectionService = runtimeClusterSelectionService;
         this.projectResourceAccessService = projectResourceAccessService;
         this.securityService = securityService;
         this.runtimeRouter = runtimeRouter;
-        this.sourceAclMapper = sourceAclMapper;
-        this.pathAclMapper = pathAclMapper;
-        this.auditMapper = auditMapper;
-        this.projectMemberMapper = projectMemberMapper;
-        this.userMapper = userMapper;
+        this.capabilityService = capabilityService;
+        this.aclService = new UnstructuredAclService(dataSourceService, projectResourceAccessService,
+                securityService, sourceAclMapper, pathAclMapper, projectMemberMapper, userMapper,
+                capabilityService);
+        this.auditService = new UnstructuredAuditService(auditMapper, securityService);
     }
 
     public List<UnstructuredSourceView> sources(Long runtimeClusterId) {
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         runtimeClusterSelectionService.resolveForSave(projectId, runtimeClusterId);
-        List<DataSourceOptionView> options = dataSourceService.listBasicOptionsByTypes(FILE_TYPES, runtimeClusterId);
+        Set<String> sourceTypes = capabilityService.typesWithRuntimeCapability("browse", true);
+        List<DataSourceOptionView> options = dataSourceService.listBasicOptionsByTypes(
+                sourceTypes, runtimeClusterId);
         List<UnstructuredSourceView> result = new ArrayList<UnstructuredSourceView>();
         for (DataSourceOptionView option : options) {
             DataSourceDefinition datasource = dataSourceService.get(option.getId());
-            if (datasource == null || !isFileType(datasource.getTypeCode())) {
+            if (datasource == null
+                    || !capabilityService.hasRuntimeCapability(datasource.getTypeCode(), "browse")) {
                 continue;
             }
             UnstructuredSourceView view = sourceView(datasource, runtimeClusterId);
@@ -122,7 +125,7 @@ public class UnstructuredManagementService {
                                               String path, String cursor, Integer pageSize) {
         String operationId = operationId();
         long startedAt = System.nanoTime();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "browse");
         String normalizedPath = normalizePath(path);
         assertPermissionLogged(operationId, datasource, normalizedPath,
                 UnstructuredAclPermission.BROWSE, "BROWSE");
@@ -149,7 +152,8 @@ public class UnstructuredManagementService {
                                           UnstructuredAclPermission permission) {
         String operationId = operationId();
         long startedAt = System.nanoTime();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(
+                datasourceId, runtimeClusterId, runtimeCapability(permission));
         String normalizedPath = normalizePath(path);
         assertPermissionLogged(operationId, datasource, normalizedPath, permission, "STAT");
         log.debug("[UF_STAT_START] Server 开始路由非结构化文件属性读取 operationId={} "
@@ -173,7 +177,7 @@ public class UnstructuredManagementService {
     public FileTransferFileEntryView statForUpload(Long runtimeClusterId, Long datasourceId,
                                                    String path) {
         String operationId = operationId();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "write");
         String normalizedPath = normalizePath(path);
         if ("/".equals(normalizedPath)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
@@ -189,7 +193,7 @@ public class UnstructuredManagementService {
                                                long contentLength, InputStream input) {
         String operationId = operationId();
         long startedAt = System.nanoTime();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "write");
         String normalizedPath = normalizePath(targetPath);
         if ("/".equals(normalizedPath)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
@@ -247,7 +251,7 @@ public class UnstructuredManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "At least one archive path is required");
         }
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "read");
         LinkedHashSet<String> normalizedPaths = new LinkedHashSet<String>();
         List<FileTransferFileEntryView> entries = new ArrayList<FileTransferFileEntryView>();
         for (String path : paths) {
@@ -277,7 +281,7 @@ public class UnstructuredManagementService {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
                     "At least one download path is required");
         }
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "read");
         LinkedHashSet<String> normalizedPaths = new LinkedHashSet<String>();
         List<FileTransferFileEntryView> entries = new ArrayList<FileTransferFileEntryView>();
         for (String path : paths) {
@@ -352,7 +356,8 @@ public class UnstructuredManagementService {
     public String assertPermission(Long runtimeClusterId, Long datasourceId, String path,
                                    UnstructuredAclPermission permission) {
         String operationId = operationId();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(
+                datasourceId, runtimeClusterId, runtimeCapability(permission));
         String normalizedPath = normalizePath(path);
         assertPermissionLogged(operationId, datasource, normalizedPath, permission, "TRANSFER");
         return normalizedPath;
@@ -362,7 +367,8 @@ public class UnstructuredManagementService {
     public UnstructuredOperationResultView operate(UnstructuredOperationRequest request) {
         String operationId = operationId();
         long startedAt = System.nanoTime();
-        DataSourceDefinition datasource = requireDatasource(request.getDatasourceId(), request.getRuntimeClusterId());
+        DataSourceDefinition datasource = requireDatasource(
+                request.getDatasourceId(), request.getRuntimeClusterId(), "manage");
         UnstructuredFileOperation operation = parseOperation(request.getOperation());
         String sourcePath = normalizePath(request.getSourcePath());
         String targetPath = request.getTargetPath() == null || request.getTargetPath().trim().isEmpty()
@@ -406,7 +412,7 @@ public class UnstructuredManagementService {
 
     public PreparedDownload prepareDownload(Long runtimeClusterId, Long datasourceId, String path) {
         String operationId = operationId();
-        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId);
+        DataSourceDefinition datasource = requireDatasource(datasourceId, runtimeClusterId, "read");
         String normalizedPath = normalizePath(path);
         assertPermissionLogged(operationId, datasource, normalizedPath,
                 UnstructuredAclPermission.DOWNLOAD, "DOWNLOAD");
@@ -446,97 +452,40 @@ public class UnstructuredManagementService {
     }
 
     public List<UnstructuredAclEntryView> sourceAcl(Long datasourceId) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
-        requireAclManager(datasource);
-        return sourceAclViews(datasource, sourceAclMapper.selectList(sourceAclQuery(datasource, null)));
+        return aclService.sourceAcl(datasourceId);
     }
 
     @Transactional
     public List<UnstructuredAclEntryView> replaceSourceAcl(Long datasourceId, UnstructuredSourceAclRequest request) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
-        requireAclManager(datasource);
-        replaceSourceEntries(datasource, request == null ? null : request.getEntries());
-        return sourceAcl(datasourceId);
+        return aclService.replaceSourceAcl(datasourceId, request);
     }
 
     public List<UnstructuredAclEntryView> pathAcl(Long datasourceId, String path) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
-        requireAclManager(datasource);
-        String normalizedPath = normalizePath(path);
-        return pathAclViews(datasource, pathAclMapper.selectList(pathAclQuery(datasource, normalizedPath)));
+        return aclService.pathAcl(datasourceId, path);
     }
 
     @Transactional
     public List<UnstructuredAclEntryView> replacePathAcl(Long datasourceId, UnstructuredPathAclRequest request) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
-        requireAclManager(datasource);
-        String path = normalizePath(request == null ? null : request.getPath());
-        pathAclMapper.delete(pathAclQuery(datasource, path));
-        for (UnstructuredAclEntryRequest entry : request == null ? List.<UnstructuredAclEntryRequest>of() : request.getEntries()) {
-            pathAclMapper.insert(toPathEntity(datasource, path,
-                    !Boolean.FALSE.equals(request.getDirectory()), entry));
-        }
-        return pathAcl(datasourceId, path);
+        return aclService.replacePathAcl(datasourceId, request);
     }
 
     @Transactional
     public void deleteAcl(Long id) {
-        if (id == null) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "ACL id is required");
-        }
-        UnstructuredSourceAclEntity source = sourceAclMapper.selectById(id);
-        if (source != null) {
-            DataSourceDefinition datasource = requireDatasourceWithoutCluster(source.getDatasourceId());
-            requireAclManager(datasource);
-            sourceAclMapper.deleteById(id);
-            return;
-        }
-        UnstructuredPathAclEntity path = pathAclMapper.selectById(id);
-        if (path != null) {
-            DataSourceDefinition datasource = requireDatasourceWithoutCluster(path.getDatasourceId());
-            requireAclManager(datasource);
-            pathAclMapper.deleteById(id);
-            return;
-        }
-        throw new StudioException(StudioErrorCode.NOT_FOUND, "ACL not found");
+        aclService.deleteAcl(id);
     }
 
     public List<StudioUserOptionView> userOptions() {
-        Long projectId = projectResourceAccessService.requireCurrentProjectId();
-        List<ProjectMemberEntity> members = projectMemberMapper.selectList(new LambdaQueryWrapper<ProjectMemberEntity>()
-                .eq(ProjectMemberEntity::getProjectId, projectId)
-                .eq(ProjectMemberEntity::getStatus, "ACTIVE")
-                .orderByAsc(ProjectMemberEntity::getUserId));
-        List<StudioUserOptionView> result = new ArrayList<StudioUserOptionView>();
-        for (ProjectMemberEntity member : members) {
-            StudioUserEntity user = userMapper.selectById(member.getUserId());
-            if (user == null || !Integer.valueOf(1).equals(user.getEnabled())) continue;
-            StudioUserOptionView view = new StudioUserOptionView();
-            view.setId(user.getId());
-            view.setUsername(user.getUsername());
-            view.setDisplayName(user.getDisplayName());
-            result.add(view);
-        }
-        return result;
+        return aclService.userOptions();
     }
 
     public UnstructuredPermissionView permissions(Long datasourceId, String path) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
-        String normalizedPath = normalizePath(path);
-        UnstructuredPermissionView view = new UnstructuredPermissionView();
-        view.setDatasourceId(datasourceId);
-        view.setPath(normalizedPath);
-        view.setOwnerOrAdmin(isOwnerOrAdmin(datasource));
-        for (UnstructuredAclPermission permission : UnstructuredAclPermission.values()) {
-            if (hasPermission(datasource, normalizedPath, permission)) {
-                view.getEffectivePermissions().add(permission.name());
-            }
-        }
-        return view;
+        return aclService.permissions(datasourceId, path);
     }
 
-    private DataSourceDefinition requireDatasource(Long datasourceId, Long runtimeClusterId) {
-        DataSourceDefinition datasource = requireDatasourceWithoutCluster(datasourceId);
+    private DataSourceDefinition requireDatasource(Long datasourceId, Long runtimeClusterId,
+                                                   String runtimeCapability) {
+        DataSourceDefinition datasource = requireDatasourceWithoutCluster(
+                datasourceId, runtimeCapability);
         Long projectId = projectResourceAccessService.requireCurrentProjectId();
         runtimeClusterSelectionService.validateExplicitDatasourceSelection(projectId, runtimeClusterId,
                 List.of(datasourceId));
@@ -544,16 +493,30 @@ public class UnstructuredManagementService {
     }
 
     private DataSourceDefinition requireDatasourceWithoutCluster(Long datasourceId) {
+        return requireDatasourceWithoutCluster(datasourceId, "browse");
+    }
+
+    private DataSourceDefinition requireDatasourceWithoutCluster(Long datasourceId,
+                                                                  String runtimeCapability) {
         DataSourceDefinition datasource = dataSourceService.requireRunnableForExecution(datasourceId);
-        if (!isFileType(datasource.getTypeCode())) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST,
-                    "Only Local, FTP, SFTP, MinIO and OSS datasources are supported");
+        if (capabilityService == null) {
+            throw new IllegalStateException("Datasource runtime capability service is required");
         }
+        capabilityService.ensureRuntimeCapability(datasource.getTypeCode(), runtimeCapability);
         return datasource;
     }
 
-    private boolean isFileType(String typeCode) {
-        return typeCode != null && FILE_TYPES.contains(typeCode.trim().toLowerCase(Locale.ROOT));
+    private String runtimeCapability(UnstructuredAclPermission permission) {
+        if (permission == UnstructuredAclPermission.DOWNLOAD) {
+            return "read";
+        }
+        if (permission == UnstructuredAclPermission.EDIT) {
+            return "write";
+        }
+        if (permission == UnstructuredAclPermission.DELETE) {
+            return "manage";
+        }
+        return "browse";
     }
 
     private UnstructuredSourceView sourceView(DataSourceDefinition datasource, Long runtimeClusterId) {
@@ -611,23 +574,11 @@ public class UnstructuredManagementService {
     }
 
     static String sanitizedStackTrace(Throwable throwable) {
-        if (throwable == null) {
-            return null;
-        }
-        StringWriter buffer = new StringWriter();
-        throwable.printStackTrace(new PrintWriter(buffer));
-        String sanitized = StudioSensitiveLogSanitizer.sanitize(buffer.toString());
-        if (sanitized == null || sanitized.length() <= MAX_SANITIZED_STACK_TRACE_LENGTH) {
-            return sanitized;
-        }
-        int prefixLength = Math.max(0,
-                MAX_SANITIZED_STACK_TRACE_LENGTH - STACK_TRACE_TRUNCATED_SUFFIX.length());
-        return sanitized.substring(0, prefixLength) + STACK_TRACE_TRUNCATED_SUFFIX;
+        return UnstructuredAuditService.sanitizedStackTrace(throwable);
     }
 
     static String sanitizedErrorMessage(String message) {
-        return StudioSensitiveLogSanitizer.sanitizeSingleLine(
-                message, MAX_SANITIZED_ERROR_MESSAGE_LENGTH);
+        return UnstructuredAuditService.sanitizedErrorMessage(message);
     }
 
     private boolean expectedRejection(RuntimeException exception) {
@@ -649,252 +600,30 @@ public class UnstructuredManagementService {
     }
 
     boolean hasPermission(DataSourceDefinition datasource, String path, UnstructuredAclPermission permission) {
-        if (isOwnerOrAdmin(datasource)) return true;
-        Long projectId = projectResourceAccessService.requireCurrentProjectId();
-        Long userId = securityService.currentUserId();
-        if (userId == null || projectMemberMapper.selectCount(new LambdaQueryWrapper<ProjectMemberEntity>()
-                .eq(ProjectMemberEntity::getProjectId, projectId)
-                .eq(ProjectMemberEntity::getUserId, userId)
-                .eq(ProjectMemberEntity::getStatus, "ACTIVE")) == 0L) return false;
-        List<UnstructuredPathAclEntity> pathRules = new ArrayList<>(pathAclMapper.selectList(new LambdaQueryWrapper<UnstructuredPathAclEntity>()
-                .eq(UnstructuredPathAclEntity::getTenantId, datasource.getTenantId())
-                .eq(UnstructuredPathAclEntity::getProjectId, datasource.getProjectId())
-                .eq(UnstructuredPathAclEntity::getDatasourceId, datasource.getId())
-                .eq(UnstructuredPathAclEntity::getPermission, permission.name())));
-        pathRules.sort(Comparator
-                .comparingInt((UnstructuredPathAclEntity rule) -> rule.getPath() == null ? 0 : rule.getPath().length())
-                .reversed()
-                .thenComparingInt(rule -> UnstructuredAclPrincipalType.USER.name().equalsIgnoreCase(rule.getPrincipalType()) ? 0 : 1)
-                .thenComparingInt(rule -> UnstructuredAclEffect.DENY.name().equalsIgnoreCase(rule.getEffect()) ? 0 : 1));
-        String normalizedPath = normalizePath(path);
-        for (UnstructuredPathAclEntity rule : pathRules) {
-            if (!matchesPath(rule, normalizedPath)) continue;
-            Boolean decision = ruleDecision(rule.getPrincipalType(), rule.getUserId(), rule.getEffect(), userId);
-            if (decision != null) return decision;
-        }
-        List<UnstructuredSourceAclEntity> sourceRules = new ArrayList<>(
-                sourceAclMapper.selectList(sourceAclQuery(datasource, permission.name())));
-        sourceRules.sort(Comparator
-                .comparingInt((UnstructuredSourceAclEntity rule) ->
-                        UnstructuredAclPrincipalType.USER.name().equalsIgnoreCase(rule.getPrincipalType()) ? 0 : 1)
-                .thenComparingInt(rule ->
-                        UnstructuredAclEffect.DENY.name().equalsIgnoreCase(rule.getEffect()) ? 0 : 1));
-        for (UnstructuredSourceAclEntity rule : sourceRules) {
-            Boolean decision = ruleDecision(rule.getPrincipalType(), rule.getUserId(), rule.getEffect(), userId);
-            if (decision != null) return decision;
-        }
-        return permission == UnstructuredAclPermission.BROWSE || permission == UnstructuredAclPermission.DOWNLOAD;
-    }
-
-    private Boolean ruleDecision(String principalType, Long ruleUserId, String effect, Long currentUserId) {
-        boolean applies = UnstructuredAclPrincipalType.PROJECT.name().equalsIgnoreCase(principalType)
-                || (UnstructuredAclPrincipalType.USER.name().equalsIgnoreCase(principalType)
-                && ruleUserId != null && ruleUserId.equals(currentUserId));
-        if (!applies || effect == null || UnstructuredAclEffect.INHERIT.name().equalsIgnoreCase(effect)) return null;
-        return UnstructuredAclEffect.ALLOW.name().equalsIgnoreCase(effect);
+        return aclService.hasPermission(datasource, path, permission);
     }
 
     boolean matchesPath(UnstructuredPathAclEntity rule, String candidate) {
-        String normalizedRule = normalizePath(rule == null ? null : rule.getPath());
-        String normalizedCandidate = normalizePath(candidate);
-        if (normalizedRule.equals(normalizedCandidate)) return true;
-        if (rule != null && Integer.valueOf(0).equals(rule.getDirectory())) return false;
-        return "/".equals(normalizedRule) || normalizedCandidate.startsWith(normalizedRule + "/");
+        return aclService.matchesPath(rule, candidate);
     }
 
     private boolean isOwnerOrAdmin(DataSourceDefinition datasource) {
-        return securityService.hasAnyRole(StudioConstants.ROLE_SUPER_ADMIN,
-                StudioConstants.ROLE_TENANT_ADMIN, StudioConstants.ROLE_ADMIN,
-                StudioConstants.ROLE_PROJECT_ADMIN)
-                || (datasource.getCreatedBy() != null && datasource.getCreatedBy().equals(securityService.currentUserId()));
+        return aclService.isOwnerOrAdmin(datasource);
     }
 
-    private void requireAclManager(DataSourceDefinition datasource) {
-        if (!isOwnerOrAdmin(datasource)) {
-            throw new StudioException(StudioErrorCode.FORBIDDEN,
-                    "Only the datasource creator or an administrator can manage ACLs");
-        }
-    }
-
-    private LambdaQueryWrapper<UnstructuredSourceAclEntity> sourceAclQuery(DataSourceDefinition datasource, String permission) {
-        LambdaQueryWrapper<UnstructuredSourceAclEntity> query = new LambdaQueryWrapper<UnstructuredSourceAclEntity>()
-                .eq(UnstructuredSourceAclEntity::getTenantId, datasource.getTenantId())
-                .eq(UnstructuredSourceAclEntity::getProjectId, datasource.getProjectId())
-                .eq(UnstructuredSourceAclEntity::getDatasourceId, datasource.getId());
-        if (permission != null) query.eq(UnstructuredSourceAclEntity::getPermission, permission);
-        return query.orderByAsc(UnstructuredSourceAclEntity::getId);
-    }
-
-    private LambdaQueryWrapper<UnstructuredPathAclEntity> pathAclQuery(DataSourceDefinition datasource, String path) {
-        return new LambdaQueryWrapper<UnstructuredPathAclEntity>()
-                .eq(UnstructuredPathAclEntity::getTenantId, datasource.getTenantId())
-                .eq(UnstructuredPathAclEntity::getProjectId, datasource.getProjectId())
-                .eq(UnstructuredPathAclEntity::getDatasourceId, datasource.getId())
-                .eq(UnstructuredPathAclEntity::getPath, path)
-                .orderByAsc(UnstructuredPathAclEntity::getId);
-    }
-
-    private void replaceSourceEntries(DataSourceDefinition datasource, List<UnstructuredAclEntryRequest> entries) {
-        sourceAclMapper.delete(sourceAclQuery(datasource, null));
-        for (UnstructuredAclEntryRequest entry : entries == null ? List.<UnstructuredAclEntryRequest>of() : entries) {
-            sourceAclMapper.insert(toSourceEntity(datasource, entry));
-        }
-    }
-
-    private UnstructuredSourceAclEntity toSourceEntity(DataSourceDefinition datasource, UnstructuredAclEntryRequest entry) {
-        validateAclEntry(datasource, entry);
-        UnstructuredSourceAclEntity entity = new UnstructuredSourceAclEntity();
-        entity.setTenantId(datasource.getTenantId()); entity.setProjectId(datasource.getProjectId());
-        entity.setDatasourceId(datasource.getId()); entity.setPrincipalType(entry.getPrincipalType().toUpperCase(Locale.ROOT));
-        entity.setUserId(entity.getPrincipalType().equals("USER") ? entry.getUserId() : null);
-        entity.setPermission(entry.getPermission().toUpperCase(Locale.ROOT));
-        entity.setEffect(entry.getEffect().toUpperCase(Locale.ROOT)); entity.setCreatedBy(securityService.currentUserId());
-        return entity;
-    }
-
-    private UnstructuredPathAclEntity toPathEntity(DataSourceDefinition datasource, String path,
-                                                    boolean directory, UnstructuredAclEntryRequest entry) {
-        validateAclEntry(datasource, entry);
-        UnstructuredPathAclEntity entity = new UnstructuredPathAclEntity();
-        entity.setTenantId(datasource.getTenantId()); entity.setProjectId(datasource.getProjectId());
-        entity.setDatasourceId(datasource.getId()); entity.setPath(path); entity.setDirectory(directory ? 1 : 0);
-        entity.setPrincipalType(entry.getPrincipalType().toUpperCase(Locale.ROOT));
-        entity.setUserId(entity.getPrincipalType().equals("USER") ? entry.getUserId() : null);
-        entity.setPermission(entry.getPermission().toUpperCase(Locale.ROOT));
-        entity.setEffect(entry.getEffect().toUpperCase(Locale.ROOT)); entity.setCreatedBy(securityService.currentUserId());
-        return entity;
-    }
-
-    private void validateAclEntry(DataSourceDefinition datasource, UnstructuredAclEntryRequest entry) {
-        if (entry == null || entry.getPrincipalType() == null || entry.getPermission() == null || entry.getEffect() == null) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "ACL entry is incomplete");
-        }
-        String principal = entry.getPrincipalType().toUpperCase(Locale.ROOT);
-        if (!Set.of("PROJECT", "USER").contains(principal)) throw new StudioException(StudioErrorCode.BAD_REQUEST, "Invalid ACL principal type");
-        if ("USER".equals(principal)) {
-            if (entry.getUserId() == null || projectMemberMapper.selectCount(new LambdaQueryWrapper<ProjectMemberEntity>()
-                    .eq(ProjectMemberEntity::getProjectId, datasource.getProjectId())
-                    .eq(ProjectMemberEntity::getUserId, entry.getUserId())
-                    .eq(ProjectMemberEntity::getStatus, "ACTIVE")) == 0L) {
-                throw new StudioException(StudioErrorCode.BAD_REQUEST, "ACL user must be an active project member");
-            }
-        }
-        if (!Set.of("BROWSE", "DOWNLOAD", "EDIT", "DELETE").contains(entry.getPermission().toUpperCase(Locale.ROOT))
-                || !Set.of("ALLOW", "DENY", "INHERIT").contains(entry.getEffect().toUpperCase(Locale.ROOT))) {
-            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Invalid ACL permission or effect");
-        }
-    }
-
-    private List<UnstructuredAclEntryView> sourceAclViews(DataSourceDefinition datasource, List<UnstructuredSourceAclEntity> entities) {
-        List<UnstructuredAclEntryView> result = new ArrayList<UnstructuredAclEntryView>();
-        for (UnstructuredSourceAclEntity entity : entities) result.add(toView(entity));
-        return result;
-    }
-
-    private List<UnstructuredAclEntryView> pathAclViews(DataSourceDefinition datasource, List<UnstructuredPathAclEntity> entities) {
-        List<UnstructuredAclEntryView> result = new ArrayList<UnstructuredAclEntryView>();
-        for (UnstructuredPathAclEntity entity : entities) result.add(toView(entity));
-        return result;
-    }
-
-    private UnstructuredAclEntryView toView(UnstructuredSourceAclEntity entity) {
-        UnstructuredAclEntryView view = new UnstructuredAclEntryView(); view.setId(entity.getId()); view.setDatasourceId(entity.getDatasourceId());
-        view.setPrincipalType(entity.getPrincipalType()); view.setUserId(entity.getUserId()); view.setPermission(entity.getPermission()); view.setEffect(entity.getEffect());
-        hydrateUser(view); return view;
-    }
-
-    private UnstructuredAclEntryView toView(UnstructuredPathAclEntity entity) {
-        UnstructuredAclEntryView view = new UnstructuredAclEntryView(); view.setId(entity.getId()); view.setDatasourceId(entity.getDatasourceId()); view.setPath(entity.getPath());
-        view.setDirectory(!Integer.valueOf(0).equals(entity.getDirectory()));
-        view.setPrincipalType(entity.getPrincipalType()); view.setUserId(entity.getUserId()); view.setPermission(entity.getPermission()); view.setEffect(entity.getEffect());
-        hydrateUser(view); return view;
-    }
-
-    private void hydrateUser(UnstructuredAclEntryView view) {
-        if (view.getUserId() == null) return;
-        StudioUserEntity user = userMapper.selectById(view.getUserId());
-        if (user != null) { view.setUsername(user.getUsername()); view.setDisplayName(user.getDisplayName()); }
-    }
-
-    private void recordAudit(DataSourceDefinition datasource, UnstructuredOperationRequest request, String operation,
-                             String sourcePath, String targetPath, String status, String message) {
-        UnstructuredOpAuditEntity audit = new UnstructuredOpAuditEntity();
-        audit.setTenantId(datasource.getTenantId()); audit.setProjectId(datasource.getProjectId());
-        audit.setDatasourceId(datasource.getId()); audit.setRuntimeClusterId(request.getRuntimeClusterId());
-        audit.setUserId(securityService.currentUserId()); audit.setUsername(securityService.currentUsername());
-        audit.setOperation(operation); audit.setSourcePath(sourcePath); audit.setTargetPath(targetPath);
-        audit.setRecursive(Boolean.TRUE.equals(request.getRecursiveConfirmed()) ? 1 : 0); audit.setStatus(status);
-        audit.setMessage(auditMessage(message));
-        auditMapper.insert(audit);
-    }
-
-    private void recordAudit(DataSourceDefinition datasource, Long runtimeClusterId,
-                             Long userId, String username, String operation,
-                             String sourcePath, String targetPath, boolean recursive,
-                             String status, String message) {
-        UnstructuredOpAuditEntity audit = new UnstructuredOpAuditEntity();
-        audit.setTenantId(datasource.getTenantId());
-        audit.setProjectId(datasource.getProjectId());
-        audit.setDatasourceId(datasource.getId());
-        audit.setRuntimeClusterId(runtimeClusterId);
-        audit.setUserId(userId);
-        audit.setUsername(username);
-        audit.setOperation(operation);
-        audit.setSourcePath(sourcePath);
-        audit.setTargetPath(targetPath);
-        audit.setRecursive(recursive ? 1 : 0);
-        audit.setStatus(status);
-        audit.setMessage(auditMessage(message));
-        auditMapper.insert(audit);
-    }
-
-    /**
-     * Auditing must never replace the result of the remote file operation. A
-     * schema/connection problem in the audit database is logged and allowed to
-     * surface through operations/audit health checks instead.
-     */
     private void recordAuditSafely(DataSourceDefinition datasource, UnstructuredOperationRequest request,
                                    String operation, String sourcePath, String targetPath,
                                    String status, String message) {
-        try {
-            recordAudit(datasource, request, operation, sourcePath, targetPath, status, message);
-        } catch (RuntimeException auditException) {
-            log.warn("[UF_AUDIT_FAILED] 非结构化操作审计写入失败 operation={} datasourceId={} "
-                            + "status={} exceptionType={} message={} stackTrace={}",
-                    operation, datasource == null ? null : datasource.getId(), status,
-                    auditException.getClass().getName(),
-                    sanitizedErrorMessage(auditException.getMessage()),
-                    sanitizedStackTrace(auditException));
-        }
+        auditService.recordSafely(datasource, request, operation, sourcePath, targetPath,
+                status, message);
     }
 
     private void recordAuditSafely(DataSourceDefinition datasource, Long runtimeClusterId,
                                    Long userId, String username, String operation,
                                    String sourcePath, String targetPath, boolean recursive,
                                    String status, String message) {
-        try {
-            recordAudit(datasource, runtimeClusterId, userId, username, operation,
-                    sourcePath, targetPath, recursive, status, message);
-        } catch (RuntimeException auditException) {
-            log.warn("[UF_AUDIT_FAILED] 非结构化操作审计写入失败 operation={} datasourceId={} "
-                            + "status={} exceptionType={} message={} stackTrace={}",
-                    operation, datasource == null ? null : datasource.getId(), status,
-                    auditException.getClass().getName(),
-                    sanitizedErrorMessage(auditException.getMessage()),
-                    sanitizedStackTrace(auditException));
-        }
-    }
-
-    private String auditMessage(String message) {
-        if (message == null) {
-            return null;
-        }
-        String normalized = message.trim();
-        if (normalized.length() <= MAX_AUDIT_MESSAGE_LENGTH) {
-            return normalized;
-        }
-        return normalized.substring(0, MAX_AUDIT_MESSAGE_LENGTH - AUDIT_MESSAGE_TRUNCATED_SUFFIX.length())
-                + AUDIT_MESSAGE_TRUNCATED_SUFFIX;
+        auditService.recordSafely(datasource, runtimeClusterId, userId, username, operation,
+                sourcePath, targetPath, recursive, status, message);
     }
 
     private String message(RuntimeException exception) {
@@ -907,18 +636,7 @@ public class UnstructuredManagementService {
     }
 
     private String normalizePath(String rawPath) {
-        if (rawPath == null || rawPath.trim().isEmpty()) return "/";
-        String value = rawPath.trim().replace('\\', '/');
-        if (value.indexOf('\0') >= 0) throw new StudioException(StudioErrorCode.BAD_REQUEST, "Path contains a NUL character");
-        while (value.contains("//")) value = value.replace("//", "/");
-        if (!value.startsWith("/")) value = "/" + value;
-        List<String> segments = new ArrayList<String>();
-        for (String segment : value.split("/")) {
-            if (segment.isEmpty() || ".".equals(segment)) continue;
-            if ("..".equals(segment)) throw new StudioException(StudioErrorCode.BAD_REQUEST, "Path must not contain '..'");
-            segments.add(segment);
-        }
-        return segments.isEmpty() ? "/" : "/" + String.join("/", segments);
+        return UnstructuredAclService.normalizePath(rawPath);
     }
 
     private String parentPath(String path) {
