@@ -15,7 +15,8 @@
     "test:assistant-ui-real": "node ./scripts/assistant-ui-real-assistive-coverage.mjs",
     "test:assistant-ui-web-server": "node ./scripts/assistant-ui-web-server-smoke.mjs",
     "test:assistant-assistive-coverage": "node ./scripts/assistant-ui-real-assistive-coverage.mjs",
-    "test:assistant-ui-desktop-runtime": "node ./scripts/assistant-ui-real-smoke.mjs"
+    "test:assistant-ui-desktop-runtime": "node ./scripts/assistant-ui-real-smoke.mjs",
+    "test:model-field-json-import": "node scripts/model-field-json-import.test.mjs"
   },
   "dependencies": {
     "@studio/api-sdk": "0.1.0",
