@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test:collection-task-field-auto-mapping": "node scripts/collection-task-field-auto-mapping.test.mjs",
     "test:model-field-json-import": "node scripts/model-field-json-import.test.mjs"
   },
   "dependencies": {

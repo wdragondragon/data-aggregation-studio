@@ -134,6 +134,7 @@ import {
   stripSystemIncrementalCursor,
   type RuntimeOptionRole,
 } from "@/components/collection-task/collectionTaskEditorSupport";
+import { buildAutomaticFieldMappings } from "@/components/collection-task/collectionTaskFieldAutoMapping";
 import CollectionTaskEditorFooter from "@/components/collection-task/CollectionTaskEditorFooter.vue";
 import CollectionTaskEditorHeader from "@/components/collection-task/CollectionTaskEditorHeader.vue";
 import CollectionTaskMappingSection from "@/components/collection-task/CollectionTaskMappingSection.vue";
@@ -1249,13 +1250,11 @@ async function handleTargetModelChange(value: string) {
 
 function initializeMappings() {
   const targetFields = resolveFieldsByModelId(form.targetBinding.modelId);
-  form.fieldMappings = targetFields.map((field) => ({
-    sourceAlias: sourceAliasOptions.value[0] ?? "",
-    sourceField: "",
-    targetField: field,
-    expression: "",
-    transformers: [],
+  const sources = form.sourceBindings.map((source) => ({
+    sourceAlias: source.sourceAlias ?? "",
+    fields: sourceFieldOptions(source),
   }));
+  form.fieldMappings = buildAutomaticFieldMappings(targetFields, sources);
   syncHttpSoapWriterRequestBodyFromMappings();
 }
 
