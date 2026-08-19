@@ -40,6 +40,8 @@
 - `运维/`
   - 运维、监控、排障和运行策略说明。
   - 当前包含：
+    - [Studio 分层部署文档（运维侧）](./运维/部署/分层部署文档（运维侧）.md)：运维侧统一配置、分层发布、外部能力接入和验收规范。
+    - [Studio 交付物文档（开发侧）](./运维/部署/交付物文档（开发侧）.md)：开发侧完整制品清单、全量/增量交接、变更资料和交付自检规范。
     - [Studio 完整部署指南](./运维/部署/studio-complete-deployment-guide.md)：从 MySQL、Nacos、OSS 插件仓库到 Server、Worker、studio-flink、Flink 和 Web 的完整部署顺序。
     - [环境初始化说明.md](./运维/部署/环境初始化说明.md)
     - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：纯控制面 Server、全能力 Worker、内部调用、运行日志和插件边界说明。
