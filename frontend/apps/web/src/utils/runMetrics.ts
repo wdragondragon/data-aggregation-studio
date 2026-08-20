@@ -39,7 +39,9 @@ export function metricSummaryValue(summary: RunMetricSummary | undefined, key: R
     case "collectedRecords":
       return toMetricNumber(summary.collectedRecords);
     case "successRecords":
-      return toMetricNumber(summary.successRecords ?? (toMetricNumber(summary.readSucceedRecords) - toMetricNumber(summary.writeFailedRecords)));
+      return toMetricNumber(summary.successRecords
+        ?? summary.writeSucceedRecords
+        ?? (toMetricNumber(summary.readSucceedRecords) - toMetricNumber(summary.writeFailedRecords)));
     case "failedRecords":
       return toMetricNumber(summary.failedRecords);
     case "transformerTotalRecords":

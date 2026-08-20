@@ -5,6 +5,7 @@ import com.jdragon.aggregation.core.enums.State;
 import com.jdragon.aggregation.core.job.JobContainer;
 import com.jdragon.aggregation.core.plugin.spi.reporter.JobPointReporter;
 import com.jdragon.aggregation.core.statistics.communication.Communication;
+import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
 import com.jdragon.aggregation.pluginloader.constant.SystemConstants;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.WorkflowNodeDefinition;
@@ -55,7 +56,7 @@ class AggregationNodeExecutorRegressionTest {
         AggregationNodeExecutor executor = new AggregationNodeExecutor() {
             @Override
             protected JobContainer createJobContainer(Map<String, Object> config) {
-                return new StubJobContainer(State.FAILED, new IllegalStateException("writer failed"));
+                return new StubJobContainer(State.FAILED, new IllegalStateException("writer failed"), 2L, 2L);
             }
         };
 
@@ -71,6 +72,12 @@ class AggregationNodeExecutorRegressionTest {
         assertThat(result.get("status")).isEqualTo("FAILED");
         assertThat(result.get("jobState")).isEqualTo("FAILED");
         assertThat(String.valueOf(result.get("message"))).contains("failed");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> summary = (Map<String, Object>) result.get("summary");
+        assertThat(summary.get("collectedRecords")).isEqualTo(2L);
+        assertThat(summary.get("successRecords")).isEqualTo(0L);
+        assertThat(summary.get("writeSucceedRecords")).isEqualTo(0L);
+        assertThat(summary.get("failedRecords")).isEqualTo(2L);
     }
 
     @Test
@@ -227,10 +234,16 @@ class AggregationNodeExecutorRegressionTest {
         private final JobPointReporter reporter;
 
         private StubJobContainer(State state, Throwable throwable) {
+            this(state, throwable, 0L, 0L);
+        }
+
+        private StubJobContainer(State state, Throwable throwable, long readSucceedRecords, long writeReceivedRecords) {
             super(prepareConfiguration());
             Communication communication = new Communication();
             communication.setState(state);
             communication.setThrowable(throwable);
+            communication.setLongCounter(CommunicationTool.READ_SUCCEED_RECORDS, readSucceedRecords);
+            communication.setLongCounter(CommunicationTool.WRITE_RECEIVED_RECORDS, writeReceivedRecords);
             this.reporter = new JobPointReporter(Configuration.newDefault(), new LinkedHashMap<String, Object>());
             this.reporter.setTrackCommunication(communication);
         }

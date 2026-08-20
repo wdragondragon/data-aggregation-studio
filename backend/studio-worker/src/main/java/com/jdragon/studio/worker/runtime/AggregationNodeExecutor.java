@@ -245,7 +245,10 @@ public class AggregationNodeExecutor implements NodeExecutor {
             long writeSucceedRecords = communication == null ? 0L : CommunicationTool.getWriteSucceedRecords(communication);
             long totalReadRecords = communication == null ? runStatus.getTotal() : CommunicationTool.getTotalReadRecords(communication);
             long totalErrorRecords = communication == null ? runStatus.getError() : CommunicationTool.getTotalErrorRecords(communication);
-            long successRecords = Math.max(0L, readSucceedRecords - writeFailedRecords);
+            boolean succeeded = State.SUCCEEDED.equals(jobState);
+            long successRecords = succeeded ? Math.max(0L, writeSucceedRecords) : 0L;
+            long effectiveWriteSucceedRecords = succeeded ? Math.max(0L, writeSucceedRecords) : 0L;
+            long failedRecords = succeeded ? totalErrorRecords : Math.max(totalErrorRecords, totalReadRecords);
             long transformerSuccess = runStatus.getTransformerSuccess();
             long transformerError = runStatus.getTransformerError();
             long transformerFilter = runStatus.getTransformerFilter();
@@ -257,9 +260,9 @@ public class AggregationNodeExecutor implements NodeExecutor {
             summary.put("successRecords", successRecords);
             summary.put("readSucceedRecords", readSucceedRecords);
             summary.put("readFailedRecords", readFailedRecords);
-            summary.put("writeSucceedRecords", writeSucceedRecords);
+            summary.put("writeSucceedRecords", effectiveWriteSucceedRecords);
             summary.put("writeFailedRecords", writeFailedRecords);
-            summary.put("failedRecords", totalErrorRecords);
+            summary.put("failedRecords", failedRecords);
             summary.put("transformerTotalRecords", transformerSuccess + transformerError + transformerFilter);
             summary.put("transformerSuccessRecords", transformerSuccess);
             summary.put("transformerFailedRecords", transformerError);

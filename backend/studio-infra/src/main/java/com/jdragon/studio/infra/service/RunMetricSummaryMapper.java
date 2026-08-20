@@ -22,7 +22,8 @@ public class RunMetricSummaryMapper {
         summary.setWriteFailedRecords(firstNonNull(entity.getWriteFailedRecords(), extractMetric(entity.getResultJson(), "writeFailedRecords")));
         summary.setFailedRecords(firstNonNull(entity.getFailedRecords(), extractMetric(entity.getResultJson(), "failedRecords", "errorRecords")));
         summary.setSuccessRecords(firstNonNull(entity.getSuccessRecords(), firstNonNull(extractMetric(entity.getResultJson(), "successRecords"),
-                calculateSuccessRecordsOrNull(summary.getReadSucceedRecords(), summary.getWriteFailedRecords()))));
+                firstNonNull(summary.getWriteSucceedRecords(),
+                        calculateSuccessRecordsOrNull(summary.getReadSucceedRecords(), summary.getWriteFailedRecords())))));
         Long transformerSuccess = firstNonNull(entity.getTransformerSuccessRecords(), extractMetric(entity.getResultJson(), "transformerSuccessRecords", "transformerSuccess"));
         Long transformerFailed = firstNonNull(entity.getTransformerFailedRecords(), extractMetric(entity.getResultJson(), "transformerFailedRecords", "transformerError"));
         Long transformerFilter = firstNonNull(entity.getTransformerFilterRecords(), extractMetric(entity.getResultJson(), "transformerFilterRecords", "transformerFilter"));
@@ -34,6 +35,7 @@ public class RunMetricSummaryMapper {
         summary.setTransformerSuccessRecords(transformerSuccess);
         summary.setTransformerFailedRecords(transformerFailed);
         summary.setTransformerFilterRecords(transformerFilter);
+        normalizeFailedTerminalMetrics(summary, isFailedStatus(entity.getStatus()));
         return summary;
     }
 
@@ -61,11 +63,13 @@ public class RunMetricSummaryMapper {
         summary.setCollectedRecords(defaultZero(firstNonNull(asLong(summaryMap.get("collectedRecords")), asLong(summaryMap.get("totalRecords")))));
         summary.setReadSucceedRecords(defaultZero(asLong(summaryMap.get("readSucceedRecords"))));
         summary.setReadFailedRecords(defaultZero(asLong(summaryMap.get("readFailedRecords"))));
-        summary.setWriteSucceedRecords(defaultZero(asLong(summaryMap.get("writeSucceedRecords"))));
+        Long writeSucceedRecords = asLong(summaryMap.get("writeSucceedRecords"));
+        summary.setWriteSucceedRecords(defaultZero(writeSucceedRecords));
         summary.setWriteFailedRecords(defaultZero(asLong(summaryMap.get("writeFailedRecords"))));
         summary.setFailedRecords(defaultZero(firstNonNull(asLong(summaryMap.get("failedRecords")), asLong(summaryMap.get("errorRecords")))));
         summary.setSuccessRecords(defaultZero(firstNonNull(asLong(summaryMap.get("successRecords")),
-                calculateSuccessRecords(summary.getReadSucceedRecords(), summary.getWriteFailedRecords()))));
+                firstNonNull(writeSucceedRecords,
+                        calculateSuccessRecords(summary.getReadSucceedRecords(), summary.getWriteFailedRecords())))));
         Long transformerSuccess = defaultZero(firstNonNull(asLong(summaryMap.get("transformerSuccessRecords")), asLong(summaryMap.get("transformerSuccess"))));
         Long transformerFailed = defaultZero(firstNonNull(asLong(summaryMap.get("transformerFailedRecords")), asLong(summaryMap.get("transformerError"))));
         Long transformerFilter = defaultZero(firstNonNull(asLong(summaryMap.get("transformerFilterRecords")), asLong(summaryMap.get("transformerFilter"))));
@@ -74,7 +78,34 @@ public class RunMetricSummaryMapper {
         summary.setTransformerFilterRecords(transformerFilter);
         summary.setTransformerTotalRecords(defaultZero(firstNonNull(asLong(summaryMap.get("transformerTotalRecords")),
                 transformerSuccess + transformerFailed + transformerFilter)));
+        normalizeFailedTerminalMetrics(summary,
+                isFailedStatus(payload == null ? null : payload.get("status"))
+                        || isFailedStatus(summaryMap.get("jobState")));
         return summary;
+    }
+
+    private void normalizeFailedTerminalMetrics(RunMetricSummaryView summary, boolean failed) {
+        if (!failed || summary == null) {
+            return;
+        }
+        summary.setSuccessRecords(Long.valueOf(0L));
+        summary.setWriteSucceedRecords(Long.valueOf(0L));
+        summary.setFailedRecords(Long.valueOf(Math.max(
+                safeValue(summary.getFailedRecords()),
+                safeValue(summary.getCollectedRecords()))));
+    }
+
+    private boolean isFailedStatus(Object value) {
+        if (value == null) {
+            return false;
+        }
+        String status = String.valueOf(value).trim().toUpperCase(java.util.Locale.ROOT);
+        return "FAILED".equals(status)
+                || "ERROR".equals(status)
+                || "KILLED".equals(status)
+                || "STOPPED".equals(status)
+                || "CANCELLED".equals(status)
+                || "CANCELED".equals(status);
     }
 
     public boolean hasPreciseMetrics(RunRecordEntity entity) {
