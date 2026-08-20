@@ -626,9 +626,13 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
 
     @Test
     void fileWriterConfigShouldUseTargetModelOptionsAndDynamicWriterOptions() {
+        DataModelService dataModelService = mockDataModelService();
+        Map<String, Object> sourceId = column("id");
+        sourceId.put("remarks", "Source identifier");
+        castList(dataModelService.get(10L).getTechnicalMetadata().get("columns")).add(sourceId);
         CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
                 mockDataSourceService(),
-                mockDataModelService(),
+                dataModelService,
                 mock(EncryptionService.class),
                 mockRuntimeOptionSchemaService());
 
@@ -690,9 +694,52 @@ class CollectionTaskAssemblerServiceRegressionTest extends CollectionTaskAssembl
         assertEquals("id", columns.get(0).get("name"));
         assertEquals(Integer.valueOf(0), columns.get(0).get("index"));
         assertEquals("LONG", columns.get(0).get("type"));
+        assertEquals("Source identifier", columns.get(0).get("remarks"));
         assertEquals("planDate", columns.get(1).get("name"));
         assertEquals(Integer.valueOf(1), columns.get(1).get("index"));
         assertEquals("TAG", columns.get(1).get("sourceKind"));
+    }
+
+    @Test
+    void fileWriterConfigShouldOmitBlankModelPlanDate() {
+        DataModelService dataModelService = mockDataModelService();
+        dataModelService.get(33L).getTechnicalMetadata().put("efile.planDate", "   ");
+        CollectionTaskAssemblerService assemblerService = new CollectionTaskAssemblerService(
+                mockDataSourceService(),
+                dataModelService,
+                mock(EncryptionService.class),
+                mockRuntimeOptionSchemaService());
+
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setTaskType(CollectionTaskType.SINGLE_TABLE);
+        CollectionTaskSourceBinding sourceBinding = new CollectionTaskSourceBinding();
+        sourceBinding.setDatasourceId(1L);
+        sourceBinding.setModelId(10L);
+        sourceBinding.setSourceAlias("src1");
+        definition.setSourceBindings(Collections.singletonList(sourceBinding));
+
+        CollectionTaskTargetBinding targetBinding = new CollectionTaskTargetBinding();
+        targetBinding.setDatasourceId(3L);
+        targetBinding.setModelId(33L);
+        definition.setTargetBinding(targetBinding);
+
+        FieldMappingDefinition mapping = new FieldMappingDefinition();
+        mapping.setSourceAlias("src1");
+        mapping.setSourceField("source_col");
+        mapping.setTargetField("id");
+        definition.setFieldMappings(Collections.singletonList(mapping));
+
+        Map<String, Object> config = assemblerService.assemble(definition);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writer = (Map<String, Object>) config.get("writer");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> writerConfig = (Map<String, Object>) writer.get("config");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> efile = (Map<String, Object>) writerConfig.get("efile");
+
+        assertFalse(efile.containsKey("planDate"));
+        assertEquals("T01", efile.get("tableName"));
+        assertEquals("Demo", efile.get("tableCode"));
     }
 
     @Test

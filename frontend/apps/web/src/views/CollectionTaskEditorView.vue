@@ -605,8 +605,10 @@ function sourceFieldOptions(source: CollectionTaskSourceBinding) {
   if (localCustomSqlFields.length) {
     return localCustomSqlFields;
   }
-  const customFields = resolveCustomSqlCachedFields(source);
-  return customFields.length ? customFields : resolveFieldsByModelId(source.modelId);
+  if (supportsCustomSqlFields(source)) {
+    return resolveCustomSqlCachedFields(source);
+  }
+  return resolveFieldsByModelId(source.modelId);
 }
 
 function resolveLocalCustomSqlFields(source: CollectionTaskSourceBinding) {
@@ -1092,7 +1094,8 @@ function scheduleResolveCustomSqlFields(source: CollectionTaskSourceBinding) {
 }
 
 async function resolveAllCustomSqlFields(showError = false) {
-  await Promise.all(form.sourceBindings.map((source) => resolveCustomSqlFields(source, showError)));
+  const results = await Promise.all(form.sourceBindings.map((source) => resolveCustomSqlFields(source, showError)));
+  return results.every(Boolean);
 }
 
 async function resolveCustomSqlFieldsForActiveStep(showError = false) {
@@ -1103,24 +1106,27 @@ async function resolveCustomSqlFieldsForActiveStep(showError = false) {
 
 async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showError = false) {
   if (!supportsCustomSqlFields(source)) {
-    return;
+    return true;
   }
   const datasourceId = String(source.datasourceId ?? "").trim();
   const sql = selectSqlText(source);
   const cacheKey = customSqlFieldCacheKey(source);
   if (!cacheKey) {
-    return;
+    return true;
   }
   const current = customSqlFieldCache.value[cacheKey];
-  if (current?.loading || (current?.sql === sql && current.fields.length)) {
-    return;
+  if (current?.loading) {
+    return false;
+  }
+  if (current?.sql === sql && current.fields.length && !current.error) {
+    return true;
   }
   customSqlFieldCache.value = {
     ...customSqlFieldCache.value,
     [cacheKey]: {
       datasourceId,
       sql,
-      fields: current?.fields ?? [],
+      fields: [],
       loading: true,
     },
   };
@@ -1132,15 +1138,20 @@ async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showE
       content: sql,
       maxRows: 1,
     });
+    const fields = uniqueFieldNames(result.columns);
+    if (!fields.length) {
+      throw new Error(t("web.collectionTasks.customSqlNoFields"));
+    }
     customSqlFieldCache.value = {
       ...customSqlFieldCache.value,
       [cacheKey]: {
         datasourceId,
         sql,
-        fields: uniqueFieldNames(result.columns),
+        fields,
         loading: false,
       },
     };
+    return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : t("web.collectionTasks.loadFailed");
     customSqlFieldCache.value = {
@@ -1148,14 +1159,15 @@ async function resolveCustomSqlFields(source: CollectionTaskSourceBinding, showE
       [cacheKey]: {
         datasourceId,
         sql,
-        fields: current?.fields ?? [],
+        fields: [],
         loading: false,
         error: message,
       },
     };
-    if (showError && sourceFieldOptions(source).length === 0) {
+    if (showError) {
       ElMessage.error(message);
     }
+    return false;
   }
 }
 
@@ -1511,6 +1523,10 @@ async function loadPreviewConfig() {
     previewConfig.value = null;
     return;
   }
+  if (!(await resolveAllCustomSqlFields(true))) {
+    previewConfig.value = null;
+    return;
+  }
   if (!validateFieldMappings()) {
     return;
   }
@@ -1535,6 +1551,9 @@ async function saveTask() {
   }
   if (!form.runtimeClusterId) {
     ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
+    return;
+  }
+  if (!(await resolveAllCustomSqlFields(true))) {
     return;
   }
   if (!validateFieldMappings()) {
@@ -1736,7 +1755,7 @@ watch(
 watch(activeStep, async (value) => {
   syncStepQuery(value);
   if (value === 2) {
-    await resolveCustomSqlFieldsForActiveStep(false);
+    await resolveCustomSqlFieldsForActiveStep(true);
   }
   if (value === 4 && previewDirty.value) {
     await loadPreviewConfig();

@@ -80,12 +80,25 @@ final class CollectionTaskFieldMappingResolver {
             item.put("name", fieldName);
             item.put("index", Integer.valueOf(i));
             item.put("type", resolveGenericColumnType(fieldMetadata));
+            Object remarks = fieldMetadata == null ? null : fieldMetadata.get("remarks");
+            if (!isBlankValue(remarks)) {
+                item.put("remarks", String.valueOf(remarks).trim());
+            }
             if (isTagFileField(fieldMetadata)) {
                 item.put("sourceKind", FILE_FIELD_SOURCE_KIND_TAG);
             }
             result.add(item);
         }
         return result;
+    }
+
+    String resolveFieldRemarks(DataModelDefinition model, String fieldName) {
+        if (fieldName == null || fieldName.trim().isEmpty()) {
+            return null;
+        }
+        Map<String, Object> metadata = resolveModelFieldMetadata(model).get(fieldName.trim());
+        Object remarks = metadata == null ? null : metadata.get("remarks");
+        return isBlankValue(remarks) ? null : String.valueOf(remarks).trim();
     }
 
     List<Map<String, Object>> resolveHttpColumnEntries(DataModelDefinition model,

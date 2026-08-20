@@ -412,7 +412,11 @@ public class CollectionTaskAssemblerService {
         if (!transformers.isEmpty()) {
             config.put("transformer", transformers);
         }
-        config.put("writer", buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields));
+        Map<String, Object> writer = buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields);
+        Map<String, DataModelDefinition> sourceModels = new LinkedHashMap<String, DataModelDefinition>();
+        sourceModels.put(sourceBinding.getSourceAlias(), sourceModel);
+        enrichEFileWriterColumnRemarks(writer, definition.getFieldMappings(), sourceModels);
+        config.put("writer", writer);
         return config;
     }
 
@@ -429,10 +433,12 @@ public class CollectionTaskAssemblerService {
         List<String> targetFields = fieldMappingResolver.resolveTargetFields(definition.getFieldMappings(), targetModel);
         List<String> joinKeys = fieldMappingResolver.resolveJoinKeys(definition);
         List<Map<String, Object>> sources = new ArrayList<Map<String, Object>>();
+        Map<String, DataModelDefinition> sourceModels = new LinkedHashMap<String, DataModelDefinition>();
         for (CollectionTaskSourceBinding sourceBinding : definition.getSourceBindings()) {
             DataSourceDefinition sourceDatasource = requiredDatasource(
                     sourceBinding.getDatasourceId(), maskedDatasourceView);
             DataModelDefinition sourceModel = requiredModel(sourceBinding.getModelId());
+            sourceModels.put(sourceBinding.getSourceAlias(), sourceModel);
             List<String> sourceFields = fieldMappingResolver.resolveSourceFieldsByAlias(definition.getFieldMappings(), sourceBinding.getSourceAlias(), sourceModel, joinKeys);
             String pluginType = resolvePluginType(sourceDatasource.getTypeCode(), "reader");
             Map<String, Object> item = new LinkedHashMap<String, Object>();
@@ -485,8 +491,59 @@ public class CollectionTaskAssemblerService {
         if (!transformers.isEmpty()) {
             config.put("transformer", transformers);
         }
-        config.put("writer", buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields));
+        Map<String, Object> writer = buildStandardWriter(targetBinding, targetDatasource, targetModel, targetFields);
+        enrichEFileWriterColumnRemarks(writer, definition.getFieldMappings(), sourceModels);
+        config.put("writer", writer);
         return config;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void enrichEFileWriterColumnRemarks(Map<String, Object> writer,
+                                                List<FieldMappingDefinition> mappings,
+                                                Map<String, DataModelDefinition> sourceModels) {
+        Object rawConfig = writer == null ? null : writer.get("config");
+        if (!(rawConfig instanceof Map<?, ?>)) {
+            return;
+        }
+        Map<String, Object> config = (Map<String, Object>) rawConfig;
+        if (!"efile".equalsIgnoreCase(String.valueOf(config.get("fileType")))) {
+            return;
+        }
+        Object rawColumns = config.get("columns");
+        if (!(rawColumns instanceof List<?>)) {
+            return;
+        }
+        Map<String, FieldMappingDefinition> mappingsByTarget = new LinkedHashMap<String, FieldMappingDefinition>();
+        if (mappings != null) {
+            for (FieldMappingDefinition mapping : mappings) {
+                if (mapping == null || isBlank(mapping.getTargetField()) || !isBlank(mapping.getExpression())) {
+                    continue;
+                }
+                mappingsByTarget.put(mapping.getTargetField().trim(), mapping);
+            }
+        }
+        for (Object rawColumn : (List<?>) rawColumns) {
+            if (!(rawColumn instanceof Map<?, ?>)) {
+                continue;
+            }
+            Map<String, Object> column = (Map<String, Object>) rawColumn;
+            if (!isBlankValue(column.get("remarks"))) {
+                continue;
+            }
+            String targetField = text(column.get("name"));
+            FieldMappingDefinition mapping = targetField == null ? null : mappingsByTarget.get(targetField);
+            if (mapping == null || isBlank(mapping.getSourceField())) {
+                continue;
+            }
+            DataModelDefinition sourceModel = sourceModels.get(mapping.getSourceAlias());
+            if (sourceModel == null && sourceModels.size() == 1) {
+                sourceModel = sourceModels.values().iterator().next();
+            }
+            String remarks = fieldMappingResolver.resolveFieldRemarks(sourceModel, mapping.getSourceField());
+            if (!isBlank(remarks)) {
+                column.put("remarks", remarks);
+            }
+        }
     }
 
     private Map<String, Object> buildStandardReader(CollectionTaskSourceBinding binding,
