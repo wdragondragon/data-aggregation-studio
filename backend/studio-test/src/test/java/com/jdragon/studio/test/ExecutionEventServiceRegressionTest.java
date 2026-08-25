@@ -98,6 +98,41 @@ class ExecutionEventServiceRegressionTest {
     }
 
     @Test
+    void shouldIgnoreLateTerminalEventAfterManualTermination() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity terminated = new RunRecordEntity();
+        terminated.setId(101L);
+        terminated.setStatus("FAILED");
+        terminated.setTerminationRequested(1);
+        terminated.getPayloadJson().put("errorCode", "USER_TERMINATED");
+        when(runRecordMapper.selectById(eq(101L))).thenReturn(terminated);
+
+        DispatchService dispatchService = mock(DispatchService.class);
+        ExecutionEventService service = new ExecutionEventService(
+                runRecordMapper,
+                mock(FileTransferRunMapper.class),
+                mock(DispatchTaskMapper.class),
+                mock(CollectionTaskDefinitionMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                dispatchService,
+                mock(RunMetricSummaryMapper.class),
+                mock(FollowSubscriptionService.class),
+                mock(NotificationService.class),
+                mock(DataModelLineageService.class),
+                mock(QualityIssueService.class),
+                mock(CollectionTaskIncrementalStateService.class),
+                mock(StaleExecutionRecoveryService.class));
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(101L);
+        event.setEventType("SUCCESS");
+        service.publish(event);
+
+        verify(runRecordMapper, never()).update(any(RunRecordEntity.class), any());
+        verify(dispatchService, never()).continueWorkflowRun(any(ExecutionEvent.class));
+    }
+
+    @Test
     void shouldSanitizeDatabaseStackTraceBeforePersistingFailureEvent() {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();

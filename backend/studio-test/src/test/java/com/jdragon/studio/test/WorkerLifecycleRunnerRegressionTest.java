@@ -279,6 +279,49 @@ class WorkerLifecycleRunnerRegressionTest {
     }
 
     @Test
+    void shouldNotClaimQueuedTaskMarkedForTermination() {
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        WorkerAuthorizationService workerAuthorizationService = mock(WorkerAuthorizationService.class);
+        NodeExecutor nodeExecutor = mock(NodeExecutor.class);
+
+        StudioPlatformProperties properties = new StudioPlatformProperties();
+        properties.setWorkerCode("worker-a");
+        properties.setRuntimeClusterCode("DEFAULT-LOCAL");
+
+        DispatchTaskEntity queuedTask = queuedTask();
+        queuedTask.setTerminationRequested(1);
+        when(workerLeaseMapper.selectOne(any())).thenReturn(onlineLease("worker-a", "instance-a"));
+        when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(queuedTask));
+        when(workerAuthorizationService.isProjectRuntimeClusterGrantEnabled("default", 100L, 10L)).thenReturn(true);
+        when(workerAuthorizationService.isRuntimeClusterAuthorizedForProject("default", 100L, 10L)).thenReturn(true);
+        when(dispatchTaskMapper.update(any(DispatchTaskEntity.class), any())).thenReturn(0);
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                dispatchTaskMapper,
+                workerLeaseMapper,
+                mock(RunRecordMapper.class),
+                Collections.singletonList(nodeExecutor),
+                mock(ExecutionEventPublisher.class),
+                properties,
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                workerAuthorizationService,
+                clusterInstanceIdentity("instance-a"),
+                mock(WorkflowDispatchNodeResolver.class)
+        );
+        registerRuntimeCluster(runner, 10L, "default", "DEFAULT-LOCAL");
+        ReflectionTestUtils.setField(runner, "acceptingTasks", true);
+
+        runner.pollAndExecute();
+
+        verify(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any());
+        verify(nodeExecutor, never()).execute(any(), any());
+    }
+
+    @Test
     void shouldUseWorkerGroupForClaimOwnershipWithClusterAuthorization() {
         DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
         WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);

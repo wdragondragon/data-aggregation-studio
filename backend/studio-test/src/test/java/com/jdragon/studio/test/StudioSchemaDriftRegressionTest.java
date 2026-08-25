@@ -284,6 +284,27 @@ class StudioSchemaDriftRegressionTest {
     }
 
     @Test
+    void manualTerminationSchemaShouldStayAlignedAcrossMysqlSqliteUpgradeAndSnapshot() throws Exception {
+        String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
+        String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
+        String upgrade = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/StudioSchemaUpgradeService.java");
+        String mysqlDelta = readBackendFile("studio-server/src/main/resources/update/20260613/20260613-manual-run-termination.sql");
+        String dispatchSnapshot = readBackendFile("docs/数据库/结构快照/mysql/current/tables/028-dispatch_task.sql");
+        String runSnapshot = readBackendFile("docs/数据库/结构快照/mysql/current/tables/029-run_record.sql");
+
+        for (String content : Arrays.asList(mysqlSchema, sqliteSchema, upgrade, mysqlDelta, dispatchSnapshot, runSnapshot)) {
+            assertThat(content).contains("termination_requested");
+        }
+        assertThat(mysqlSchema).contains("idx_dispatch_task_termination_status", "idx_run_record_termination_status");
+        assertThat(sqliteSchema).contains("idx_dispatch_task_termination_status", "idx_run_record_termination_status");
+        assertThat(upgrade).contains("ensureColumn(\"dispatch_task\", \"termination_requested\"",
+                "ensureColumn(\"run_record\", \"termination_requested\"",
+                "idx_dispatch_task_termination_status", "idx_run_record_termination_status");
+        assertThat(mysqlDelta).contains("alter table dispatch_task add column termination_requested",
+                "alter table run_record add column termination_requested");
+    }
+
+    @Test
     void activeSubscriptionUniquenessShouldStayAlignedAcrossSchemaAndUpgrade() throws Exception {
         String mysqlSchema = readBackendFile("studio-server/src/main/resources/schema-mysql.sql");
         String sqliteSchema = readBackendFile("studio-desktop-runtime/src/main/resources/schema-sqlite.sql");
