@@ -59,11 +59,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Component
 @ConditionalOnProperty(name = "studio.worker.lifecycle.enabled", havingValue = "true", matchIfMissing = true)
@@ -104,6 +106,7 @@ public class WorkerLifecycleRunner {
     private volatile boolean acceptingTasks = false;
     private final ExecutorService fileTransferExecutor;
     private final Semaphore fileTransferSlots;
+    private final Map<Long, ActiveExecution> activeExecutions = new ConcurrentHashMap<Long, ActiveExecution>();
 
     public WorkerLifecycleRunner(DispatchTaskMapper dispatchTaskMapper,
                                  WorkerLeaseMapper workerLeaseMapper,
@@ -197,7 +200,9 @@ public class WorkerLifecycleRunner {
                 .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerInstanceId, clusterInstanceIdentity.instanceId())
                         .or()
                         .isNull(DispatchTaskEntity::getWorkerInstanceId))
-                .in(DispatchTaskEntity::getTargetClusterId, runtimeClusterIds);
+                .in(DispatchTaskEntity::getTargetClusterId, runtimeClusterIds)
+                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getTerminationRequested, 0)
+                        .or().isNull(DispatchTaskEntity::getTerminationRequested));
         if (hasText(clusterInstanceIdentity.bootId())) {
             query.and(wrapper -> wrapper.ne(DispatchTaskEntity::getWorkerBootId, clusterInstanceIdentity.bootId())
                     .or()
@@ -675,139 +680,201 @@ public class WorkerLifecycleRunner {
     }
 
     private void executeClaimedTask(DispatchTaskEntity claimedTask) {
-            DispatchTaskEntity task = claimedTask;
-            LocalDateTime startedAt = LocalDateTime.now();
-            RunRecordEntity runRecord = null;
-            RunLogFileService.PreparedRunLog preparedRunLog = null;
-            RunLogFileService.RunLogScope runLogScope = null;
-            Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
-            try {
-                DispatchTaskEntity reloadedTask = dispatchTaskMapper.selectById(task.getId());
-                if (reloadedTask != null) {
-                    task = reloadedTask;
-                }
-                if (!isAuthorized(task)) {
-                    failClaimedUnauthorizedTask(task);
+        DispatchTaskEntity task = claimedTask;
+        ActiveExecution activeExecution = registerActiveExecution(task);
+        LocalDateTime startedAt = LocalDateTime.now();
+        RunRecordEntity runRecord = null;
+        RunLogFileService.PreparedRunLog preparedRunLog = null;
+        RunLogFileService.RunLogScope runLogScope = null;
+        Map<String, Object> runtimeContext = new LinkedHashMap<String, Object>();
+        try {
+            DispatchTaskEntity reloadedTask = dispatchTaskMapper.selectById(task.getId());
+            if (reloadedTask != null) {
+                task = reloadedTask;
+            }
+            if (!isAuthorized(task)) {
+                failClaimedUnauthorizedTask(task);
+                return;
+            }
+            if (isTerminationRequested(task)) {
+                activeExecution.cancel();
+                return;
+            }
+            runRecord = createRunRecord(task, startedAt);
+            activeExecution.setRunRecordId(runRecord.getId());
+            task.setRunRecordId(runRecord.getId());
+            if (!updateOwnedRunningTask(task)) {
+                DispatchTaskEntity persistedTask = dispatchTaskMapper.selectById(task.getId());
+                if (isTerminationRequested(persistedTask)) {
+                    convergeTerminatedRunRecord(runRecord, persistedTask);
+                    activeExecution.cancel();
                     return;
                 }
-                runRecord = createRunRecord(task, startedAt);
-                preparedRunLog = runLogFileService.prepare(runRecord.getId());
-                runRecord.setLogFilePath(preparedRunLog.getRelativePath());
-                runRecord.setLogCharset(preparedRunLog.getCharset());
-                runRecord.setLogSizeBytes(0L);
-                runRecord.setLogStorageType(runLogStorageType());
-                runRecord.setLogStatus("WRITING");
-                runRecordMapper.updateById(runRecord);
-                task.setRunRecordId(runRecord.getId());
-                if (!updateOwnedRunningTask(task)) {
-                    log.warn("Dispatch task {} lost its claim before execution started", task.getId());
-                    failUnlinkedRunRecord(runRecord, "Dispatch claim was lost before the run record was linked");
-                    return;
-                }
-                runLogScope = runLogFileService.openScope(preparedRunLog);
-                if (isFileTransferTask(task)) {
-                    log.info("[FT_DISPATCH_START] 文件传输调度开始 dispatchId={} runRecordId={} "
-                                    + "runId={} taskId={} workerInstanceId={}",
-                            task.getId(), runRecord.getId(), resolveFileTransferRunId(task),
-                            task.getFileTransferTaskId(), clusterInstanceIdentity.instanceId());
-                } else {
-                    log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
-                }
-                runtimeContext.put("jobId", runRecord.getId());
-                runtimeContext.put("runRecordId", runRecord.getId());
-                runtimeContext.put("runLogId", String.valueOf(runRecord.getId()));
-                runtimeContext.put("tenantId", task.getTenantId());
-                runtimeContext.put("projectId", task.getProjectId());
-                runtimeContext.put("workerGroupCode", workerGroupCode());
-                runtimeContext.put("workerCode", workerCode());
-                runtimeContext.put("workerInstanceId", clusterInstanceIdentity.instanceId());
-                runtimeContext.put("workerBootId", clusterInstanceIdentity.bootId());
-                runtimeContext.put("runtimeClusterId", task.getTargetClusterId());
-                runtimeContext.put("runtimeClusterCode", runtimeClusterCode());
-                runtimeContext.put("resourceRevision", task.getResourceRevision());
-                runtimeContext.put("workerPodName", clusterInstanceIdentity.podName());
-                runtimeContext.put("workerNodeName", clusterInstanceIdentity.nodeName());
-                runtimeContext.put("triggeredByUserId", task.getTriggeredByUserId());
-                Map<String, Object> result = executeWithTaskContext(task, runtimeContext);
-                String resultStatus = resolveExecutionStatus(result);
-                LocalDateTime endedAt = LocalDateTime.now();
-                if (isFileTransferTask(task)) {
-                    log.info("[FT_DISPATCH_COMPLETED] 文件传输调度结束 dispatchId={} runRecordId={} "
-                                    + "runId={} status={}",
-                            task.getId(), runRecord.getId(), resolveFileTransferRunId(task), resultStatus);
-                } else if ("FAILED".equalsIgnoreCase(resultStatus)) {
-                    log.warn("Dispatch task {} completed with FAILED result as runRecord {}", task.getId(), runRecord.getId());
-                } else {
-                    log.info("Completed dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
-                }
+                log.warn("Dispatch task {} lost its claim before run record was linked", task.getId());
+                failUnlinkedRunRecord(runRecord, "Dispatch claim was lost before the run record was linked");
+                return;
+            }
+            preparedRunLog = runLogFileService.prepare(runRecord.getId());
+            runRecord.setLogFilePath(preparedRunLog.getRelativePath());
+            runRecord.setLogCharset(preparedRunLog.getCharset());
+            runRecord.setLogSizeBytes(0L);
+            runRecord.setLogStorageType(runLogStorageType());
+            runRecord.setLogStatus("WRITING");
+            updateRunLogFields(runRecord, null, true);
+            runLogScope = runLogFileService.openScope(preparedRunLog);
+            if (isFileTransferTask(task)) {
+                log.info("[FT_DISPATCH_START] 文件传输调度开始 dispatchId={} runRecordId={} "
+                                + "runId={} taskId={} workerInstanceId={}",
+                        task.getId(), runRecord.getId(), resolveFileTransferRunId(task),
+                        task.getFileTransferTaskId(), clusterInstanceIdentity.instanceId());
+            } else {
+                log.info("Starting dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
+            }
+            runtimeContext.put("jobId", runRecord.getId());
+            runtimeContext.put("runRecordId", runRecord.getId());
+            runtimeContext.put("runLogId", String.valueOf(runRecord.getId()));
+            runtimeContext.put("tenantId", task.getTenantId());
+            runtimeContext.put("projectId", task.getProjectId());
+            runtimeContext.put("workerGroupCode", workerGroupCode());
+            runtimeContext.put("workerCode", workerCode());
+            runtimeContext.put("workerInstanceId", clusterInstanceIdentity.instanceId());
+            runtimeContext.put("workerBootId", clusterInstanceIdentity.bootId());
+            runtimeContext.put("runtimeClusterId", task.getTargetClusterId());
+            runtimeContext.put("runtimeClusterCode", runtimeClusterCode());
+            runtimeContext.put("resourceRevision", task.getResourceRevision());
+            runtimeContext.put("workerPodName", clusterInstanceIdentity.podName());
+            runtimeContext.put("workerNodeName", clusterInstanceIdentity.nodeName());
+            runtimeContext.put("triggeredByUserId", task.getTriggeredByUserId());
+            runtimeContext.put("studio.registerCancellation", (Consumer<Runnable>) activeExecution::setCancelCallback);
+            Map<String, Object> result = executeWithTaskContext(task, runtimeContext);
+            String resultStatus = resolveExecutionStatus(result);
+            LocalDateTime endedAt = LocalDateTime.now();
+            DispatchTaskEntity persistedTask = dispatchTaskMapper.selectById(task.getId());
+            RunRecordEntity persistedRunRecord = runRecord.getId() == null ? null : runRecordMapper.selectById(runRecord.getId());
+            if (isTerminationRequested(persistedTask, persistedRunRecord)) {
+                log.info("Ignoring worker completion for manually terminated task {}", task.getId());
                 closeRunLogScope(runLogScope);
                 runLogScope = null;
-                if ("FAILED".equalsIgnoreCase(resultStatus)) {
-                    task.setStatus("FAILED");
-                    task.setAttempts(task.getAttempts() == null ? 1 : task.getAttempts() + 1);
-                    task.setPayloadJson(result);
-                    if (!updateOwnedRunningTask(task)) {
-                        log.warn("Dispatch task {} lost its claim before FAILED completion was committed", task.getId());
-                        return;
-                    }
-                    RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
-                    publishEvent("FAILED", task, runRecord, startedAt, endedAt,
-                            logStorageResult, result);
-                } else {
-                    task.setStatus("SUCCESS");
-                    task.setPayloadJson(result);
-                    if (!updateOwnedRunningTask(task)) {
-                        log.warn("Dispatch task {} lost its claim before SUCCESS completion was committed", task.getId());
-                        return;
-                    }
-                    RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
-                    publishEvent("SUCCESS", task, runRecord, startedAt, endedAt,
-                            logStorageResult, result);
-                }
-            } catch (Throwable e) {
-                if (isFileTransferTask(task)) {
-                    log.error("[FT_DISPATCH_FAILED] 文件传输调度失败 dispatchId={} runRecordId={} "
-                                    + "runId={} taskId={} phase={} exceptionType={} message={}",
-                            task.getId(), runRecord == null ? null : runRecord.getId(),
-                            resolveFileTransferRunId(task), task.getFileTransferTaskId(),
-                            runtimeContext.getOrDefault("fileTransferPhase", "LOAD_RUN"),
-                            e.getClass().getName(), StudioSensitiveLogSanitizer.sanitize(e.getMessage()), e);
-                } else {
-                    log.error("Dispatch task {} failed", task.getId(), e);
-                }
-                closeRunLogScope(runLogScope);
-                runLogScope = null;
+                finalizeRunLog(preparedRunLog, persistedRunRecord == null ? runRecord : persistedRunRecord);
+                return;
+            }
+            if (isFileTransferTask(task)) {
+                log.info("[FT_DISPATCH_COMPLETED] 文件传输调度结束 dispatchId={} runRecordId={} "
+                                + "runId={} status={}",
+                        task.getId(), runRecord.getId(), resolveFileTransferRunId(task), resultStatus);
+            } else if ("FAILED".equalsIgnoreCase(resultStatus)) {
+                log.warn("Dispatch task {} completed with FAILED result as runRecord {}", task.getId(), runRecord.getId());
+            } else {
+                log.info("Completed dispatch task {} as runRecord {}", task.getId(), runRecord.getId());
+            }
+            closeRunLogScope(runLogScope);
+            runLogScope = null;
+            if ("FAILED".equalsIgnoreCase(resultStatus)) {
                 task.setStatus("FAILED");
                 task.setAttempts(task.getAttempts() == null ? 1 : task.getAttempts() + 1);
-                Map<String, Object> payload = task.getPayloadJson() == null
-                        ? new LinkedHashMap<String, Object>()
-                        : task.getPayloadJson();
-                payload.put("error", e.getMessage());
-                payload.put("exceptionType", e.getClass().getName());
-                if (isFileTransferInterruption(task, e)) {
-                    payload.put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+                task.setPayloadJson(result);
+                if (!updateOwnedRunningTask(task)) {
+                    if (skipCompletionAfterConcurrentUpdate(task, runRecord, preparedRunLog)) {
+                        return;
+                    }
+                    log.warn("Dispatch task {} lost its claim before FAILED completion was committed", task.getId());
+                    return;
                 }
-                payload.put("stackTrace", stackTraceOf(e));
-                copyPluginRevisions(payload, runtimeContext);
-                task.setPayloadJson(payload);
-                boolean failureCommitted = updateOwnedRunningTask(task);
-                if (!failureCommitted) {
-                    log.warn("Dispatch task {} lost its claim; failure event is suppressed", task.getId());
-                } else {
-                    markInterruptedOrFailedFileTransferRun(task, e, LocalDateTime.now());
+                RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
+                publishEvent("FAILED", task, runRecord, startedAt, endedAt,
+                        logStorageResult, result);
+            } else {
+                task.setStatus("SUCCESS");
+                task.setPayloadJson(result);
+                if (!updateOwnedRunningTask(task)) {
+                    if (skipCompletionAfterConcurrentUpdate(task, runRecord, preparedRunLog)) {
+                        return;
+                    }
+                    log.warn("Dispatch task {} lost its claim before SUCCESS completion was committed", task.getId());
+                    return;
                 }
-                if (failureCommitted && runRecord != null) {
-                    RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
-                    publishEvent("FAILED", task, runRecord, startedAt, LocalDateTime.now(),
-                            logStorageResult, payload);
-                }
-                if (failureCommitted && isFileTransferInterruption(task, e)) {
-                    requeueInterruptedFileTransfer(task, LocalDateTime.now(),
-                            "File transfer execution was interrupted; checkpoint recovery was queued automatically");
-                }
-            } finally {
-                closeRunLogScope(runLogScope);
+                RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
+                publishEvent("SUCCESS", task, runRecord, startedAt, endedAt,
+                        logStorageResult, result);
             }
+        } catch (Throwable e) {
+            if (isFileTransferTask(task)) {
+                log.error("[FT_DISPATCH_FAILED] 文件传输调度失败 dispatchId={} runRecordId={} "
+                                + "runId={} taskId={} phase={} exceptionType={} message={}",
+                        task.getId(), runRecord == null ? null : runRecord.getId(),
+                        resolveFileTransferRunId(task), task.getFileTransferTaskId(),
+                        runtimeContext.getOrDefault("fileTransferPhase", "LOAD_RUN"),
+                        e.getClass().getName(), StudioSensitiveLogSanitizer.sanitize(e.getMessage()), e);
+            } else {
+                log.error("Dispatch task {} failed", task.getId(), e);
+            }
+            closeRunLogScope(runLogScope);
+            runLogScope = null;
+            DispatchTaskEntity persistedTask = dispatchTaskMapper.selectById(task.getId());
+            RunRecordEntity persistedRunRecord = runRecord == null || runRecord.getId() == null
+                    ? null : runRecordMapper.selectById(runRecord.getId());
+            if (isTerminationRequested(persistedTask, persistedRunRecord)) {
+                finalizeRunLog(preparedRunLog, persistedRunRecord == null ? runRecord : persistedRunRecord);
+                return;
+            }
+            task.setStatus("FAILED");
+            task.setAttempts(task.getAttempts() == null ? 1 : task.getAttempts() + 1);
+            Map<String, Object> payload = task.getPayloadJson() == null
+                    ? new LinkedHashMap<String, Object>()
+                    : task.getPayloadJson();
+            payload.put("error", e.getMessage());
+            payload.put("exceptionType", e.getClass().getName());
+            if (isFileTransferInterruption(task, e)) {
+                payload.put("fileTransferRestartRecoveryEligible", Boolean.TRUE);
+            }
+            payload.put("stackTrace", stackTraceOf(e));
+            copyPluginRevisions(payload, runtimeContext);
+            task.setPayloadJson(payload);
+            boolean failureCommitted = updateOwnedRunningTask(task);
+            if (!failureCommitted) {
+                if (skipCompletionAfterConcurrentUpdate(task, runRecord, preparedRunLog)) {
+                    finalizeRunLog(preparedRunLog, runRecord);
+                    return;
+                }
+                log.warn("Dispatch task {} lost its claim; failure event is suppressed", task.getId());
+            } else {
+                markInterruptedOrFailedFileTransferRun(task, e, LocalDateTime.now());
+            }
+            if (failureCommitted && runRecord != null) {
+                RunLogFileService.RunLogStorageResult logStorageResult = finalizeRunLog(preparedRunLog, runRecord);
+                publishEvent("FAILED", task, runRecord, startedAt, LocalDateTime.now(),
+                        logStorageResult, payload);
+            }
+            if (failureCommitted && isFileTransferInterruption(task, e)) {
+                requeueInterruptedFileTransfer(task, LocalDateTime.now(),
+                        "File transfer execution was interrupted; checkpoint recovery was queued automatically");
+            }
+        } finally {
+            closeRunLogScope(runLogScope);
+            if (task != null && task.getId() != null) {
+                activeExecutions.remove(task.getId());
+            }
+            Thread.interrupted();
+        }
+    }
+
+    @Scheduled(fixedDelay = 1000L)
+    public void pollTerminationRequests() {
+        if (activeExecutions.isEmpty()) {
+            return;
+        }
+        List<DispatchTaskEntity> requested = dispatchTaskMapper.selectList(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getTerminationRequested, 1)
+                .in(DispatchTaskEntity::getStatus, "QUEUED", "RUNNING", "FAILED")
+                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getWorkerGroupCode, workerGroupCode())
+                        .or().eq(DispatchTaskEntity::getLeaseOwner, workerGroupCode())
+                        .or().eq(DispatchTaskEntity::getLeaseOwner, workerCode())));
+        for (DispatchTaskEntity task : requested) {
+            ActiveExecution activeExecution = activeExecutions.get(task.getId());
+            if (activeExecution != null) {
+                activeExecution.cancel();
+            }
+        }
     }
 
     @Scheduled(initialDelay = 10000L, fixedDelay = 10000L)
@@ -822,13 +889,17 @@ public class WorkerLifecycleRunner {
                 continue;
             }
             applyRunLogStorageResult(runRecord, entry.getValue());
-            runRecordMapper.updateById(runRecord);
+            updateRunLogFields(runRecord, entry.getValue(), true);
         }
     }
 
     @PreDestroy
     public void shutdown() {
         acceptingTasks = false;
+        for (ActiveExecution execution : activeExecutions.values()) {
+            execution.cancel();
+        }
+        activeExecutions.clear();
         fileTransferExecutor.shutdownNow();
         WorkerLeaseEntity update = new WorkerLeaseEntity();
         update.setStatus("OFFLINE");
@@ -872,7 +943,9 @@ public class WorkerLifecycleRunner {
         int updated = dispatchTaskMapper.update(update, new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getId, task.getId())
                 .eq(DispatchTaskEntity::getStatus, "QUEUED")
-                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId()));
+                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId())
+                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getTerminationRequested, 0)
+                        .or().isNull(DispatchTaskEntity::getTerminationRequested)));
         if (updated == 1) {
             task.setStatus(update.getStatus());
             task.setClaimToken(update.getClaimToken());
@@ -911,7 +984,47 @@ public class WorkerLifecycleRunner {
             task.setProtectedPayloadCiphertext(null);
             update.set(DispatchTaskEntity::getProtectedPayloadCiphertext, null);
         }
+        update.and(wrapper -> wrapper.eq(DispatchTaskEntity::getTerminationRequested, 0)
+                .or().isNull(DispatchTaskEntity::getTerminationRequested));
         return dispatchTaskMapper.update(task, update) == 1;
+    }
+
+    private boolean skipCompletionAfterConcurrentUpdate(DispatchTaskEntity task,
+                                                        RunRecordEntity runRecord,
+                                                        RunLogFileService.PreparedRunLog preparedRunLog) {
+        DispatchTaskEntity persistedTask = task == null ? null : dispatchTaskMapper.selectById(task.getId());
+        RunRecordEntity persistedRunRecord = runRecord == null || runRecord.getId() == null
+                ? null
+                : runRecordMapper.selectById(runRecord.getId());
+        if (!isTerminationRequested(persistedTask, persistedRunRecord)) {
+            return false;
+        }
+        return true;
+    }
+
+    private void convergeTerminatedRunRecord(RunRecordEntity runRecord, DispatchTaskEntity task) {
+        if (runRecord == null || runRecord.getId() == null) {
+            return;
+        }
+        LocalDateTime endedAt = LocalDateTime.now();
+        Map<String, Object> sourcePayload = task == null || task.getPayloadJson() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(task.getPayloadJson());
+        sourcePayload.put("errorCode", "USER_TERMINATED");
+        sourcePayload.put("terminationReason", "Manually terminated by user");
+        sourcePayload.putIfAbsent("terminationRequestedAt", String.valueOf(endedAt));
+        sourcePayload.put("error", "Manually terminated by user");
+
+        RunRecordEntity update = new RunRecordEntity();
+        update.setStatus("FAILED");
+        update.setTerminationRequested(1);
+        update.setEndedAt(endedAt);
+        update.setMessage("Manually terminated by user");
+        update.setPayloadJson(sourcePayload);
+        update.setResultJson(new LinkedHashMap<String, Object>(sourcePayload));
+        runRecordMapper.update(update, new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, runRecord.getId())
+                .eq(RunRecordEntity::getStatus, "RUNNING"));
     }
 
     private Map<String, Object> normalizePayloadForPersistence(Map<String, Object> payload) {
@@ -968,7 +1081,9 @@ public class WorkerLifecycleRunner {
                 .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
                 .eq(DispatchTaskEntity::getId, task.getId())
                 .eq(DispatchTaskEntity::getStatus, "QUEUED")
-                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId()));
+                .eq(DispatchTaskEntity::getTargetClusterId, task.getTargetClusterId())
+                .and(wrapper -> wrapper.eq(DispatchTaskEntity::getTerminationRequested, 0)
+                        .or().isNull(DispatchTaskEntity::getTerminationRequested)));
         if (updated == 1) {
             task.setStatus("FAILED");
             task.setPayloadJson(payload);
@@ -1030,12 +1145,41 @@ public class WorkerLifecycleRunner {
 
     private RunLogFileService.RunLogStorageResult finalizeRunLog(RunLogFileService.PreparedRunLog preparedRunLog,
                                                                  RunRecordEntity runRecord) {
+        if (preparedRunLog == null) {
+            return RunLogFileService.RunLogStorageResult.local(0L);
+        }
         RunLogFileService.RunLogStorageResult result = runLogFileService.finalizeLog(preparedRunLog);
-        if (runRecord != null) {
+        if (runRecord != null && runRecord.getId() != null) {
             applyRunLogStorageResult(runRecord, result);
-            runRecordMapper.updateById(runRecord);
+            updateRunLogFields(runRecord, result, false);
         }
         return result;
+    }
+
+    private void updateRunLogFields(RunRecordEntity source,
+                                    RunLogFileService.RunLogStorageResult result,
+                                    boolean activeOnly) {
+        if (source == null || source.getId() == null) {
+            return;
+        }
+        RunRecordEntity update = new RunRecordEntity();
+        update.setLogFilePath(source.getLogFilePath());
+        update.setLogCharset(source.getLogCharset());
+        update.setLogSizeBytes(source.getLogSizeBytes());
+        update.setLogStorageType(source.getLogStorageType());
+        update.setLogObjectBucket(source.getLogObjectBucket());
+        update.setLogObjectKey(source.getLogObjectKey());
+        update.setLogChunkCount(source.getLogChunkCount());
+        update.setLogStatus(source.getLogStatus());
+        update.setLogErrorSummary(source.getLogErrorSummary());
+        LambdaUpdateWrapper<RunRecordEntity> wrapper = new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, source.getId());
+        if (activeOnly) {
+            wrapper.eq(RunRecordEntity::getStatus, "RUNNING")
+                    .and(nested -> nested.eq(RunRecordEntity::getTerminationRequested, 0)
+                            .or().isNull(RunRecordEntity::getTerminationRequested));
+        }
+        runRecordMapper.update(update, wrapper);
     }
 
     private void applyRunLogStorageResult(RunRecordEntity runRecord, RunLogFileService.RunLogStorageResult result) {
@@ -1643,6 +1787,7 @@ public class WorkerLifecycleRunner {
         entity.setRequestedClusterId(task.getTargetClusterId());
         entity.setActualClusterId(task.getTargetClusterId());
         entity.setActualClusterCode(runtimeClusterCode());
+        entity.setTerminationRequested(0);
         entity.setMessage("Task execution started");
         entity.setStartedAt(startedAt);
         entity.setLogCharset("UTF-8");
@@ -1802,6 +1947,78 @@ public class WorkerLifecycleRunner {
 
     private boolean hasText(String value) {
         return value != null && value.trim().length() > 0;
+    }
+
+    private ActiveExecution registerActiveExecution(DispatchTaskEntity task) {
+        ActiveExecution execution = new ActiveExecution(task == null ? null : task.getId(),
+                task == null ? null : task.getRunRecordId(), Thread.currentThread());
+        if (task != null && task.getId() != null) {
+            activeExecutions.put(task.getId(), execution);
+        }
+        return execution;
+    }
+
+    private boolean isTerminationRequested(DispatchTaskEntity task) {
+        return task != null && ((task.getTerminationRequested() != null && task.getTerminationRequested().intValue() == 1)
+                || ("FAILED".equalsIgnoreCase(task.getStatus())
+                && task.getPayloadJson() != null
+                && "USER_TERMINATED".equals(String.valueOf(task.getPayloadJson().get("errorCode")))));
+    }
+
+    private boolean isTerminationRequested(DispatchTaskEntity task, RunRecordEntity runRecord) {
+        return isTerminationRequested(task)
+                || runRecord != null && (runRecord.getTerminationRequested() != null
+                && runRecord.getTerminationRequested().intValue() == 1);
+    }
+
+    private static final class ActiveExecution {
+        private final Long dispatchTaskId;
+        private volatile Long runRecordId;
+        private final Thread executionThread;
+        private volatile Runnable cancelCallback;
+        private volatile boolean cancelled;
+
+        private ActiveExecution(Long dispatchTaskId, Long runRecordId, Thread executionThread) {
+            this.dispatchTaskId = dispatchTaskId;
+            this.runRecordId = runRecordId;
+            this.executionThread = executionThread;
+            this.cancelCallback = () -> {
+                if (executionThread != null) {
+                    executionThread.interrupt();
+                }
+            };
+        }
+
+        private synchronized void setCancelCallback(Runnable cancelCallback) {
+            if (cancelCallback != null) {
+                this.cancelCallback = cancelCallback;
+                if (cancelled) {
+                    cancelCallback.run();
+                }
+            }
+        }
+
+        private void setRunRecordId(Long runRecordId) {
+            this.runRecordId = runRecordId;
+        }
+
+        private synchronized void cancel() {
+            if (cancelled) {
+                return;
+            }
+            cancelled = true;
+            try {
+                cancelCallback.run();
+            } catch (Throwable cancellationFailure) {
+                log.debug("Cancellation callback failed for dispatch task {}", dispatchTaskId, cancellationFailure);
+                if (executionThread != null) {
+                    executionThread.interrupt();
+                }
+            }
+            if (executionThread != null) {
+                executionThread.interrupt();
+            }
+        }
     }
 }
 

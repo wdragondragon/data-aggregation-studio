@@ -178,6 +178,11 @@
                 <version>${aggregation.version}</version>
             </dependency>
             <dependency>
+                <groupId>com.jdragon.aggregation</groupId>
+                <artifactId>httpreader</artifactId>
+                <version>${aggregation.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>org.apache.flink</groupId>
                 <artifactId>flink-core</artifactId>
                 <version>${flink.version}</version>

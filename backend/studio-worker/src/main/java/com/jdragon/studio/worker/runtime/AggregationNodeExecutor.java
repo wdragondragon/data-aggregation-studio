@@ -6,6 +6,7 @@ import com.jdragon.studio.core.spi.NodeExecutor;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.core.enums.State;
 import com.jdragon.aggregation.core.job.JobContainer;
+import com.jdragon.aggregation.core.plugin.PluginType;
 import com.jdragon.aggregation.core.plugin.spi.reporter.JobPointReporter;
 import com.jdragon.aggregation.core.statistics.communication.Communication;
 import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
@@ -19,6 +20,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 @Component
 public class AggregationNodeExecutor implements NodeExecutor {
@@ -59,6 +61,7 @@ public class AggregationNodeExecutor implements NodeExecutor {
         validateDatasourceCapabilities(config);
         long startedAt = System.currentTimeMillis();
         JobContainer container = createJobContainer(config);
+        registerCancellation(runtimeContext, container);
         if (runtimeContext != null) {
             for (Map.Entry<String, Object> entry : runtimeContext.entrySet()) {
                 container.setRunContext(entry.getKey(), entry.getValue());
@@ -103,6 +106,17 @@ public class AggregationNodeExecutor implements NodeExecutor {
         }
         result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void registerCancellation(Map<String, Object> runtimeContext, JobContainer container) {
+        if (runtimeContext == null || container == null) {
+            return;
+        }
+        Object registrar = runtimeContext.get("studio.registerCancellation");
+        if (registrar instanceof Consumer) {
+            ((Consumer<Runnable>) registrar).accept(() -> JobContainerCancellation.cancel(container));
+        }
     }
 
     private Map<String, String> pluginRevisions(JobContainer container) {
@@ -374,7 +388,12 @@ public class AggregationNodeExecutor implements NodeExecutor {
     }
 
     protected JobContainer createJobContainer(Map<String, Object> config) {
-        return new JobContainer(Configuration.from(config));
+        JobContainer container = new JobContainer(Configuration.from(config));
+        String readerType = asString(valueAsMap(config.get("reader")).get("type"));
+        if ("http".equalsIgnoreCase(readerType) || "httpreader".equalsIgnoreCase(readerType)) {
+            container.addConsumerPlugin(PluginType.READER, new CancellableHttpReader());
+        }
+        return container;
     }
 
     private Communication resolveCommunication(JobContainer container) {

@@ -10,12 +10,17 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import org.apache.hc.core5.concurrent.CancellableDependency;
+import org.apache.hc.core5.http.ClassicHttpRequest;
+import org.apache.hc.client5.http.impl.classic.HttpClients;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.reflect.Array;
 import java.nio.charset.StandardCharsets;
@@ -26,6 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 @Component
 @Slf4j
@@ -37,8 +45,6 @@ public class HttpShellNodeExecutor implements NodeExecutor {
     private static final Pattern FORM_SECRET_PATTERN = Pattern.compile("(?i)((?:authorization|password|passwd|pwd|secret|token|cookie|api[-_]?key|access[-_]?key|credential|signature)=)([^&\\s]+)");
     private static final String MASKED_VALUE = "******";
     private static final int MAX_LOG_PREVIEW_CHARS = 2000;
-
-    private final RestTemplate restTemplate = new RestTemplate();
 
     @Override
     public boolean supports(WorkflowNodeDefinition definition) {
@@ -87,6 +93,22 @@ public class HttpShellNodeExecutor implements NodeExecutor {
         long startedAt = System.currentTimeMillis();
         String safeRequestUrl = sanitizeUrl(requestUrl);
         int requestBodyBytes = valueBytes(body);
+        AtomicBoolean cancelled = new AtomicBoolean(false);
+        AtomicReference<ClassicHttpRequest> activeRequest = new AtomicReference<ClassicHttpRequest>();
+        Runnable cancelRequest = () -> {
+            cancelled.set(true);
+            ClassicHttpRequest request = activeRequest.getAndSet(null);
+            if (request instanceof CancellableDependency) {
+                try {
+                    ((CancellableDependency) request).cancel();
+                } catch (Throwable cancellationFailure) {
+                    log.debug("[HTTP:{}] Failed to cancel HTTP request", nodeCode, cancellationFailure);
+                }
+            }
+        };
+        registerCancellation(runtimeContext, cancelRequest);
+        CancellationAwareRequestFactory requestFactory = new CancellationAwareRequestFactory(activeRequest, cancelled);
+        RestTemplate restTemplate = new RestTemplate(requestFactory);
         log.info("[HTTP:{}] Start request method={}, url={}, queryParamCount={}, headerCount={}, hasBody={}",
                 nodeCode, httpMethod.name(), safeRequestUrl, queryParams.size(), headers.size(), body != null);
         if (!queryParams.isEmpty()) {
@@ -102,6 +124,9 @@ public class HttpShellNodeExecutor implements NodeExecutor {
         }
         try {
             ResponseEntity<String> responseEntity = restTemplate.exchange(requestUrl, httpMethod, new HttpEntity<Object>(body, headers), String.class);
+            if (cancelled.get() || Thread.currentThread().isInterrupted()) {
+                throw new IllegalStateException("HTTP request cancelled");
+            }
             long durationMs = System.currentTimeMillis() - startedAt;
             String responseBody = responseEntity.getBody();
             int httpStatus = responseEntity.getStatusCode().value();
@@ -181,6 +206,66 @@ public class HttpShellNodeExecutor implements NodeExecutor {
             result.put("message", String.format("HTTP %s %s failed in %d ms: %s",
                     httpMethod.name(), safeRequestUrl, durationMs, e.getMessage()));
             return result;
+        } finally {
+            activeRequest.set(null);
+            try {
+                requestFactory.destroy();
+            } catch (Exception closeFailure) {
+                log.debug("[HTTP:{}] Failed to close HTTP client", nodeCode, closeFailure);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private void registerCancellation(Map<String, Object> runtimeContext, Runnable cancelRequest) {
+        if (runtimeContext == null || cancelRequest == null) {
+            return;
+        }
+        Object registrar = runtimeContext.get("studio.registerCancellation");
+        if (registrar instanceof Consumer) {
+            ((Consumer<Runnable>) registrar).accept(cancelRequest);
+        }
+    }
+
+    /**
+     * Keep the Apache request visible to the worker cancellation callback.
+     * Cancelling the request also closes the underlying response stream, so a
+     * long response cannot hold the worker execution thread until read timeout.
+     */
+    private static final class CancellationAwareRequestFactory extends HttpComponentsClientHttpRequestFactory {
+        private final AtomicReference<ClassicHttpRequest> activeRequest;
+        private final AtomicBoolean cancelled;
+
+        private CancellationAwareRequestFactory(AtomicReference<ClassicHttpRequest> activeRequest,
+                                                AtomicBoolean cancelled) {
+            super(HttpClients.createSystem());
+            this.activeRequest = activeRequest;
+            this.cancelled = cancelled;
+        }
+
+        @Override
+        protected ClassicHttpRequest createHttpUriRequest(HttpMethod method, java.net.URI uri) {
+            if (cancelled.get()) {
+                throw new IllegalStateException("HTTP request cancelled");
+            }
+            ClassicHttpRequest request = super.createHttpUriRequest(method, uri);
+            activeRequest.set(request);
+            if (cancelled.get()) {
+                activeRequest.compareAndSet(request, null);
+                cancel(request);
+                throw new IllegalStateException("HTTP request cancelled");
+            }
+            return request;
+        }
+
+        private void cancel(ClassicHttpRequest request) {
+            if (request instanceof CancellableDependency) {
+                try {
+                    ((CancellableDependency) request).cancel();
+                } catch (Throwable cancellationFailure) {
+                    // The request may already have completed; cancellation is idempotent.
+                }
+            }
         }
     }
 
