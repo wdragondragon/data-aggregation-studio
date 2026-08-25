@@ -185,3 +185,5 @@
 - Batch 45：工作流编辑页已降到 1000 行以下；后续优先处理采集任务编辑页。
 - Batch 46/最终收口：采集任务编辑页已降到 1000 行以下，前端 `views` 大页面行数治理已完成当前阈值目标；后端仅保留已审查的 `StudioSchemaUpgradeService` 超过 800 行。后续应围绕具体职责、测试保护和真实变更需求继续降债，不建议单纯按行数硬拆。
 - Batch 6：将 HTTP 动态函数弹窗独立成可复用 dialog，配合可视化键值表组件形成统一请求参数编辑组件族。
+
+- Batch 47：完成 Studio 采集实例手动终止。新增 `/api/v1/collection-tasks/{taskId}/terminate` 和 `/api/v1/runs/{runRecordId}/terminate`，数据库保留 `FAILED` 终态并增加 `termination_requested` 防止 Worker 迟到结果覆盖；Worker 取消轮询可中断在线 `JobContainer` 和 HTTP 请求，离线 Worker 由服务端立即收敛数据库；前端任务列表与运行记录提供终止按钮、确认、loading、刷新和中英文错误提示。

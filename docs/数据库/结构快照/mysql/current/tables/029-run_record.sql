@@ -8,6 +8,8 @@ CREATE TABLE `run_record` (
   `workflow_version_id` bigint DEFAULT NULL,
   `node_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `status` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `termination_requested` int DEFAULT '0',
+  `worker_instance_id` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `worker_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `message` varchar(2000) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `started_at` datetime DEFAULT NULL,
@@ -23,5 +25,6 @@ CREATE TABLE `run_record` (
   `project_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_run_record_project_created` (`project_id`,`created_at`),
-  KEY `idx_run_record_project_workflow_run` (`project_id`,`workflow_run_id`)
+  KEY `idx_run_record_project_workflow_run` (`project_id`,`workflow_run_id`),
+  KEY `idx_run_record_termination_status` (`termination_requested`,`status`,`worker_instance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci

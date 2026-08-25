@@ -1341,3 +1341,18 @@
   - `-DforkCount=0` 不适合执行包含 Python 假解释器子进程的全量回归；后续全量回归应使用默认 fork 策略，设计债务等纯静态门禁仍可使用 `-DforkCount=0`。
   - `StudioSchemaUpgradeService` 仍超过 800 行，按用户确认和本轮判断不做硬拆；后续只建议在 schema drift/init 回归保护下按具体升级步骤拆分。
 - 下一步：提交最终文档记录；本轮设计/代码风格整改收口。
+
+## Step 065 - Studio 采集实例手动终止
+
+- 执行时间：2026-08-24
+- 目标问题：Studio 采集任务在 Worker 重启、Pod 实例 ID 变化或 HTTP 长时间读取时可能长期保持 `RUNNING`，无法从界面释放后续实例。
+- 修改范围：新增任务级和运行记录级终止 API；`dispatch_task`、`run_record` 增加 `termination_requested` 标记及索引；统一终止服务将活动实例收敛为 `FAILED` 并记录 `USER_TERMINATED` / `Manually terminated by user`；Worker 增加取消轮询、活动执行注册和迟到结果保护；`JobContainer`、MemoryChannel、HTTP Reader 支持实际取消和 HTTP request abort；任务列表与运行记录页面增加终止入口、确认、独立 loading 和中英文提示。
+- 数据库交付：更新 MySQL/SQLite 初始 schema、`StudioSchemaUpgradeService`、MySQL 增量 SQL 和结构快照。上线前先执行结构升级，再排空旧 Worker，发布新 Worker、Server，最后发布前端。
+- 行为约束：只处理当前租户/项目的单个 `QUEUED` 或 `RUNNING` 实例；多个活动实例时要求从运行记录逐条终止；人工终止不新增 `TERMINATED` 状态，不派发工作流下游继续事件；Worker 离线时至少保证数据库收敛，无法远程杀掉失联 Pod。
+- 验证命令与结果：
+  - `npm run build:web`（`frontend` 目录）：通过。
+  - `mvn -pl studio-test -am -Dtest=ExecutionEventServiceRegressionTest,RunTerminationServiceRegressionTest,WorkerLifecycleRunnerRegressionTest -Dsurefire.failIfNoSpecifiedTests=false test`：15 tests，0 failures。
+  - `mvn -pl studio-test -am -Dtest=StudioSchemaDriftRegressionTest -Dsurefire.failIfNoSpecifiedTests=false test`：8 tests，0 failures。
+  - `mvn -pl core -Dtest=JobContainerCancellationTest,MemoryChannelCancellationTest -Dsurefire.failIfNoSpecifiedTests=false test`：2 tests，0 failures。
+  - `mvn -pl job-plugins/reader/httpreader -am -Dtest=HttpReaderRequestBodyDynamicTest -Dsurefire.failIfNoSpecifiedTests=false test`：6 tests，0 failures。
+- 已知残余风险：设计债务门禁的历史阈值与当前分支已有大文件/`return null` 基线不一致；本次新增代码已移除新增的 `catch (... ignored)` 和 `return null`，未修改阈值。完整 Studio 回归可能受既有 SQLite 锁竞争影响，需在生产类数据库环境继续做集成验证。

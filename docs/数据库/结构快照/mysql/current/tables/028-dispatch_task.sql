@@ -8,6 +8,8 @@ CREATE TABLE `dispatch_task` (
   `workflow_version_id` bigint DEFAULT NULL,
   `node_code` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `status` varchar(64) COLLATE utf8mb4_general_ci DEFAULT NULL,
+  `termination_requested` int DEFAULT '0',
+  `worker_instance_id` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `lease_owner` varchar(255) COLLATE utf8mb4_general_ci DEFAULT NULL,
   `lease_expires_at` datetime DEFAULT NULL,
   `attempts` int DEFAULT '0',
@@ -20,5 +22,6 @@ CREATE TABLE `dispatch_task` (
   `project_id` bigint DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `idx_dispatch_task_project_status` (`project_id`,`status`),
-  KEY `idx_dispatch_task_project_workflow_run` (`project_id`,`workflow_run_id`)
+  KEY `idx_dispatch_task_project_workflow_run` (`project_id`,`workflow_run_id`),
+  KEY `idx_dispatch_task_termination_status` (`termination_requested`,`status`,`worker_instance_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
