@@ -292,6 +292,13 @@ function buildDynamicFunctionExpression() {
     return `${tokenConfig.prefix}${expression}`;
   }
   const args = currentFunction.params.map((param) => String(dynamicFunctionArgs[param.key] ?? "").trim());
+  while (args.length > 0) {
+    const lastParam = currentFunction.params[args.length - 1];
+    if (!lastParam || lastParam.required !== false || args[args.length - 1]) {
+      break;
+    }
+    args.pop();
+  }
   return `{${currentFunction.name}(${args.join(",")})}`;
 }
 

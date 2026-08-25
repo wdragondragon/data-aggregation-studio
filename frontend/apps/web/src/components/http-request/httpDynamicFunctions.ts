@@ -1,4 +1,4 @@
-export type HttpDynamicFunctionKind = "literal" | "digest" | "token";
+export type HttpDynamicFunctionKind = "literal" | "digest" | "token" | "datetime";
 
 export interface HttpDynamicFunctionParamSchema {
   key: string;
@@ -78,6 +78,32 @@ export function buildHttpDynamicFunctionCatalog(t: Translate): HttpDynamicFuncti
       t("web.collectionTasks.httpDynTenTimestampDescription"),
       t("web.collectionTasks.httpDynTenTimestampReturn"),
     ),
+    {
+      name: "dyn_getCurrentTime",
+      label: "dyn_getCurrentTime",
+      summary: t("web.collectionTasks.httpDynCurrentTimeSummary"),
+      description: t("web.collectionTasks.httpDynCurrentTimeDescription"),
+      signature: "{dyn_getCurrentTime(pattern, offset)}",
+      returnDescription: t("web.collectionTasks.httpDynCurrentTimeReturn"),
+      example: "{dyn_getCurrentTime(yyyyMMdd,-1d)}",
+      kind: "datetime",
+      params: [
+        {
+          key: "pattern",
+          label: t("web.collectionTasks.httpDynCurrentTimePattern"),
+          placeholder: "yyyy-MM-dd HH:mm:ss",
+          description: t("web.collectionTasks.httpDynCurrentTimePatternDescription"),
+          required: true,
+        },
+        {
+          key: "offset",
+          label: t("web.collectionTasks.httpDynCurrentTimeOffset"),
+          placeholder: "-1d+1h",
+          description: t("web.collectionTasks.httpDynCurrentTimeOffsetDescription"),
+          required: false,
+        },
+      ],
+    },
     digestFunction(t, "dyn_MD5", "MD5"),
     digestFunction(t, "dyn_Sha1", "SHA1"),
     digestFunction(t, "dyn_Sha256", "SHA256"),
