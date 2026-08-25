@@ -86,6 +86,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id bigint");
         ensureColumn("dispatch_task", "quality_task_id", "alter table dispatch_task add column quality_task_id bigint");
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id bigint");
+        ensureColumn("dispatch_task", "termination_requested", "alter table dispatch_task add column termination_requested int default 0");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id bigint");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id bigint");
         ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code varchar(255)");
@@ -104,6 +105,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "worker_instance_id", "alter table run_record add column worker_instance_id varchar(255)");
         ensureColumn("run_record", "worker_pod_name", "alter table run_record add column worker_pod_name varchar(255)");
         ensureColumn("run_record", "worker_node_name", "alter table run_record add column worker_node_name varchar(255)");
+        ensureColumn("run_record", "termination_requested", "alter table run_record add column termination_requested int default 0");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path varchar(1000)");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes bigint");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset varchar(64)");
@@ -688,6 +690,10 @@ public class StudioSchemaUpgradeService {
                 "alter table worker_lease add key idx_worker_lease_group_instance (worker_group_code, instance_id)");
         ensureIndex("worker_lease", "idx_worker_lease_status_heartbeat",
                 "alter table worker_lease add key idx_worker_lease_status_heartbeat (status, last_heartbeat_at)");
+        ensureIndex("dispatch_task", "idx_dispatch_task_termination_status",
+                "alter table dispatch_task add key idx_dispatch_task_termination_status (termination_requested, status, worker_instance_id)");
+        ensureIndex("run_record", "idx_run_record_termination_status",
+                "alter table run_record add key idx_run_record_termination_status (termination_requested, status, worker_instance_id)");
         ensureIndex("studio_resource_share", "uk_studio_resource_share_target",
                 "alter table studio_resource_share add unique key uk_studio_resource_share_target (resource_type, resource_id, target_project_id)");
         ensureIndex("studio_resource_share", "idx_studio_resource_share_project",
@@ -750,6 +756,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("dispatch_task", "collection_task_id", "alter table dispatch_task add column collection_task_id integer");
         ensureColumn("dispatch_task", "quality_task_id", "alter table dispatch_task add column quality_task_id integer");
         ensureColumn("dispatch_task", "triggered_by_user_id", "alter table dispatch_task add column triggered_by_user_id integer");
+        ensureColumn("dispatch_task", "termination_requested", "alter table dispatch_task add column termination_requested integer default 0");
         ensureColumn("dispatch_task", "run_record_id", "alter table dispatch_task add column run_record_id integer");
         ensureColumn("dispatch_task", "project_id", "alter table dispatch_task add column project_id integer");
         ensureColumn("dispatch_task", "worker_group_code", "alter table dispatch_task add column worker_group_code text");
@@ -768,6 +775,7 @@ public class StudioSchemaUpgradeService {
         ensureColumn("run_record", "worker_instance_id", "alter table run_record add column worker_instance_id text");
         ensureColumn("run_record", "worker_pod_name", "alter table run_record add column worker_pod_name text");
         ensureColumn("run_record", "worker_node_name", "alter table run_record add column worker_node_name text");
+        ensureColumn("run_record", "termination_requested", "alter table run_record add column termination_requested integer default 0");
         ensureColumn("run_record", "log_file_path", "alter table run_record add column log_file_path text");
         ensureColumn("run_record", "log_size_bytes", "alter table run_record add column log_size_bytes integer");
         ensureColumn("run_record", "log_charset", "alter table run_record add column log_charset text");
@@ -1203,6 +1211,8 @@ public class StudioSchemaUpgradeService {
         jdbcTemplate.execute("create index if not exists idx_worker_lease_code_instance on worker_lease(worker_code, instance_id)");
         jdbcTemplate.execute("create index if not exists idx_worker_lease_group_instance on worker_lease(worker_group_code, instance_id)");
         jdbcTemplate.execute("create index if not exists idx_worker_lease_status_heartbeat on worker_lease(status, last_heartbeat_at)");
+        jdbcTemplate.execute("create index if not exists idx_dispatch_task_termination_status on dispatch_task(termination_requested, status, worker_instance_id)");
+        jdbcTemplate.execute("create index if not exists idx_run_record_termination_status on run_record(termination_requested, status, worker_instance_id)");
 
         jdbcTemplate.execute("create table if not exists studio_resource_share (" +
                 "id integer primary key," +

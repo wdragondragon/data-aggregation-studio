@@ -1674,6 +1674,7 @@ create table if not exists dispatch_task (
     run_record_id integer,
     node_code text,
     status text,
+    termination_requested integer default 0,
     target_cluster_id integer,
     resource_revision text,
     claim_token text,
@@ -1695,6 +1696,7 @@ create index if not exists idx_dispatch_task_file_transfer_run on dispatch_task(
 create index if not exists idx_dispatch_task_project_status_created on dispatch_task(project_id, status, created_at);
 create index if not exists idx_dispatch_task_group_status_created on dispatch_task(worker_group_code, status, created_at);
 create index if not exists idx_dispatch_task_cluster_status_created on dispatch_task(target_cluster_id, status, created_at);
+create index if not exists idx_dispatch_task_termination_status on dispatch_task(termination_requested, status, worker_instance_id);
 
 create table if not exists run_record (
     id integer primary key,
@@ -1714,6 +1716,7 @@ create table if not exists run_record (
     triggered_by_user_id integer,
     node_code text,
     status text,
+    termination_requested integer default 0,
     requested_cluster_id integer,
     actual_cluster_id integer,
     actual_cluster_code text,
@@ -1755,6 +1758,7 @@ create index if not exists idx_run_record_project_collection_task_ended on run_r
 create index if not exists idx_run_record_project_quality_task_ended on run_record(project_id, quality_task_id, ended_at);
 create index if not exists idx_run_record_file_transfer_run on run_record(file_transfer_run_id);
 create index if not exists idx_run_record_project_cluster_created on run_record(project_id, requested_cluster_id, created_at);
+create index if not exists idx_run_record_termination_status on run_record(termination_requested, status, worker_instance_id);
 
 create table if not exists file_transfer_task_definition (
     id integer primary key,

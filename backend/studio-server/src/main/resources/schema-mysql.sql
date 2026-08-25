@@ -1638,6 +1638,7 @@ create table if not exists dispatch_task (
     run_record_id bigint,
     node_code varchar(255),
     status varchar(64),
+    termination_requested int default 0,
     target_cluster_id bigint,
     resource_revision varchar(128),
     claim_token varchar(64),
@@ -1657,7 +1658,8 @@ create table if not exists dispatch_task (
     key idx_dispatch_task_file_transfer_run (file_transfer_run_id, status),
     key idx_dispatch_task_project_status_created (project_id, status, created_at),
     key idx_dispatch_task_group_status_created (worker_group_code, status, created_at),
-    key idx_dispatch_task_cluster_status_created (target_cluster_id, status, created_at)
+    key idx_dispatch_task_cluster_status_created (target_cluster_id, status, created_at),
+    key idx_dispatch_task_termination_status (termination_requested, status, worker_instance_id)
 );
 
 create table if not exists run_record (
@@ -1678,6 +1680,7 @@ create table if not exists run_record (
     triggered_by_user_id bigint,
     node_code varchar(255),
     status varchar(64),
+    termination_requested int default 0,
     requested_cluster_id bigint,
     actual_cluster_id bigint,
     actual_cluster_code varchar(64),
@@ -1717,7 +1720,8 @@ create table if not exists run_record (
     key idx_run_record_project_collection_task_ended (project_id, collection_task_id, ended_at),
     key idx_run_record_project_quality_task_ended (project_id, quality_task_id, ended_at),
     key idx_run_record_file_transfer_run (file_transfer_run_id),
-    key idx_run_record_project_cluster_created (project_id, requested_cluster_id, created_at)
+    key idx_run_record_project_cluster_created (project_id, requested_cluster_id, created_at),
+    key idx_run_record_termination_status (termination_requested, status, worker_instance_id)
 );
 
 create table if not exists file_transfer_task_definition (
