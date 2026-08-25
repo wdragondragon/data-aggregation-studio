@@ -168,13 +168,23 @@
             </el-table-column>
             <el-table-column :label="t('web.runs.message')" min-width="300">
               <template #default="{ row }">
-                <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
+                <MessagePreviewText :text="displayRunMessage(row)" :empty-text="t('common.none')" />
               </template>
             </el-table-column>
-            <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+            <el-table-column :label="t('web.runs.actions')" width="220" align="center" header-align="center" fixed="right">
               <template #default="{ row }">
                 <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                   {{ t("web.runs.viewLog") }}
+                </el-button>
+                <el-button
+                  v-if="String(row.status || '').toUpperCase() === 'RUNNING'"
+                  link
+                  type="danger"
+                  :loading="isRunTerminating(row.id)"
+                  :disabled="!row.id"
+                  @click="terminateRunRecord(row)"
+                >
+                  {{ t("web.collectionTasks.terminateRun") }}
                 </el-button>
               </template>
             </el-table-column>
@@ -245,6 +255,7 @@ const logDrawerVisible = ref(false);
 const manualRunTask = ref<CollectionTaskListView | null>(null);
 const manualRunDialogVisible = ref(false);
 const manualRunSubmitting = ref(false);
+const terminatingRunIds = ref<Set<string>>(new Set());
 const filters = ref<CollectionTaskListQuery>({
   name: "",
   targetDatasource: "",
@@ -323,7 +334,7 @@ function buildTaskActions(task: CollectionTaskListView) {
     { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
     { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => viewTaskRuns(task) },
     { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE" || task.runtimeValid === false, onClick: () => publishTask(task) },
-    { key: "trigger", label: t("common.trigger"), type: "warning", disabled: isRuntimeManualTriggerDisabled(shared, task.runtimeValid === false), onClick: () => triggerTask(task) },
+    { key: "terminate", label: t("web.collectionTasks.terminateCurrentInstance"), type: "danger", onClick: () => terminateTask(task) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteTask(task) },
   ];
 }
@@ -410,6 +421,81 @@ async function confirmManualRun(runtimeClusterId?: EntityId) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.triggerFailed"));
   } finally {
     manualRunSubmitting.value = false;
+  }
+}
+
+async function terminateTask(task: CollectionTaskListView) {
+  if (!task.id) {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      t("web.collectionTasks.terminateConfirmMessage", { name: task.name }),
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    await studioApi.collectionTasks.terminate(task.id);
+    ElMessage.success(t("web.collectionTasks.terminateSuccess"));
+    await loadTasks();
+    if (activeTask.value?.id === task.id && logsVisible.value) {
+      await openLogs(task);
+    }
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(terminationErrorMessage(error, "web.collectionTasks.terminateFailed"));
+    }
+  }
+}
+
+function isRunTerminating(id?: string | number) {
+  return id != null && terminatingRunIds.value.has(String(id));
+}
+
+function displayRunMessage(row: RunRecordListView) {
+  return row.message === "Manually terminated by user"
+    ? t("web.collectionTasks.manualTerminationReason")
+    : row.message;
+}
+
+function terminationErrorMessage(error: unknown, fallbackKey: string) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("No queued or running instance exists")) {
+    return t("web.collectionTasks.noActiveInstance");
+  }
+  if (message.includes("Multiple active instances exist")) {
+    return t("web.collectionTasks.multipleActiveInstances");
+  }
+  return message || t(fallbackKey);
+}
+
+async function terminateRunRecord(row: RunRecordListView) {
+  if (!row.id || String(row.status || "").toUpperCase() !== "RUNNING") {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      t("web.collectionTasks.terminateRunConfirm"),
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    const key = String(row.id);
+    terminatingRunIds.value = new Set([...terminatingRunIds.value, key]);
+    await studioApi.runs.terminate(row.id);
+    ElMessage.success(t("web.collectionTasks.terminateRunSuccess"));
+    if (activeTask.value) {
+      await openLogs(activeTask.value);
+    }
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(terminationErrorMessage(error, "web.collectionTasks.terminateRunFailed"));
+    }
+  } finally {
+    const key = row.id == null ? null : String(row.id);
+    if (key != null) {
+      const next = new Set(terminatingRunIds.value);
+      next.delete(key);
+      terminatingRunIds.value = next;
+    }
   }
 }
 

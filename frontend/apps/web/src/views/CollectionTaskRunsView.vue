@@ -209,13 +209,23 @@
           </el-table-column>
           <el-table-column :label="t('web.runs.message')" min-width="300">
             <template #default="{ row }">
-              <MessagePreviewText :text="row.message" :empty-text="t('common.none')" />
+              <MessagePreviewText :text="displayRunMessage(row)" :empty-text="t('common.none')" />
             </template>
           </el-table-column>
-          <el-table-column :label="t('web.runs.actions')" width="120" align="center" header-align="center" fixed="right">
+          <el-table-column :label="t('web.runs.actions')" width="220" align="center" header-align="center" fixed="right">
             <template #default="{ row }">
               <el-button link type="primary" :disabled="!row.id" @click="activeRunRecordId = row.id">
                 {{ t("web.runs.viewLog") }}
+              </el-button>
+              <el-button
+                v-if="String(row.status || '').toUpperCase() === 'RUNNING'"
+                link
+                type="danger"
+                :loading="isRunTerminating(row.id)"
+                :disabled="!row.id"
+                @click="terminateRunRecord(row)"
+              >
+                {{ t("web.collectionTaskRuns.terminateRun") }}
               </el-button>
             </template>
           </el-table-column>
@@ -242,7 +252,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import { useI18n } from "vue-i18n";
 import type { CollectionTaskOptionView, EntityId, QueuedTaskListView, RunRecordListView, RuntimeClusterView } from "@studio/api-sdk";
 import { SectionCard, StatusPill, StudioTableShell } from "@studio/ui";
@@ -273,6 +283,7 @@ const successCount = ref(0);
 const activeRunRecordId = ref<string | number | undefined>(undefined);
 const logDrawerVisible = ref(false);
 const runtimeClusters = ref<RuntimeClusterView[]>([]);
+const terminatingRunIds = ref<Set<string>>(new Set());
 
 const filters = ref<{
   collectionTaskId: string;
@@ -362,6 +373,59 @@ async function loadTaskRuns() {
     }
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.runs.loadFailed"));
+  }
+}
+
+function isRunTerminating(id?: string | number) {
+  return id != null && terminatingRunIds.value.has(String(id));
+}
+
+function displayRunMessage(row: RunRecordListView) {
+  return row.message === "Manually terminated by user"
+    ? t("web.collectionTasks.manualTerminationReason")
+    : row.message;
+}
+
+function terminationErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  if (message.includes("No queued or running instance exists")) {
+    return t("web.collectionTasks.noActiveInstance");
+  }
+  if (message.includes("Multiple active instances exist")) {
+    return t("web.collectionTasks.multipleActiveInstances");
+  }
+  return message || t("web.collectionTaskRuns.terminateRunFailed");
+}
+
+async function terminateRunRecord(row: RunRecordListView) {
+  if (!row.id || String(row.status || "").toUpperCase() !== "RUNNING") {
+    return;
+  }
+  try {
+    await ElMessageBox.confirm(
+      t("web.collectionTaskRuns.terminateRunConfirm"),
+      t("common.confirm"),
+      { type: "warning" },
+    );
+    const key = String(row.id);
+    terminatingRunIds.value = new Set([...terminatingRunIds.value, key]);
+    const result = await studioApi.runs.terminate(row.id);
+    pagedRunRecords.value = pagedRunRecords.value.map((item) => String(item.id) === key
+      ? { ...item, status: result.status || "FAILED", message: result.message || item.message }
+      : item);
+    ElMessage.success(t("web.collectionTaskRuns.terminateRunSuccess"));
+    await loadTaskRuns();
+  } catch (error) {
+    if (error !== "cancel") {
+      ElMessage.error(terminationErrorMessage(error));
+    }
+  } finally {
+    const key = row.id == null ? null : String(row.id);
+    if (key != null) {
+      const next = new Set(terminatingRunIds.value);
+      next.delete(key);
+      terminatingRunIds.value = next;
+    }
   }
 }
 

@@ -223,6 +223,7 @@ import type {
   RunLogView,
   RunRecord,
   RunRecordListView,
+  RunTerminationView,
   SavedDataScriptExecutionRequest,
   ScriptType,
   ScriptEnvironment,
@@ -1532,6 +1533,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
           data: runtimeClusterId == null ? undefined : { runtimeClusterId },
         });
       },
+      terminate(id: EntityId) {
+        return request<RunTerminationView>({ url: `/collection-tasks/${id}/terminate`, method: "POST" });
+      },
       delete(id: EntityId) {
         return request<void>({ url: `/collection-tasks/${id}`, method: "DELETE" });
       },
@@ -2093,6 +2097,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       downloadLog(id: EntityId) {
         return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });
+      },
+      terminate(id: EntityId) {
+        return request<RunTerminationView>({ url: `/runs/${id}/terminate`, method: "POST" });
       },
     },
     invocationLogs: {

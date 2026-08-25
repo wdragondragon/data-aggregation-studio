@@ -3431,6 +3431,16 @@ export interface RunRecordListView extends BaseRecord {
   metricSummary?: RunMetricSummary;
 }
 
+export interface RunTerminationView {
+  dispatchTaskId?: EntityId;
+  runRecordId?: EntityId;
+  collectionTaskId?: EntityId;
+  status?: string;
+  changed?: boolean;
+  terminationRequested?: boolean;
+  message?: string;
+}
+
 export interface RunMetricSummary {
   collectedRecords?: number | string | null;
   successRecords?: number | string | null;
