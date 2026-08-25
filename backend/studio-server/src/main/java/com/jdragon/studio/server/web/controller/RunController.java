@@ -6,13 +6,16 @@ import com.jdragon.studio.dto.model.RunListView;
 import com.jdragon.studio.dto.model.RunRecordListView;
 import com.jdragon.studio.dto.model.RunRecordPageView;
 import com.jdragon.studio.dto.model.RunRecordView;
+import com.jdragon.studio.dto.model.RunTerminationView;
 import com.jdragon.studio.infra.service.RunService;
+import com.jdragon.studio.infra.service.RunTerminationService;
 import com.jdragon.studio.server.web.service.RunLogProxyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -26,10 +29,14 @@ public class RunController {
 
     private final RunService runService;
     private final RunLogProxyService runLogProxyService;
+    private final RunTerminationService runTerminationService;
 
-    public RunController(RunService runService, RunLogProxyService runLogProxyService) {
+    public RunController(RunService runService,
+                         RunLogProxyService runLogProxyService,
+                         RunTerminationService runTerminationService) {
         this.runService = runService;
         this.runLogProxyService = runLogProxyService;
+        this.runTerminationService = runTerminationService;
     }
 
     @Operation(summary = "List queued tasks and run records")
@@ -93,5 +100,11 @@ public class RunController {
     @GetMapping("/{id}/log/download")
     public Result<RunLogView> download(@PathVariable("id") Long id) {
         return Result.success(runLogProxyService.downloadLog(id));
+    }
+
+    @Operation(summary = "Terminate a queued or running run record")
+    @PostMapping("/{id}/terminate")
+    public Result<RunTerminationView> terminate(@PathVariable("id") Long id) {
+        return Result.success(runTerminationService.terminateRunRecord(id));
     }
 }

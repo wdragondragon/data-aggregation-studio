@@ -27,6 +27,7 @@ public class DispatchTaskEntity extends BaseProjectTenantEntity {
     private Long runRecordId;
     private String nodeCode;
     private String status;
+    private Integer terminationRequested;
     private Long targetClusterId;
     private String resourceRevision;
     private String claimToken;

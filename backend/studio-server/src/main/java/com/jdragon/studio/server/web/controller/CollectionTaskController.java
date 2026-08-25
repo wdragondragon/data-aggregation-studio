@@ -7,10 +7,12 @@ import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunTerminationView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.dto.model.request.RuntimeClusterTriggerRequest;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
+import com.jdragon.studio.infra.service.RunTerminationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -33,11 +35,14 @@ public class CollectionTaskController {
 
     private final CollectionTaskService collectionTaskService;
     private final DispatchService dispatchService;
+    private final RunTerminationService runTerminationService;
 
     public CollectionTaskController(CollectionTaskService collectionTaskService,
-                                    DispatchService dispatchService) {
+                                    DispatchService dispatchService,
+                                    RunTerminationService runTerminationService) {
         this.collectionTaskService = collectionTaskService;
         this.dispatchService = dispatchService;
+        this.runTerminationService = runTerminationService;
     }
 
     @Operation(summary = "List collection tasks")
@@ -125,6 +130,12 @@ public class CollectionTaskController {
                                 @RequestBody(required = false) RuntimeClusterTriggerRequest request) {
         dispatchService.triggerCollectionTask(id, request == null ? null : request.getRuntimeClusterId());
         return Result.success(null);
+    }
+
+    @Operation(summary = "Terminate current collection task instance")
+    @PostMapping("/{id}/terminate")
+    public Result<RunTerminationView> terminate(@PathVariable("id") Long id) {
+        return Result.success(runTerminationService.terminateCollectionTask(id));
     }
 
     @Operation(summary = "Delete collection task")

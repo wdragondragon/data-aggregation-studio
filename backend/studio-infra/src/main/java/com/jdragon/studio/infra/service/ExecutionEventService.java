@@ -85,6 +85,20 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         RunRecordEntity entity = event.getRunRecordId() == null
                 ? null
                 : runRecordMapper.selectById(event.getRunRecordId());
+        DispatchTaskEntity dispatchTask = event.getRunRecordId() == null
+                ? null
+                : dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
+                .eq(DispatchTaskEntity::getRunRecordId, event.getRunRecordId())
+                .last("limit 1"));
+        boolean existingRecord = entity != null;
+        // A worker event can arrive after the user has already converged the
+        // record to FAILED. Never let that late event overwrite the manual
+        // termination marker or dispatch downstream workflow nodes.
+        if ((entity != null && isManualTermination(entity)
+                || isManualTermination(dispatchTask))
+                && isTerminalStatus(event.getEventType())) {
+            return;
+        }
         if (entity == null) {
             entity = new RunRecordEntity();
             entity.setId(event.getRunRecordId());
@@ -128,8 +142,17 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         entity.setLogErrorSummary(event.getLogErrorSummary());
         entity.setMessage(RunRecordMessageSanitizer.sanitizeAndTruncateMessage(resolveMessage(event)));
         runMetricSummaryMapper.applyToEntity(entity, event.getPayload());
-        if (entity.getId() == null) {
+        if (!existingRecord) {
             runRecordMapper.insert(entity);
+        } else if (isTerminalStatus(event.getEventType())) {
+            int updated = runRecordMapper.update(entity, new LambdaUpdateWrapper<RunRecordEntity>()
+                    .eq(RunRecordEntity::getId, entity.getId())
+                    .eq(RunRecordEntity::getStatus, "RUNNING")
+                    .and(wrapper -> wrapper.eq(RunRecordEntity::getTerminationRequested, 0)
+                            .or().isNull(RunRecordEntity::getTerminationRequested)));
+            if (updated == 0) {
+                return;
+            }
         } else {
             runRecordMapper.updateById(entity);
         }
@@ -533,6 +556,28 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private boolean isTerminalStatus(String status) {
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status)
                 || "ERROR".equalsIgnoreCase(status);
+    }
+
+    private boolean isManualTermination(RunRecordEntity entity) {
+        if (entity == null) {
+            return false;
+        }
+        if (entity.getTerminationRequested() != null && entity.getTerminationRequested() == 1) {
+            return true;
+        }
+        Map<String, Object> payload = entity.getPayloadJson();
+        return payload != null && "USER_TERMINATED".equals(String.valueOf(payload.get("errorCode")));
+    }
+
+    private boolean isManualTermination(DispatchTaskEntity task) {
+        if (task == null) {
+            return false;
+        }
+        if (task.getTerminationRequested() != null && task.getTerminationRequested() == 1) {
+            return true;
+        }
+        Map<String, Object> payload = task.getPayloadJson();
+        return payload != null && "USER_TERMINATED".equals(String.valueOf(payload.get("errorCode")));
     }
 
     private String safeName(String value, String fallback) {

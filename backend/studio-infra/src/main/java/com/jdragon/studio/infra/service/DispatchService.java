@@ -391,6 +391,7 @@ public class DispatchService implements WorkflowDispatcher {
         }
         task.setNodeCode(node.getNodeCode());
         task.setStatus("QUEUED");
+        task.setTerminationRequested(0);
         task.setTargetClusterId(runtimeClusterId);
         task.setResourceRevision(resourceRevision);
         task.setScheduledFireTime(scheduledFireTime);
@@ -474,6 +475,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setCollectionTaskId(definition.getId());
         task.setNodeCode("collection_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setTerminationRequested(0);
         task.setTargetClusterId(definition.getRuntimeClusterId());
         task.setResourceRevision(stableCollectionRevision(definition, manualOverride));
         task.setScheduledFireTime(scheduledFireTime);
@@ -551,6 +553,7 @@ public class DispatchService implements WorkflowDispatcher {
         task.setQualityTaskId(definition.getId());
         task.setNodeCode("quality_task_" + definition.getId());
         task.setStatus("QUEUED");
+        task.setTerminationRequested(0);
         task.setTargetClusterId(definition.getRuntimeClusterId());
         task.setResourceRevision(stableQualityRevision(definition, manualOverride));
         task.setScheduledFireTime(scheduledFireTime);

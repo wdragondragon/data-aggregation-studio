@@ -25,6 +25,7 @@ public class RunRecordEntity extends BaseProjectTenantEntity {
     private Long triggeredByUserId;
     private String nodeCode;
     private String status;
+    private Integer terminationRequested;
     private Long requestedClusterId;
     private Long actualClusterId;
     private String actualClusterCode;

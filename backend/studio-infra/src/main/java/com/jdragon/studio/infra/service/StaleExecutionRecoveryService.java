@@ -309,10 +309,18 @@ public class StaleExecutionRecoveryService {
         payload.put("exceptionType", "STALE_EXECUTION_RECOVERY");
         payload.put("recovered", Boolean.TRUE);
         payload.put("recoveredAt", String.valueOf(endedAt));
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            payload.put("errorCode", "USER_TERMINATED");
+            payload.put("terminationReason", MANUAL_TERMINATE_REASON);
+            payload.put("terminationRequestedAt", String.valueOf(endedAt));
+        }
         DispatchTaskEntity update = new DispatchTaskEntity();
         update.setStatus("FAILED");
         update.setPayloadJson(payload);
         update.setLeaseExpiresAt(endedAt);
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            update.setTerminationRequested(1);
+        }
         LambdaUpdateWrapper<DispatchTaskEntity> cas = new LambdaUpdateWrapper<DispatchTaskEntity>()
                 .set(DispatchTaskEntity::getProtectedPayloadCiphertext, null)
                 .eq(DispatchTaskEntity::getId, task.getId())
@@ -326,6 +334,9 @@ public class StaleExecutionRecoveryService {
             return false;
         }
         task.setStatus("FAILED");
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            task.setTerminationRequested(1);
+        }
         task.setPayloadJson(payload);
         task.setLeaseExpiresAt(endedAt);
         return true;
@@ -342,12 +353,20 @@ public class StaleExecutionRecoveryService {
         payload.put("exceptionType", "STALE_EXECUTION_RECOVERY");
         payload.put("recovered", Boolean.TRUE);
         payload.put("recoveredAt", String.valueOf(endedAt));
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            payload.put("errorCode", "USER_TERMINATED");
+            payload.put("terminationReason", MANUAL_TERMINATE_REASON);
+            payload.put("terminationRequestedAt", String.valueOf(endedAt));
+        }
         RunRecordEntity update = new RunRecordEntity();
         update.setStatus("FAILED");
         update.setEndedAt(record.getEndedAt() == null ? endedAt : record.getEndedAt());
         update.setMessage(appendMessage(record.getMessage(), reason));
         update.setPayloadJson(payload);
         update.setResultJson(payload);
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            update.setTerminationRequested(1);
+        }
         int updated = runRecordMapper.update(update, new LambdaUpdateWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getId, record.getId())
                 .eq(RunRecordEntity::getStatus, "RUNNING"));
@@ -355,6 +374,9 @@ public class StaleExecutionRecoveryService {
             return false;
         }
         record.setStatus(update.getStatus());
+        if (MANUAL_TERMINATE_REASON.equals(reason)) {
+            record.setTerminationRequested(1);
+        }
         record.setEndedAt(update.getEndedAt());
         record.setMessage(update.getMessage());
         record.setPayloadJson(payload);
