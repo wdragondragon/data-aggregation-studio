@@ -101,6 +101,25 @@ class HttpReaderOptionSecurityServiceTest {
     }
 
     @Test
+    void shouldPreserveFormattedCurrentTimeDynamicFunctionShapeAcrossSecretProtection() {
+        HttpReaderOptionSecurityService service = service();
+        String dynamicTime = "{dyn_getCurrentTime(yyyyMMdd,-1d+1h)}";
+        Map<String, Object> metadata = metadata(
+                "{\"Authorization\":\"Bearer " + dynamicTime + "\"}", "{}", "{}");
+
+        Map<String, Object> encrypted = service.encryptTechnicalMetadata(metadata, null);
+        Map<String, Object> masked = service.maskTechnicalMetadata(encrypted);
+        String maskedHeader = String.valueOf(readerOptions(masked).get("header"));
+        assertThat(maskedHeader)
+                .contains("{dyn_getCurrentTime(****)}")
+                .doesNotContain("yyyyMMdd")
+                .doesNotContain("-1d+1h");
+
+        assertThat(service.decryptTechnicalMetadata(encrypted))
+                .isEqualTo(metadata);
+    }
+
+    @Test
     void shouldEncryptStaticSegmentsAroundDynamicSensitiveValuesAndRestoreThemAfterMaskedSave() throws Exception {
         HttpReaderOptionSecurityService service = service();
         String dynamicToken = "{dyn_from_http_token(GET,http://auth.example.com,,,data.token)}";
