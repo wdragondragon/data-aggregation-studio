@@ -1162,24 +1162,47 @@ public class WorkerLifecycleRunner {
         if (source == null || source.getId() == null) {
             return;
         }
-        RunRecordEntity update = new RunRecordEntity();
-        update.setLogFilePath(source.getLogFilePath());
-        update.setLogCharset(source.getLogCharset());
-        update.setLogSizeBytes(source.getLogSizeBytes());
-        update.setLogStorageType(source.getLogStorageType());
-        update.setLogObjectBucket(source.getLogObjectBucket());
-        update.setLogObjectKey(source.getLogObjectKey());
-        update.setLogChunkCount(source.getLogChunkCount());
-        update.setLogStatus(source.getLogStatus());
-        update.setLogErrorSummary(source.getLogErrorSummary());
         LambdaUpdateWrapper<RunRecordEntity> wrapper = new LambdaUpdateWrapper<RunRecordEntity>()
                 .eq(RunRecordEntity::getId, source.getId());
+        // Keep log finalization isolated from the run state and termination JSON.
+        // RunRecordEntity initializes payloadJson/resultJson to empty maps, so
+        // passing an entity to update() would write those defaults over a manual
+        // termination marker.
+        if (source.getLogFilePath() != null) {
+            wrapper.set(RunRecordEntity::getLogFilePath, source.getLogFilePath());
+        }
+        if (source.getLogCharset() != null) {
+            wrapper.set(RunRecordEntity::getLogCharset, source.getLogCharset());
+        }
+        if (source.getLogSizeBytes() != null) {
+            wrapper.set(RunRecordEntity::getLogSizeBytes, source.getLogSizeBytes());
+        }
+        if (source.getLogStorageType() != null) {
+            wrapper.set(RunRecordEntity::getLogStorageType, source.getLogStorageType());
+        }
+        if (source.getLogObjectBucket() != null) {
+            wrapper.set(RunRecordEntity::getLogObjectBucket, source.getLogObjectBucket());
+        }
+        if (source.getLogObjectKey() != null) {
+            wrapper.set(RunRecordEntity::getLogObjectKey, source.getLogObjectKey());
+        }
+        if (source.getLogChunkCount() != null) {
+            wrapper.set(RunRecordEntity::getLogChunkCount, source.getLogChunkCount());
+        }
+        if (source.getLogStatus() != null) {
+            wrapper.set(RunRecordEntity::getLogStatus, source.getLogStatus());
+        }
+        if (source.getLogErrorSummary() != null) {
+            wrapper.set(RunRecordEntity::getLogErrorSummary, source.getLogErrorSummary());
+        }
         if (activeOnly) {
             wrapper.eq(RunRecordEntity::getStatus, "RUNNING")
                     .and(nested -> nested.eq(RunRecordEntity::getTerminationRequested, 0)
                             .or().isNull(RunRecordEntity::getTerminationRequested));
         }
-        runRecordMapper.update(update, wrapper);
+        if (!wrapper.getSqlSet().isEmpty()) {
+            runRecordMapper.update(null, wrapper);
+        }
     }
 
     private void applyRunLogStorageResult(RunRecordEntity runRecord, RunLogFileService.RunLogStorageResult result) {

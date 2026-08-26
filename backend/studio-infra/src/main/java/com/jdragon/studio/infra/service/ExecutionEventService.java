@@ -89,14 +89,19 @@ public class ExecutionEventService implements ExecutionEventPublisher {
                 ? null
                 : dispatchTaskMapper.selectOne(new LambdaQueryWrapper<DispatchTaskEntity>()
                 .eq(DispatchTaskEntity::getRunRecordId, event.getRunRecordId())
+                .eq(entity != null && entity.getTenantId() != null,
+                        DispatchTaskEntity::getTenantId, entity == null ? null : entity.getTenantId())
+                .eq(entity != null && entity.getProjectId() != null,
+                        DispatchTaskEntity::getProjectId, entity == null ? null : entity.getProjectId())
                 .last("limit 1"));
         boolean existingRecord = entity != null;
+        String existingTenantId = entity == null ? null : entity.getTenantId();
+        Long existingProjectId = entity == null ? null : entity.getProjectId();
         // A worker event can arrive after the user has already converged the
         // record to FAILED. Never let that late event overwrite the manual
         // termination marker or dispatch downstream workflow nodes.
         if ((entity != null && isManualTermination(entity)
-                || isManualTermination(dispatchTask))
-                && isTerminalStatus(event.getEventType())) {
+                || isManualTermination(dispatchTask))) {
             return;
         }
         if (entity == null) {
@@ -144,17 +149,12 @@ public class ExecutionEventService implements ExecutionEventPublisher {
         runMetricSummaryMapper.applyToEntity(entity, event.getPayload());
         if (!existingRecord) {
             runRecordMapper.insert(entity);
-        } else if (isTerminalStatus(event.getEventType())) {
-            int updated = runRecordMapper.update(entity, new LambdaUpdateWrapper<RunRecordEntity>()
-                    .eq(RunRecordEntity::getId, entity.getId())
-                    .eq(RunRecordEntity::getStatus, "RUNNING")
-                    .and(wrapper -> wrapper.eq(RunRecordEntity::getTerminationRequested, 0)
-                            .or().isNull(RunRecordEntity::getTerminationRequested)));
+        } else {
+            int updated = runRecordMapper.update(entity,
+                    activeRunRecordPredicate(entity.getId(), existingTenantId, existingProjectId));
             if (updated == 0) {
                 return;
             }
-        } else {
-            runRecordMapper.updateById(entity);
         }
         updateFileTransferRun(event, entity.getMessage());
         dispatchService.continueWorkflowRun(event);
@@ -556,6 +556,18 @@ public class ExecutionEventService implements ExecutionEventPublisher {
     private boolean isTerminalStatus(String status) {
         return "SUCCESS".equalsIgnoreCase(status) || "FAILED".equalsIgnoreCase(status)
                 || "ERROR".equalsIgnoreCase(status);
+    }
+
+    private LambdaUpdateWrapper<RunRecordEntity> activeRunRecordPredicate(Long id,
+                                                                           String tenantId,
+                                                                           Long projectId) {
+        return new LambdaUpdateWrapper<RunRecordEntity>()
+                .eq(RunRecordEntity::getId, id)
+                .eq(tenantId != null, RunRecordEntity::getTenantId, tenantId)
+                .eq(projectId != null, RunRecordEntity::getProjectId, projectId)
+                .eq(RunRecordEntity::getStatus, "RUNNING")
+                .and(wrapper -> wrapper.eq(RunRecordEntity::getTerminationRequested, 0)
+                        .or().isNull(RunRecordEntity::getTerminationRequested));
     }
 
     private boolean isManualTermination(RunRecordEntity entity) {

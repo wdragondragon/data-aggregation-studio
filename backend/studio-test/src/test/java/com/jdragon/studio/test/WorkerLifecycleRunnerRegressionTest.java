@@ -1,6 +1,7 @@
 package com.jdragon.studio.test;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.dto.enums.NodeType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
@@ -39,9 +40,11 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -503,6 +506,54 @@ class WorkerLifecycleRunnerRegressionTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> normalizedRow = (Map<String, Object>) ((java.util.List<?>) sqlResult.get("rows")).get(0);
         assertEquals("2026-07-26T23:45:00", normalizedRow.get("eventTime"));
+    }
+
+    @Test
+    void shouldFinalizeRunLogWithoutOverwritingManualTerminationMetadata() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity terminatedRun = new RunRecordEntity();
+        terminatedRun.setId(901L);
+        terminatedRun.setStatus("FAILED");
+        terminatedRun.setTerminationRequested(1);
+        terminatedRun.setPayloadJson(new LinkedHashMap<String, Object>(Map.of(
+                "errorCode", "USER_TERMINATED",
+                "terminationReason", "Manually terminated by user")));
+        terminatedRun.setResultJson(new LinkedHashMap<String, Object>(terminatedRun.getPayloadJson()));
+        terminatedRun.setLogFilePath("2026-08-26/run-901.log");
+        terminatedRun.setLogCharset("UTF-8");
+        terminatedRun.setLogSizeBytes(128L);
+        terminatedRun.setLogStorageType("OBJECT_STORAGE");
+        terminatedRun.setLogStatus("AVAILABLE");
+
+        WorkerLifecycleRunner runner = new WorkerLifecycleRunner(
+                mock(DispatchTaskMapper.class),
+                mock(WorkerLeaseMapper.class),
+                runRecordMapper,
+                Collections.<NodeExecutor>emptyList(),
+                mock(ExecutionEventPublisher.class),
+                new StudioPlatformProperties(),
+                mock(CollectionTaskService.class),
+                mock(QualityTaskService.class),
+                mock(CollectionTaskAssemblerService.class),
+                mock(RunLogFileService.class),
+                mock(WorkerAuthorizationService.class),
+                clusterInstanceIdentity("termination-log-worker"),
+                mock(WorkflowDispatchNodeResolver.class)
+        );
+
+        ReflectionTestUtils.invokeMethod(runner, "updateRunLogFields", terminatedRun, null, false);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<RunRecordEntity>> wrapperCaptor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(runRecordMapper).update(isNull(), wrapperCaptor.capture());
+        String sqlSet = wrapperCaptor.getValue().getSqlSet();
+        assertTrue(sqlSet.contains("log_file_path"));
+        assertTrue(sqlSet.contains("log_status"));
+        assertFalse(sqlSet.contains("payload_json"));
+        assertFalse(sqlSet.contains("result_json"));
+        assertFalse(sqlSet.contains("termination_requested"));
+        assertFalse(sqlSet.matches("(?s).*\\bstatus\\s*=.*"));
     }
 
     private ClusterInstanceIdentity clusterInstanceIdentity(String instanceId) {

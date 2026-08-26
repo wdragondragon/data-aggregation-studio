@@ -1,5 +1,8 @@
 package com.jdragon.studio.test;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.RunTerminationView;
@@ -11,12 +14,17 @@ import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.RunService;
 import com.jdragon.studio.infra.service.RunTerminationService;
 import com.jdragon.studio.infra.service.StudioSecurityService;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -24,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -31,6 +40,20 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RunTerminationServiceRegressionTest {
+
+    @BeforeAll
+    static void initializeLambdaMetadata() {
+        if (TableInfoHelper.getTableInfo(DispatchTaskEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "run-termination-dispatch-test"),
+                    DispatchTaskEntity.class);
+        }
+        if (TableInfoHelper.getTableInfo(RunRecordEntity.class) == null) {
+            TableInfoHelper.initTableInfo(
+                    new MapperBuilderAssistant(new MybatisConfiguration(), "run-termination-run-test"),
+                    RunRecordEntity.class);
+        }
+    }
 
     @Test
     void shouldFailQueuedCollectionTaskWithoutRunRecord() {
@@ -41,13 +64,9 @@ class RunTerminationServiceRegressionTest {
         when(dispatchTaskMapper.selectList(any())).thenReturn(Collections.singletonList(task));
         when(dispatchTaskMapper.selectById(1L)).thenReturn(task);
         doAnswer(invocation -> {
-            DispatchTaskEntity update = invocation.getArgument(0);
-            task.setStatus(update.getStatus());
-            task.setTerminationRequested(update.getTerminationRequested());
-            task.setLeaseExpiresAt(update.getLeaseExpiresAt());
-            task.setPayloadJson(update.getPayloadJson());
+            applyDispatchUpdate(task, invocation.getArgument(1));
             return 1;
-        }).when(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any());
+        }).when(dispatchTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
 
         RunTerminationView result = service(dispatchTaskMapper, runRecordMapper, definition)
                 .terminateCollectionTask(10L);
@@ -56,7 +75,7 @@ class RunTerminationServiceRegressionTest {
         assertTrue(result.isChanged());
         assertTrue(result.isTerminationRequested());
         assertEquals(RunTerminationService.ERROR_CODE, task.getPayloadJson().get("errorCode"));
-        verify(runRecordMapper, org.mockito.Mockito.never()).update(any(RunRecordEntity.class), any());
+        verify(runRecordMapper, org.mockito.Mockito.never()).update(any(), any(LambdaUpdateWrapper.class));
     }
 
     @Test
@@ -70,23 +89,13 @@ class RunTerminationServiceRegressionTest {
         when(dispatchTaskMapper.selectById(2L)).thenReturn(task);
         when(runRecordMapper.selectById(20L)).thenReturn(record);
         doAnswer(invocation -> {
-            DispatchTaskEntity update = invocation.getArgument(0);
-            task.setStatus(update.getStatus());
-            task.setTerminationRequested(update.getTerminationRequested());
-            task.setLeaseExpiresAt(update.getLeaseExpiresAt());
-            task.setPayloadJson(update.getPayloadJson());
+            applyDispatchUpdate(task, invocation.getArgument(1));
             return 1;
-        }).when(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any());
+        }).when(dispatchTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
         doAnswer(invocation -> {
-            RunRecordEntity update = invocation.getArgument(0);
-            record.setStatus(update.getStatus());
-            record.setTerminationRequested(update.getTerminationRequested());
-            record.setEndedAt(update.getEndedAt());
-            record.setMessage(update.getMessage());
-            record.setPayloadJson(update.getPayloadJson());
-            record.setResultJson(update.getResultJson());
+            applyRunRecordUpdate(record, invocation.getArgument(1));
             return 1;
-        }).when(runRecordMapper).update(any(RunRecordEntity.class), any());
+        }).when(runRecordMapper).update(isNull(), any(LambdaUpdateWrapper.class));
 
         RunTerminationView result = service(dispatchTaskMapper, runRecordMapper, definition)
                 .terminateCollectionTask(10L);
@@ -96,6 +105,15 @@ class RunTerminationServiceRegressionTest {
         assertEquals("FAILED", task.getStatus());
         assertEquals("FAILED", record.getStatus());
         assertEquals("USER_TERMINATED", record.getPayloadJson().get("errorCode"));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<RunRecordEntity>> runUpdate =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(runRecordMapper).update(isNull(), runUpdate.capture());
+        assertTrue(runUpdate.getValue().getSqlSet().contains("payload_json"));
+        assertTrue(runUpdate.getValue().getSqlSet().contains("result_json"));
+        assertTrue(runUpdate.getValue().getSqlSet().contains("termination_requested"));
+        assertTrue(runUpdate.getValue().getSqlSet().contains("status"));
     }
 
     @Test
@@ -186,12 +204,9 @@ class RunTerminationServiceRegressionTest {
                 task.setStatus("SUCCESS");
                 return 0;
             }
-            DispatchTaskEntity update = invocation.getArgument(0);
-            task.setStatus(update.getStatus());
-            task.setTerminationRequested(update.getTerminationRequested());
-            task.setPayloadJson(update.getPayloadJson());
+            applyDispatchUpdate(task, invocation.getArgument(1));
             return 1;
-        }).when(dispatchTaskMapper).update(any(DispatchTaskEntity.class), any());
+        }).when(dispatchTaskMapper).update(isNull(), any(LambdaUpdateWrapper.class));
 
         AtomicInteger runUpdates = new AtomicInteger();
         doAnswer(invocation -> {
@@ -199,15 +214,9 @@ class RunTerminationServiceRegressionTest {
                 record.setStatus("SUCCESS");
                 return 0;
             }
-            RunRecordEntity update = invocation.getArgument(0);
-            record.setStatus(update.getStatus());
-            record.setTerminationRequested(update.getTerminationRequested());
-            record.setEndedAt(update.getEndedAt());
-            record.setMessage(update.getMessage());
-            record.setPayloadJson(update.getPayloadJson());
-            record.setResultJson(update.getResultJson());
+            applyRunRecordUpdate(record, invocation.getArgument(1));
             return 1;
-        }).when(runRecordMapper).update(any(RunRecordEntity.class), any());
+        }).when(runRecordMapper).update(isNull(), any(LambdaUpdateWrapper.class));
 
         RunTerminationView result = service(dispatchTaskMapper, runRecordMapper, definition)
                 .terminateCollectionTask(10L);
@@ -216,8 +225,8 @@ class RunTerminationServiceRegressionTest {
         assertEquals("FAILED", task.getStatus());
         assertEquals("FAILED", record.getStatus());
         assertTrue(result.isTerminationRequested());
-        verify(dispatchTaskMapper, times(2)).update(any(DispatchTaskEntity.class), any());
-        verify(runRecordMapper, times(2)).update(any(RunRecordEntity.class), any());
+        verify(dispatchTaskMapper, times(2)).update(isNull(), any(LambdaUpdateWrapper.class));
+        verify(runRecordMapper, times(2)).update(isNull(), any(LambdaUpdateWrapper.class));
     }
 
     private RunTerminationService service(DispatchTaskMapper dispatchTaskMapper,
@@ -278,5 +287,68 @@ class RunTerminationServiceRegressionTest {
         record.setPayloadJson(new LinkedHashMap<String, Object>());
         record.setResultJson(new LinkedHashMap<String, Object>());
         return record;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyDispatchUpdate(DispatchTaskEntity target, Object wrapperObject) {
+        LambdaUpdateWrapper<DispatchTaskEntity> wrapper = (LambdaUpdateWrapper<DispatchTaskEntity>) wrapperObject;
+        List<Object> values = new java.util.ArrayList<Object>(wrapper.getParamNameValuePairs().values());
+        target.setStatus(stringValue(values, 0));
+        target.setTerminationRequested(integerValue(values, 0));
+        target.setLeaseExpiresAt(localDateTimeValue(values, 0));
+        target.setPayloadJson(mapValue(values, 0));
+    }
+
+    @SuppressWarnings("unchecked")
+    private void applyRunRecordUpdate(RunRecordEntity target, Object wrapperObject) {
+        LambdaUpdateWrapper<RunRecordEntity> wrapper = (LambdaUpdateWrapper<RunRecordEntity>) wrapperObject;
+        List<Object> values = new java.util.ArrayList<Object>(wrapper.getParamNameValuePairs().values());
+        target.setStatus(stringValue(values, 0));
+        target.setTerminationRequested(integerValue(values, 0));
+        target.setEndedAt(localDateTimeValue(values, 0));
+        target.setMessage(stringValue(values, 1));
+        target.setPayloadJson(mapValue(values, 0));
+        target.setResultJson(mapValue(values, 1));
+    }
+
+    private String stringValue(List<Object> values, int occurrence) {
+        int seen = 0;
+        for (Object value : values) {
+            if (value instanceof String && seen++ == occurrence) {
+                return (String) value;
+            }
+        }
+        return null;
+    }
+
+    private Integer integerValue(List<Object> values, int occurrence) {
+        int seen = 0;
+        for (Object value : values) {
+            if (value instanceof Integer && seen++ == occurrence) {
+                return (Integer) value;
+            }
+        }
+        return null;
+    }
+
+    private LocalDateTime localDateTimeValue(List<Object> values, int occurrence) {
+        int seen = 0;
+        for (Object value : values) {
+            if (value instanceof LocalDateTime && seen++ == occurrence) {
+                return (LocalDateTime) value;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> mapValue(List<Object> values, int occurrence) {
+        int seen = 0;
+        for (Object value : values) {
+            if (value instanceof Map && seen++ == occurrence) {
+                return (Map<String, Object>) value;
+            }
+        }
+        return new LinkedHashMap<String, Object>();
     }
 }

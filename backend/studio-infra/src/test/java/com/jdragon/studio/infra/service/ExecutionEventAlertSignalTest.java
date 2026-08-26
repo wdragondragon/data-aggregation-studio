@@ -50,7 +50,9 @@ class ExecutionEventAlertSignalTest {
         run.setTenantId("default");
         run.setProjectId(20L);
         run.setCollectionTaskId(30L);
+        run.setStatus("RUNNING");
         when(runRecordMapper.selectById(100L)).thenReturn(run);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any())).thenReturn(1);
 
         CollectionTaskDefinitionMapper collectionMapper = mock(CollectionTaskDefinitionMapper.class);
         CollectionTaskDefinitionEntity task = new CollectionTaskDefinitionEntity();
@@ -109,7 +111,9 @@ class ExecutionEventAlertSignalTest {
         run.setTenantId("tenant-a");
         run.setProjectId(21L);
         run.setQualityTaskId(31L);
+        run.setStatus("RUNNING");
         when(runRecordMapper.selectById(101L)).thenReturn(run);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any())).thenReturn(1);
 
         QualityTaskDefinitionMapper qualityMapper = mock(QualityTaskDefinitionMapper.class);
         QualityTaskDefinitionEntity task = new QualityTaskDefinitionEntity();
@@ -153,8 +157,10 @@ class ExecutionEventAlertSignalTest {
         run.setWorkflowDefinitionId(40L);
         run.setWorkflowRunId(400L);
         run.setCollectionTaskId(32L);
+        run.setStatus("RUNNING");
         when(runRecordMapper.selectById(102L)).thenReturn(run);
         when(runRecordMapper.selectCount(any())).thenReturn(0L);
+        when(runRecordMapper.update(any(RunRecordEntity.class), any())).thenReturn(1);
 
         CollectionTaskDefinitionMapper collectionMapper = mock(CollectionTaskDefinitionMapper.class);
         CollectionTaskDefinitionEntity collectionTask = new CollectionTaskDefinitionEntity();

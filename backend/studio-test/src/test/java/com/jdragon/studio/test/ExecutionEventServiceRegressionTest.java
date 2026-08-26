@@ -90,7 +90,7 @@ class ExecutionEventServiceRegressionTest {
         service.publish(event);
 
         ArgumentCaptor<RunRecordEntity> captor = ArgumentCaptor.forClass(RunRecordEntity.class);
-        verify(runRecordMapper).updateById(captor.capture());
+        verify(runRecordMapper).update(captor.capture(), any(LambdaUpdateWrapper.class));
         RunRecordEntity updatedRun = captor.getValue();
         assertEquals("FAILED", updatedRun.getStatus());
         assertEquals(2000, updatedRun.getMessage().length());
@@ -133,6 +133,45 @@ class ExecutionEventServiceRegressionTest {
     }
 
     @Test
+    void shouldIgnoreLateRunningEventAfterManualTermination() {
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunRecordEntity terminated = new RunRecordEntity();
+        terminated.setId(107L);
+        terminated.setStatus("FAILED");
+        terminated.setTerminationRequested(1);
+        terminated.getPayloadJson().put("errorCode", "USER_TERMINATED");
+        terminated.getResultJson().put("errorCode", "USER_TERMINATED");
+        when(runRecordMapper.selectById(eq(107L))).thenReturn(terminated);
+
+        DispatchService dispatchService = mock(DispatchService.class);
+        ExecutionEventService service = new ExecutionEventService(
+                runRecordMapper,
+                mock(FileTransferRunMapper.class),
+                mock(DispatchTaskMapper.class),
+                mock(CollectionTaskDefinitionMapper.class),
+                mock(WorkflowDefinitionMapper.class),
+                dispatchService,
+                mock(RunMetricSummaryMapper.class),
+                mock(FollowSubscriptionService.class),
+                mock(NotificationService.class),
+                mock(DataModelLineageService.class),
+                mock(QualityIssueService.class),
+                mock(CollectionTaskIncrementalStateService.class),
+                mock(StaleExecutionRecoveryService.class));
+
+        ExecutionEvent event = new ExecutionEvent();
+        event.setRunRecordId(107L);
+        event.setEventType("RUNNING");
+        event.getPayload().put("message", "late heartbeat");
+        service.publish(event);
+
+        verify(runRecordMapper, never()).update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class));
+        verify(dispatchService, never()).continueWorkflowRun(any(ExecutionEvent.class));
+        assertEquals("FAILED", terminated.getStatus());
+        assertEquals("USER_TERMINATED", terminated.getPayloadJson().get("errorCode"));
+    }
+
+    @Test
     void shouldSanitizeDatabaseStackTraceBeforePersistingFailureEvent() {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();
@@ -158,7 +197,7 @@ class ExecutionEventServiceRegressionTest {
         service.publish(event);
 
         ArgumentCaptor<RunRecordEntity> captor = ArgumentCaptor.forClass(RunRecordEntity.class);
-        verify(runRecordMapper).updateById(captor.capture());
+        verify(runRecordMapper).update(captor.capture(), any(LambdaUpdateWrapper.class));
         RunRecordEntity updatedRun = captor.getValue();
         assertEquals("Field 'audit_required' doesn't have a default value", updatedRun.getMessage());
         assertCleanFailureText(updatedRun.getMessage());
@@ -190,7 +229,7 @@ class ExecutionEventServiceRegressionTest {
         service.publish(event);
 
         ArgumentCaptor<RunRecordEntity> captor = ArgumentCaptor.forClass(RunRecordEntity.class);
-        verify(runRecordMapper).updateById(captor.capture());
+        verify(runRecordMapper).update(captor.capture(), any(LambdaUpdateWrapper.class));
         RunRecordEntity updatedRun = captor.getValue();
         assertEquals("Unknown column 'contract_amount' in 'field list'", updatedRun.getMessage());
         assertCleanFailureText(updatedRun.getMessage());
@@ -220,7 +259,7 @@ class ExecutionEventServiceRegressionTest {
         service.publish(event);
 
         ArgumentCaptor<RunRecordEntity> captor = ArgumentCaptor.forClass(RunRecordEntity.class);
-        verify(runRecordMapper).updateById(captor.capture());
+        verify(runRecordMapper).update(captor.capture(), any(LambdaUpdateWrapper.class));
         RunRecordEntity updatedRun = captor.getValue();
         assertEquals("codex-e2e-v2-identity",
                 ((Map<String, String>) updatedRun.getPayloadJson().get("pluginRevisions"))
@@ -267,6 +306,7 @@ class ExecutionEventServiceRegressionTest {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();
         existingRun.setId(105L);
+        existingRun.setStatus("RUNNING");
         when(runRecordMapper.selectById(105L)).thenReturn(existingRun);
         FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
         FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
@@ -294,6 +334,7 @@ class ExecutionEventServiceRegressionTest {
         RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
         RunRecordEntity existingRun = new RunRecordEntity();
         existingRun.setId(106L);
+        existingRun.setStatus("RUNNING");
         when(runRecordMapper.selectById(106L)).thenReturn(existingRun);
         FileTransferRunMapper fileTransferRunMapper = mock(FileTransferRunMapper.class);
         FileTransferStateMutationService mutationService = mock(FileTransferStateMutationService.class);
@@ -407,6 +448,7 @@ class ExecutionEventServiceRegressionTest {
                                           WorkflowDefinitionMapper workflowDefinitionMapper,
                                           FollowSubscriptionService followSubscriptionService,
                                           NotificationService notificationService) {
+        when(runRecordMapper.update(any(RunRecordEntity.class), any(LambdaUpdateWrapper.class))).thenReturn(1);
         return new ExecutionEventService(
                 runRecordMapper,
                 fileTransferRunMapper,

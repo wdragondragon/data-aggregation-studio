@@ -4,6 +4,7 @@ import com.jdragon.studio.dto.common.Result;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.QualityTaskService;
+import com.jdragon.studio.infra.service.RunTerminationService;
 import com.jdragon.studio.infra.service.WorkflowService;
 import com.jdragon.studio.server.web.controller.CollectionTaskController;
 import com.jdragon.studio.server.web.controller.QualityTaskController;
@@ -35,7 +36,12 @@ class ManualTriggerResponseSlimmingRegressionTest {
     void collectionTaskTriggerShouldNotLoadFullTaskDetailForUnusedResponseBody() {
         CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
         DispatchService dispatchService = mock(DispatchService.class);
-        CollectionTaskController controller = new CollectionTaskController(collectionTaskService, dispatchService);
+        RunTerminationService runTerminationService = mock(RunTerminationService.class);
+        CollectionTaskController controller = new CollectionTaskController(
+                collectionTaskService,
+                dispatchService,
+                runTerminationService
+        );
 
         Result<Void> result = controller.trigger(2001L, null);
 

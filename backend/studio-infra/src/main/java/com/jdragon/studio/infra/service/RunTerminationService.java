@@ -2,6 +2,7 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
@@ -151,21 +152,24 @@ public class RunTerminationService {
         if (task == null || isRequested(task.getTerminationRequested())) {
             return false;
         }
-        DispatchTaskEntity update = dispatchTerminationUpdate(task, endedAt);
+        Map<String, Object> payload = terminationPayload(task.getPayloadJson(), endedAt);
         int updated;
         if (isActive(task.getStatus())) {
-            updated = dispatchTaskMapper.update(update,
-                    activeDispatchPredicate(task.getId(), task.getTenantId(), task.getProjectId()));
+            updated = dispatchTaskMapper.update(null,
+                    dispatchTerminationPredicate(activeDispatchPredicate(task.getId(), task.getTenantId(), task.getProjectId()),
+                            payload, endedAt));
             if (updated == 0) {
                 // The API observed an active instance, but the worker may have
                 // committed its terminal result before our compare-and-set.
                 // Use a current conditional update so manual termination wins
                 // even under MySQL REPEATABLE READ.
-                updated = dispatchTaskMapper.update(update,
-                        racedTerminalDispatchPredicate(task.getId(), task.getTenantId(), task.getProjectId()));
+                updated = dispatchTaskMapper.update(null,
+                        dispatchTerminationPredicate(racedTerminalDispatchPredicate(task.getId(), task.getTenantId(), task.getProjectId()),
+                                payload, endedAt));
             }
         } else if (isTerminal(task.getStatus())) {
-            updated = dispatchTaskMapper.update(update, terminalDispatchPredicate(task));
+            updated = dispatchTaskMapper.update(null,
+                    dispatchTerminationPredicate(terminalDispatchPredicate(task), payload, endedAt));
         } else {
             return false;
         }
@@ -176,41 +180,57 @@ public class RunTerminationService {
         if (record == null || isRequested(record.getTerminationRequested())) {
             return false;
         }
-        RunRecordEntity update = runRecordTerminationUpdate(record, endedAt);
+        Map<String, Object> payload = terminationPayload(record.getPayloadJson(), endedAt);
+        Map<String, Object> result = terminationPayload(record.getResultJson(), endedAt);
+        LocalDateTime recordEndedAt = record.getEndedAt() == null ? endedAt : record.getEndedAt();
+        String message = appendMessage(record.getMessage(), REASON);
         int updated;
         if ("RUNNING".equalsIgnoreCase(record.getStatus())) {
-            updated = runRecordMapper.update(update,
-                    activeRunRecordPredicate(record.getId(), record.getTenantId(), record.getProjectId()));
+            updated = runRecordMapper.update(null,
+                    runRecordTerminationPredicate(activeRunRecordPredicate(record.getId(), record.getTenantId(), record.getProjectId()),
+                            payload, result, recordEndedAt, message));
             if (updated == 0) {
-                updated = runRecordMapper.update(update,
-                        racedTerminalRunRecordPredicate(record.getId(), record.getTenantId(), record.getProjectId()));
+                updated = runRecordMapper.update(null,
+                        runRecordTerminationPredicate(racedTerminalRunRecordPredicate(record.getId(), record.getTenantId(), record.getProjectId()),
+                                payload, result, recordEndedAt, message));
             }
         } else if (isTerminal(record.getStatus())) {
-            updated = runRecordMapper.update(update, terminalRunRecordPredicate(record));
+            updated = runRecordMapper.update(null,
+                    runRecordTerminationPredicate(terminalRunRecordPredicate(record),
+                            payload, result, recordEndedAt, message));
         } else {
             return false;
         }
         return updated > 0;
     }
 
-    private DispatchTaskEntity dispatchTerminationUpdate(DispatchTaskEntity source, LocalDateTime endedAt) {
-        DispatchTaskEntity update = new DispatchTaskEntity();
-        update.setStatus("FAILED");
-        update.setTerminationRequested(REQUESTED);
-        update.setLeaseExpiresAt(endedAt);
-        update.setPayloadJson(terminationPayload(source.getPayloadJson(), endedAt));
-        return update;
+    private LambdaUpdateWrapper<DispatchTaskEntity> dispatchTerminationPredicate(
+            LambdaUpdateWrapper<DispatchTaskEntity> predicate,
+            Map<String, Object> payload,
+            LocalDateTime endedAt) {
+        return predicate
+                .set(DispatchTaskEntity::getStatus, "FAILED")
+                .set(DispatchTaskEntity::getTerminationRequested, REQUESTED)
+                .set(DispatchTaskEntity::getLeaseExpiresAt, endedAt)
+                .set(DispatchTaskEntity::getPayloadJson, payload,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName());
     }
 
-    private RunRecordEntity runRecordTerminationUpdate(RunRecordEntity source, LocalDateTime endedAt) {
-        RunRecordEntity update = new RunRecordEntity();
-        update.setStatus("FAILED");
-        update.setTerminationRequested(REQUESTED);
-        update.setEndedAt(source.getEndedAt() == null ? endedAt : source.getEndedAt());
-        update.setMessage(appendMessage(source.getMessage(), REASON));
-        update.setPayloadJson(terminationPayload(source.getPayloadJson(), endedAt));
-        update.setResultJson(terminationPayload(source.getResultJson(), endedAt));
-        return update;
+    private LambdaUpdateWrapper<RunRecordEntity> runRecordTerminationPredicate(
+            LambdaUpdateWrapper<RunRecordEntity> predicate,
+            Map<String, Object> payload,
+            Map<String, Object> result,
+            LocalDateTime endedAt,
+            String message) {
+        return predicate
+                .set(RunRecordEntity::getStatus, "FAILED")
+                .set(RunRecordEntity::getTerminationRequested, REQUESTED)
+                .set(RunRecordEntity::getEndedAt, endedAt)
+                .set(RunRecordEntity::getMessage, message)
+                .set(RunRecordEntity::getPayloadJson, payload,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName())
+                .set(RunRecordEntity::getResultJson, result,
+                        "typeHandler=" + JacksonTypeHandler.class.getCanonicalName());
     }
 
     private LambdaUpdateWrapper<DispatchTaskEntity> activeDispatchPredicate(Long id, String tenantId, Long projectId) {
