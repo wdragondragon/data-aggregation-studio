@@ -178,6 +178,24 @@ class StudioSchemaDriftRegressionTest {
     }
 
     @Test
+    void localAndOssTechnicalMetadataShouldHaveMysqlDeltaCoverage() throws Exception {
+        String localOssDelta = readBackendFile(
+                "studio-server/src/main/resources/update/20260826/20260826-local-oss-technical-meta-delta.sql");
+
+        assertThat(extractTechnicalSchemaCodes(localOssDelta))
+                .as("LOCAL and OSS technical metadata delta schemas")
+                .containsExactlyInAnyOrder(
+                        "technical:local:source",
+                        "technical:local:table",
+                        "technical:local:field",
+                        "technical:oss:source",
+                        "technical:oss:table",
+                        "technical:oss:field");
+        assertThat(localOssDelta)
+                .contains("START TRANSACTION", "COMMIT", "where tenant_id = 'default'");
+    }
+
+    @Test
     void httpCapabilityShouldStayAlignedAcrossJavaMysqlSqliteAndDeltaScripts() throws Exception {
         String capabilityBootstrap = readBackendFile("studio-infra/src/main/java/com/jdragon/studio/infra/service/DatasourceTypeCapabilityService.java");
         String mysqlBase = readBackendFile("studio-server/src/main/resources/data-mysql-base.sql");
