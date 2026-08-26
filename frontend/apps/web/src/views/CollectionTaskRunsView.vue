@@ -381,7 +381,7 @@ function isRunTerminating(id?: string | number) {
 }
 
 function displayRunMessage(row: RunRecordListView) {
-  return row.message === "Manually terminated by user"
+  return row.message?.includes("Manually terminated by user")
     ? t("web.collectionTasks.manualTerminationReason")
     : row.message;
 }

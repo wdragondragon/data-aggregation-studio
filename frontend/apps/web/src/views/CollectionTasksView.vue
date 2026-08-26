@@ -333,6 +333,7 @@ function buildTaskActions(task: CollectionTaskListView) {
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
     { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
     { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => viewTaskRuns(task) },
+    { key: "trigger", label: t("common.trigger"), onClick: () => triggerTask(task) },
     { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || task.status === "ONLINE" || task.runtimeValid === false, onClick: () => publishTask(task) },
     { key: "terminate", label: t("web.collectionTasks.terminateCurrentInstance"), type: "danger", onClick: () => terminateTask(task) },
     { key: "delete", label: t("common.delete"), type: "danger", disabled: shared, onClick: () => deleteTask(task) },
@@ -417,6 +418,7 @@ async function confirmManualRun(runtimeClusterId?: EntityId) {
     await studioApi.collectionTasks.trigger(task.id, overrideId);
     manualRunDialogVisible.value = false;
     ElMessage.success(t("web.collectionTasks.triggerSuccess"));
+    await loadTasks();
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.triggerFailed"));
   } finally {
@@ -452,7 +454,7 @@ function isRunTerminating(id?: string | number) {
 }
 
 function displayRunMessage(row: RunRecordListView) {
-  return row.message === "Manually terminated by user"
+  return row.message?.includes("Manually terminated by user")
     ? t("web.collectionTasks.manualTerminationReason")
     : row.message;
 }
