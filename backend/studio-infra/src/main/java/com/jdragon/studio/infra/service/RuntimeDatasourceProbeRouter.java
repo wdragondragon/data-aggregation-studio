@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.dto.enums.DataSourceConnectionStatus;
 import com.jdragon.studio.dto.enums.RuntimeDatasourceProbeMode;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
@@ -32,6 +33,7 @@ import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.OutputStream;
 import java.io.InputStream;
@@ -45,6 +47,7 @@ import java.util.Base64;
 
 /** Routes datasource probes to the selected runtime. No endpoint means UNKNOWN, never UNAVAILABLE. */
 @Service
+@Slf4j
 public class RuntimeDatasourceProbeRouter {
     private static final String INTERNAL_TOKEN_HEADER = "X-Studio-Internal-Token";
     private static final String TARGET_CLUSTER_ID_HEADER = "X-Studio-Target-Cluster-Id";
@@ -90,46 +93,59 @@ public class RuntimeDatasourceProbeRouter {
                                      RuntimeDatasourceProbeMode mode) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) return unknown("Target runtime cluster has no online endpoint");
+        if (!runtimeAvailable("PROBE", datasource, cluster, endpoint)) {
+            return unknown("Target runtime cluster has no online endpoint");
+        }
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, mode);
-        try { return post(endpoint, payload, "/internal/runtime/datasource/probe", ConnectionTestResult.class); }
-        catch (RemoteRuntimeException ex) { throw ex; }
-        catch (Exception ex) { return unknown("Target runtime cluster probe is unavailable"); }
+        try {
+            ConnectionTestResult result = post(endpoint, payload,
+                    "/internal/runtime/datasource/probe", ConnectionTestResult.class);
+            logProbeResult(datasource, cluster, endpoint, result);
+            return result;
+        } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("PROBE", datasource, cluster, endpoint, ex);
+            throw ex;
+        } catch (Exception ex) {
+            logRoutingFailure("PROBE", datasource, cluster, endpoint, ex);
+            return unknown("Target runtime cluster probe is unavailable");
+        }
     }
     public ModelDiscoveryResult discover(DataSourceDefinition datasource, Long clusterId, String keyword, Integer pageNo, Integer pageSize) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("DISCOVER", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setKeyword(keyword); payload.setPageNo(pageNo); payload.setPageSize(pageSize);
         try { return post(endpoint, payload, "/internal/runtime/datasource/discover", ModelDiscoveryResult.class); }
-        catch (RemoteRuntimeException ex) { throw ex; }
-        catch (Exception ex) { throw unavailable(); }
+        catch (RemoteRuntimeException ex) { logRemoteFailure("DISCOVER", datasource, cluster, endpoint, ex); throw ex; }
+        catch (Exception ex) { logRoutingFailure("DISCOVER", datasource, cluster, endpoint, ex); throw unavailable(); }
     }
     public ModelDiscoveryOptionResult discoverOptions(DataSourceDefinition datasource, Long clusterId, String keyword, Integer pageNo, Integer pageSize) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("DISCOVER_OPTIONS", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setKeyword(keyword); payload.setPageNo(pageNo); payload.setPageSize(pageSize);
         try { return post(endpoint, payload, "/internal/runtime/datasource/discover-options", ModelDiscoveryOptionResult.class); }
-        catch (RemoteRuntimeException ex) { throw ex; }
-        catch (Exception ex) { throw unavailable(); }
+        catch (RemoteRuntimeException ex) { logRemoteFailure("DISCOVER_OPTIONS", datasource, cluster, endpoint, ex); throw ex; }
+        catch (Exception ex) { logRoutingFailure("DISCOVER_OPTIONS", datasource, cluster, endpoint, ex); throw unavailable(); }
     }
 
     public RuntimeDatasourceHydrationResultView hydrate(DataSourceDefinition datasource, Long clusterId,
                                                         List<String> physicalLocators) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("HYDRATE", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setPhysicalLocators(physicalLocators);
         try {
             return objectMapper.convertValue(postPayload(endpoint, payload,
                     "/internal/runtime/datasource/hydrate"), RuntimeDatasourceHydrationResultView.class);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("HYDRATE", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("HYDRATE", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -138,7 +154,7 @@ public class RuntimeDatasourceProbeRouter {
                                              DataModelDefinition model, Integer limit) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("PREVIEW", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setModel(model);
         payload.setLimit(limit);
@@ -147,8 +163,10 @@ public class RuntimeDatasourceProbeRouter {
                     "/internal/runtime/datasource/preview"),
                     new TypeReference<List<Map<String, Object>>>() { });
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("PREVIEW", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("PREVIEW", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -160,7 +178,7 @@ public class RuntimeDatasourceProbeRouter {
                                         Integer maxRows) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("QUERY", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setSql(sql);
         payload.setParameters(parameters);
@@ -169,8 +187,10 @@ public class RuntimeDatasourceProbeRouter {
             return objectMapper.convertValue(postPayload(endpoint, payload,
                     "/internal/runtime/datasource/query"), SqlExecutionResultView.class);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("QUERY", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("QUERY", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -185,7 +205,7 @@ public class RuntimeDatasourceProbeRouter {
                                               String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("BROWSE", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setPath(path);
         payload.setCursor(cursor);
@@ -194,8 +214,10 @@ public class RuntimeDatasourceProbeRouter {
             return post(endpoint, payload, "/internal/runtime/datasource/file-browser",
                     FileTransferBrowserPageView.class, operationId);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("BROWSE", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("BROWSE", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -208,15 +230,17 @@ public class RuntimeDatasourceProbeRouter {
                                           String path, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("STAT", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setPath(path);
         try {
             return post(endpoint, payload, "/internal/runtime/datasource/file-stat",
                     FileTransferFileEntryView.class, operationId);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("STAT", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("STAT", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -231,7 +255,7 @@ public class RuntimeDatasourceProbeRouter {
                         String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("FILE_OPERATION", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setFileOperation(operation);
         payload.setOperationPath(sourcePath);
@@ -240,8 +264,10 @@ public class RuntimeDatasourceProbeRouter {
         try {
             postPayload(endpoint, payload, "/internal/runtime/datasource/file-operation", operationId);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("FILE_OPERATION", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("FILE_OPERATION", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -255,7 +281,7 @@ public class RuntimeDatasourceProbeRouter {
                          OutputStream output, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("DOWNLOAD", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setPath(path);
         try {
@@ -276,10 +302,13 @@ public class RuntimeDatasourceProbeRouter {
                 throw remoteError(response.getStatusCode(), envelope);
             }
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("DOWNLOAD", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (StudioException ex) {
+            logStudioFailure("DOWNLOAD", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("DOWNLOAD", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -293,7 +322,7 @@ public class RuntimeDatasourceProbeRouter {
                                 List<String> paths, OutputStream output, String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("DOWNLOAD_ARCHIVE", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceArchiveRequest payload = objectMapper.convertValue(
                 payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED),
                 RuntimeDatasourceArchiveRequest.class);
@@ -302,10 +331,13 @@ public class RuntimeDatasourceProbeRouter {
             executeStreamingDownload(endpoint, payload,
                     "/internal/runtime/datasource/file-archive", output, operationId);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("DOWNLOAD_ARCHIVE", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (StudioException ex) {
+            logStudioFailure("DOWNLOAD_ARCHIVE", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("DOWNLOAD_ARCHIVE", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -320,7 +352,7 @@ public class RuntimeDatasourceProbeRouter {
                        String operationId) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("UPLOAD", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceUploadRequest payload = objectMapper.convertValue(
                 payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED),
                 RuntimeDatasourceUploadRequest.class);
@@ -360,10 +392,13 @@ public class RuntimeDatasourceProbeRouter {
             }
             return Long.parseLong(String.valueOf(dataMap.get("bytes")));
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("UPLOAD", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (StudioException ex) {
+            logStudioFailure("UPLOAD", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("UPLOAD", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -376,7 +411,7 @@ public class RuntimeDatasourceProbeRouter {
             Integer limit) {
         RuntimeClusterEntity cluster = requireCluster(datasource, clusterId);
         RuntimeEndpointEntity endpoint = endpoint(cluster);
-        if (endpoint == null || !online(cluster)) throw unavailable();
+        if (!runtimeAvailable("FILE_TRANSFER_PREVIEW", datasource, cluster, endpoint)) throw unavailable();
         RuntimeDatasourceProbeRequest payload = payload(cluster, datasource, RuntimeDatasourceProbeMode.STORED);
         payload.setFileTransferSpec(spec == null
                 ? new LinkedHashMap<String, Object>() : new LinkedHashMap<String, Object>(spec));
@@ -387,8 +422,10 @@ public class RuntimeDatasourceProbeRouter {
             return post(endpoint, payload, "/internal/runtime/datasource/file-transfer-preview",
                     FileTransferSelectionPreviewView.class);
         } catch (RemoteRuntimeException ex) {
+            logRemoteFailure("FILE_TRANSFER_PREVIEW", datasource, cluster, endpoint, ex);
             throw ex;
         } catch (Exception ex) {
+            logRoutingFailure("FILE_TRANSFER_PREVIEW", datasource, cluster, endpoint, ex);
             throw unavailable();
         }
     }
@@ -403,6 +440,22 @@ public class RuntimeDatasourceProbeRouter {
         return cluster;
     }
     private boolean online(RuntimeClusterEntity cluster) { return runtimeClusterService.hasOnlineInstance(cluster); }
+    private boolean runtimeAvailable(String operation,
+                                     DataSourceDefinition datasource,
+                                     RuntimeClusterEntity cluster,
+                                     RuntimeEndpointEntity endpoint) {
+        boolean available = endpoint != null && online(cluster);
+        if (!available) {
+            log.warn("[RUNTIME_DATASOURCE_UNAVAILABLE] No online runtime endpoint "
+                            + "operation={} datasourceId={} datasourceType={} clusterId={} clusterCode={} endpointId={}",
+                    operation, datasource == null ? null : datasource.getId(),
+                    datasource == null ? null : datasource.getTypeCode(),
+                    cluster == null ? null : cluster.getId(),
+                    cluster == null ? null : cluster.getCode(),
+                    endpoint == null ? null : endpoint.getId());
+        }
+        return available;
+    }
     private RuntimeEndpointEntity endpoint(RuntimeClusterEntity cluster) {
         return endpointMapper.selectOne(new LambdaQueryWrapper<RuntimeEndpointEntity>()
                 .eq(RuntimeEndpointEntity::getTenantId, cluster.getTenantId()).eq(RuntimeEndpointEntity::getRuntimeClusterId, cluster.getId())
@@ -651,6 +704,87 @@ public class RuntimeDatasourceProbeRouter {
     private void addHeader(Map<String, List<String>> headers, String name, String value) {
         headers.computeIfAbsent(name, ignored -> new ArrayList<String>()).add(value);
     }
+    private void logProbeResult(DataSourceDefinition datasource,
+                                RuntimeClusterEntity cluster,
+                                RuntimeEndpointEntity endpoint,
+                                ConnectionTestResult result) {
+        if (result == null || !result.isSuccess()) {
+            log.warn("[DATASOURCE_PROBE_COMPLETED] Server received failed runtime probe "
+                            + "datasourceId={} datasourceType={} clusterId={} clusterCode={} endpointId={} "
+                            + "status={} message={}",
+                    datasource == null ? null : datasource.getId(),
+                    datasource == null ? null : datasource.getTypeCode(),
+                    cluster == null ? null : cluster.getId(),
+                    cluster == null ? null : cluster.getCode(),
+                    endpoint == null ? null : endpoint.getId(),
+                    result == null ? null : result.getStatus(),
+                    safeLogMessage(result == null ? null : result.getMessage()));
+            return;
+        }
+        log.info("[DATASOURCE_PROBE_COMPLETED] Server received successful runtime probe "
+                        + "datasourceId={} datasourceType={} clusterId={} clusterCode={} endpointId={} "
+                        + "durationMillis={}",
+                datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(),
+                cluster == null ? null : cluster.getId(),
+                cluster == null ? null : cluster.getCode(),
+                endpoint == null ? null : endpoint.getId(),
+                result.getDurationMs());
+    }
+
+    private void logRemoteFailure(String operation,
+                                  DataSourceDefinition datasource,
+                                  RuntimeClusterEntity cluster,
+                                  RuntimeEndpointEntity endpoint,
+                                  RemoteRuntimeException exception) {
+        log.warn("[RUNTIME_DATASOURCE_REMOTE_FAILURE] Server received runtime business failure "
+                        + "operation={} datasourceId={} datasourceType={} clusterId={} clusterCode={} "
+                        + "endpointId={} code={} message={}",
+                operation, datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(),
+                cluster == null ? null : cluster.getId(),
+                cluster == null ? null : cluster.getCode(),
+                endpoint == null ? null : endpoint.getId(), exception.getCode(),
+                safeLogMessage(exception.getMessage()));
+    }
+
+    private void logRoutingFailure(String operation,
+                                   DataSourceDefinition datasource,
+                                   RuntimeClusterEntity cluster,
+                                   RuntimeEndpointEntity endpoint,
+                                   Exception exception) {
+        log.error("[RUNTIME_DATASOURCE_ROUTING_FAILED] Server failed to call runtime worker "
+                        + "operation={} datasourceId={} datasourceType={} clusterId={} clusterCode={} "
+                        + "endpointId={} exceptionType={} message={}",
+                operation, datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(),
+                cluster == null ? null : cluster.getId(),
+                cluster == null ? null : cluster.getCode(),
+                endpoint == null ? null : endpoint.getId(),
+                exception.getClass().getName(), safeLogMessage(exception.getMessage()), exception);
+    }
+
+    private void logStudioFailure(String operation,
+                                  DataSourceDefinition datasource,
+                                  RuntimeClusterEntity cluster,
+                                  RuntimeEndpointEntity endpoint,
+                                  StudioException exception) {
+        log.warn("[RUNTIME_DATASOURCE_FAILURE] Runtime datasource operation returned a control-plane error "
+                        + "operation={} datasourceId={} datasourceType={} clusterId={} clusterCode={} "
+                        + "endpointId={} code={} message={}",
+                operation, datasource == null ? null : datasource.getId(),
+                datasource == null ? null : datasource.getTypeCode(),
+                cluster == null ? null : cluster.getId(),
+                cluster == null ? null : cluster.getCode(),
+                endpoint == null ? null : endpoint.getId(), exception.getCode(),
+                safeLogMessage(exception.getMessage()));
+    }
+
+    private String safeLogMessage(String message) {
+        String sanitized = StudioSensitiveLogSanitizer.sanitizeSingleLine(message, 2 * 1024);
+        return sanitized == null || sanitized.isBlank() ? "Unknown error" : sanitized;
+    }
+
     private static final class RemoteRuntimeException extends StudioException {
         private RemoteRuntimeException(String code, String message) {
             super(code, message);

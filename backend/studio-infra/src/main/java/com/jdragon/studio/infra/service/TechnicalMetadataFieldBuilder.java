@@ -71,15 +71,13 @@ final class TechnicalMetadataFieldBuilder {
         }
         if ("kafka".equals(normalized)) {
             fields.add(field("bootstrap.servers", "Bootstrap Servers", FieldValueType.STRING, FieldComponentType.TEXTAREA, true, false, 10, null));
-            fields.add(field("topic", "主题", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
-            fields.add(field("group.id", "消费组 ID", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
-            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
-            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 50, null));
-            fields.add(field("kerberos", "启用 Kerberos", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "false"));
-            fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
-            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
-            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
-            fields.add(field("kerberosDomain", "Kerberos 域", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 100, null));
+            fields.add(field("username", "用户名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+            fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 30, null));
+            fields.add(field("kerberos", "启用 Kerberos", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 40, "false"));
+            fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
+            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(field("kerberosDomain", "Kerberos 域", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
             return fields;
         }
         if ("rabbitmq".equals(normalized)) {

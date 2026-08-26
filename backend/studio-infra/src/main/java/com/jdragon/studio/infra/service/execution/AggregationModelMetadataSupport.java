@@ -72,8 +72,11 @@ final class AggregationModelMetadataSupport {
         metadata.put("discoveryMode", "AUTO");
         putIfPresent(metadata, "physicalName", queueName);
         putIfPresent(metadata, "queueName", queueName);
-        putIfPresent(metadata, "topic", datasourceMetadata.get("topic"));
-        putIfPresent(metadata, "queue", datasourceMetadata.get("queue"));
+        // Queue/topic is the model locator. Do not copy a datasource-level
+        // topic into every model, otherwise one legacy topic can override the
+        // explicitly selected model object during task assembly.
+        putIfPresent(metadata, "topic", queueName);
+        putIfPresent(metadata, "queue", queueName);
         putIfPresent(metadata, "brokers", datasourceMetadata.get("brokers"));
         putIfPresent(metadata, "consumerGroup", datasourceMetadata.get("consumerGroup"));
         putIfPresent(metadata, "tag", datasourceMetadata.get("tag"));

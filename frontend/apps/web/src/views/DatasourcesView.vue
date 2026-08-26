@@ -561,7 +561,19 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
       ...businessDefault,
     ];
   }
-  if (["kafka", "rocketmq", "rabbitmq"].includes(form.typeCode)) {
+  if (form.typeCode === "kafka") {
+    return [
+      { fieldKey: "bootstrap.servers", fieldName: "Bootstrap Servers", scope: "TECHNICAL", componentType: "TEXTAREA", valueType: "STRING", required: true },
+      { fieldKey: "username", fieldName: t("web.login.usernameLabel"), scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
+      { fieldKey: "kerberos", fieldName: "启用 Kerberos", scope: "TECHNICAL", componentType: "SWITCH", valueType: "BOOLEAN", defaultValue: "false" },
+      { fieldKey: "principal", fieldName: "Kerberos Principal", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "kerberosKeytabFilePath", fieldName: "Keytab 路径", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "krb5Conf", fieldName: "krb5.conf 路径", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "kerberosDomain", fieldName: "Kerberos 域", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+    ];
+  }
+  if (["rocketmq", "rabbitmq"].includes(form.typeCode)) {
     return [
       { fieldKey: "brokers", fieldName: "Brokers", scope: "TECHNICAL", componentType: "TEXTAREA", valueType: "STRING", required: true },
       { fieldKey: "username", fieldName: t("web.login.usernameLabel"), scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
@@ -930,9 +942,16 @@ const matchedSchema = computed(
       (schema) => sameEntityId(schema.id, form.schemaVersionId) || sameEntityId(schema.currentVersionId, form.schemaVersionId),
     ) ?? datasourceSchemas.value[0],
 );
-const technicalFields = computed(
-  () => matchedSchema.value?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value,
-);
+const technicalFields = computed(() => {
+  const fields = matchedSchema.value?.fields?.filter((field) => field.scope !== "BUSINESS") ?? fallbackTechnicalFields.value;
+  if (form.typeCode !== "kafka") {
+    return fields;
+  }
+  // Topic and consumer group identify a model/task, not the shared Kafka
+  // connection. Hide legacy schema fields while older server metadata is
+  // still present; saveDatasource also strips their values from the payload.
+  return fields.filter((field) => !["topic", "group.id", "groupId", "consumerGroup"].includes(field.fieldKey));
+});
 
 function resetForm() {
   editLoadSequence += 1;
@@ -1352,6 +1371,14 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
   }
   saving.value = true;
   try {
+    if (form.typeCode === "kafka") {
+      // Topic and consumer group are model/task settings. Strip legacy values
+      // that may still be present when editing an older datasource record.
+      delete payload.technicalMetadata.topic;
+      delete payload.technicalMetadata["group.id"];
+      delete payload.technicalMetadata.groupId;
+      delete payload.technicalMetadata.consumerGroup;
+    }
     const saved = await studioApi.datasources.save(payload);
     Object.assign(form, saved);
     // Public save responses never include secrets. Replace rather than merge

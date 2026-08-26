@@ -35,6 +35,7 @@ import com.jdragon.studio.worker.filetransfer.FileTransferPreviewExecutor;
 import com.jdragon.studio.worker.unstructured.UnstructuredFileExecutor;
 import jakarta.validation.Valid;
 import jakarta.servlet.http.HttpServletRequest;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpHeaders;
@@ -63,6 +64,7 @@ import java.net.URLEncoder;
 /** Internal-only datasource execution with explicit cluster, tenant, project and binding checks. */
 @RestController
 @RequestMapping("/internal/runtime/datasource")
+@Slf4j
 public class InternalDatasourceProbeController {
 
     private static final int MAX_ERROR_MESSAGE_LENGTH = 2 * 1024;
@@ -325,10 +327,57 @@ public class InternalDatasourceProbeController {
             DataSourceDefinition datasource = prepare(token, request, draftAllowed);
             return Result.success(action.apply(datasource));
         } catch (StudioException exception) {
+            DataSourceDefinition requestedDatasource = request == null ? null : request.getDatasource();
+            log.warn("[DATASOURCE_OPERATION_REJECTED] Worker datasource operation returned business error "
+                            + "operation={} operationId={} targetClusterId={} datasourceId={} "
+                            + "datasourceType={} code={} message={}",
+                    operationName(request), operationId,
+                    request == null ? null : request.getTargetClusterId(),
+                    requestedDatasource == null ? null : requestedDatasource.getId(),
+                    requestedDatasource == null ? null : requestedDatasource.getTypeCode(),
+                    exception.getCode(), safeErrorMessage(exception), exception);
             return Result.error(exception.getCode(), safeErrorMessage(exception));
+        } catch (RuntimeException exception) {
+            DataSourceDefinition requestedDatasource = request == null ? null : request.getDatasource();
+            if (exception instanceof ResponseStatusException) {
+                log.warn("[DATASOURCE_OPERATION_REJECTED] Worker rejected datasource operation "
+                                + "operation={} operationId={} targetClusterId={} datasourceId={} "
+                                + "datasourceType={} exceptionType={} message={}",
+                        operationName(request), operationId,
+                        request == null ? null : request.getTargetClusterId(),
+                        requestedDatasource == null ? null : requestedDatasource.getId(),
+                        requestedDatasource == null ? null : requestedDatasource.getTypeCode(),
+                        exception.getClass().getName(), safeErrorMessage(exception));
+            } else {
+                log.error("[DATASOURCE_OPERATION_FAILED] Worker datasource operation failed "
+                                + "operation={} operationId={} targetClusterId={} datasourceId={} "
+                                + "datasourceType={} exceptionType={} message={}",
+                        operationName(request), operationId,
+                        request == null ? null : request.getTargetClusterId(),
+                        requestedDatasource == null ? null : requestedDatasource.getId(),
+                        requestedDatasource == null ? null : requestedDatasource.getTypeCode(),
+                        exception.getClass().getName(), safeErrorMessage(exception), exception);
+            }
+            throw exception;
         } finally {
             restoreContext(previous);
         }
+    }
+
+    private String operationName(RuntimeDatasourceProbeRequest request) {
+        if (request == null) {
+            return "unknown";
+        }
+        if (StringUtils.hasText(request.getFileOperation())) {
+            return "file-" + request.getFileOperation().trim().toLowerCase();
+        }
+        if (StringUtils.hasText(request.getSql())) {
+            return "query";
+        }
+        if (request.getModel() != null) {
+            return "preview";
+        }
+        return "datasource";
     }
 
     private RuntimeDatasourceUploadRequest decodeUploadRequest(String encodedRequest) {

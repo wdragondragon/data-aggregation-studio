@@ -865,8 +865,11 @@ async function loadSqlDatasourceOptions(force = false) {
   }
   const runtimeClusterId = scriptForm.runtimeClusterId;
   const sequence = ++sqlDatasourceLoadSequence;
+  // SQL development must use the capability-filtered endpoint. The generic
+  // datasource options endpoint describes collection executability, which is
+  // intentionally true for Kafka even though Kafka does not support SQL.
   const options = runtimeClusterId
-    ? (await studioApi.datasources.optionsByRuntimeCluster(runtimeClusterId)).filter((item) => item.executable !== false)
+    ? await studioApi.dataDevelopment.listSqlDatasourceOptions(runtimeClusterId)
     : [];
   if (sequence === sqlDatasourceLoadSequence && String(scriptForm.runtimeClusterId ?? "") === String(runtimeClusterId ?? "")) {
     sqlDatasources.value = options;

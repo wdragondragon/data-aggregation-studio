@@ -13,6 +13,7 @@ import com.jdragon.studio.core.spi.ModelDiscoveryProvider;
 import com.jdragon.studio.core.spi.SourceCapabilityProvider;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
@@ -49,6 +50,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Comparator;
 
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildFileMetadata;
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildLightweightRelationalMetadata;
@@ -58,6 +62,7 @@ import static com.jdragon.studio.infra.service.execution.AggregationModelMetadat
 @Slf4j
 public class AggregationSourceCapabilityProvider implements SourceCapabilityProvider, ModelDiscoveryProvider {
     private static final String HTTP_READER_CONFIG_KEY = "__studio_http_reader_config";
+    private static final int MAX_LOG_MESSAGE_LENGTH = 2 * 1024;
 
 
     public static class HydrationResult {
@@ -163,39 +168,91 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     @Override
     public ConnectionTestResult testConnection(DataSourceDefinition definition) {
-        ConnectionTestResult result = new ConnectionTestResult();
+        long startedAt = System.nanoTime();
         if (isHttpDatasource(definition)) {
             return testHttpConnection(definition);
         }
+        String datasourceId = definition == null || definition.getId() == null
+                ? null : String.valueOf(definition.getId());
+        String datasourceType = definition == null ? null : definition.getTypeCode();
+        log.info("[DATASOURCE_PROBE_START] datasourceId={} datasourceType={}",
+                datasourceId, datasourceType);
         try (PluginClassLoaderCloseable loader = PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, definition.getTypeCode())) {
             AbstractPlugin plugin = loader.loadPlugin();
             if (plugin instanceof AbstractDataSourcePlugin) {
                 boolean success = ((AbstractDataSourcePlugin) plugin).connectTest(toBaseDataSource(definition));
-                result.setSuccess(success);
-                result.setMessage(success ? "Connection success" : "Connection failed");
-                return result;
+                return finishConnectionTest(definition, success,
+                        success ? "Connection success" : "Connection failed", startedAt);
             }
             if (plugin instanceof FileHelper) {
                 boolean success = ((FileHelper) plugin).connect(Configuration.from(normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
-                result.setSuccess(success);
-                result.setMessage(success ? "Connection success" : "Connection failed");
-                return result;
+                return finishConnectionTest(definition, success,
+                        success ? "Connection success" : "Connection failed", startedAt);
             }
             if (plugin instanceof QueueAbstract) {
                 QueueAbstract queue = (QueueAbstract) plugin;
-                queue.setPluginQueueConf(Configuration.from(normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
-                queue.init();
-                result.setSuccess(true);
-                result.setMessage("Queue plugin initialized");
-                return result;
+                try {
+                    queue.setPluginQueueConf(Configuration.from(normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
+                    queue.init();
+                    boolean success = queue.checkConnectivity();
+                    return finishConnectionTest(definition, success,
+                            success ? "Connection success" : "Connection failed", startedAt);
+                } finally {
+                    destroyQuietly(queue);
+                }
             }
-            result.setSuccess(false);
-            result.setMessage("Unsupported plugin type");
+            return finishConnectionTest(definition, false, "Unsupported plugin type", startedAt);
         } catch (Exception e) {
-            result.setSuccess(false);
-            result.setMessage(userFriendlyErrorMessage(e));
+            String message = userFriendlyErrorMessage(e);
+            log.error("[DATASOURCE_PROBE_FAILED] datasourceId={} datasourceType={} "
+                            + "exceptionType={} message={} durationMillis={}",
+                    datasourceId, datasourceType, e.getClass().getName(),
+                    safeLogMessage(message), elapsedMillis(startedAt), e);
+            return finishConnectionTest(definition, false, message, startedAt);
+        }
+    }
+
+    private ConnectionTestResult finishConnectionTest(DataSourceDefinition definition,
+                                                       boolean success,
+                                                       String message,
+                                                       long startedAt) {
+        ConnectionTestResult result = new ConnectionTestResult();
+        result.setSuccess(success);
+        result.setMessage(message);
+        if (success) {
+            log.info("[DATASOURCE_PROBE_COMPLETED] datasourceId={} datasourceType={} "
+                            + "success=true durationMillis={}",
+                    definition == null ? null : definition.getId(),
+                    definition == null ? null : definition.getTypeCode(),
+                    elapsedMillis(startedAt));
+        } else {
+            log.warn("[DATASOURCE_PROBE_COMPLETED] datasourceId={} datasourceType={} "
+                            + "success=false message={} durationMillis={}",
+                    definition == null ? null : definition.getId(),
+                    definition == null ? null : definition.getTypeCode(),
+                    safeLogMessage(message), elapsedMillis(startedAt));
         }
         return result;
+    }
+
+    private void destroyQuietly(AbstractPlugin plugin) {
+        try {
+            plugin.destroy();
+        } catch (Exception exception) {
+            log.warn("Failed to destroy datasource probe plugin. pluginType={}",
+                    plugin == null ? null : plugin.getClass().getName(), exception);
+        }
+    }
+
+    private String safeLogMessage(String message) {
+        String sanitized = StudioSensitiveLogSanitizer.sanitizeSingleLine(
+                message, MAX_LOG_MESSAGE_LENGTH);
+        return sanitized == null || sanitized.isBlank() ? "Unknown error" : sanitized;
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return Math.max(0L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - startedAt));
     }
 
     @Override
@@ -256,6 +313,16 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 return result;
             }
             if (plugin instanceof QueueAbstract) {
+                if (isKafkaDatasource(definition)) {
+                    List<String> topics = discoverKafkaTopics((QueueAbstract) plugin, definition);
+                    List<String> filteredTopics = filterQueueNames(topics, keyword);
+                    List<String> pagedTopics = paginate(filteredTopics, result, pageNo, pageSize);
+                    for (String topic : pagedTopics) {
+                        result.getModels().add(toDiscoveryOption(definition, topic, ModelKind.TOPIC, topic));
+                    }
+                    result.setMessage("Discovered Kafka topics");
+                    return result;
+                }
                 Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
                 String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
                 String modelName = String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName())));
@@ -342,6 +409,24 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                 return result;
             }
             if (plugin instanceof QueueAbstract) {
+                if (isKafkaDatasource(definition)) {
+                    List<String> topics = discoverKafkaTopics((QueueAbstract) plugin, definition);
+                    List<String> filteredTopics = filterQueueNames(topics, keyword);
+                    List<String> pagedTopics = paginate(filteredTopics, result, pageNo, pageSize);
+                    for (String topic : pagedTopics) {
+                        DataModelDefinition model = new DataModelDefinition();
+                        model.setDatasourceId(definition.getId());
+                        model.setName(topic);
+                        model.setModelKind(ModelKind.TOPIC);
+                        model.setPhysicalLocator(topic);
+                        model.setTechnicalMetadata(buildQueueMetadata(definition,
+                                normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata())), topic));
+                        model.setBusinessMetadata(buildEmptyBusinessMetadata());
+                        result.getModels().add(model);
+                    }
+                    result.setMessage("Discovered Kafka topics");
+                    return result;
+                }
                 Map<String, Object> metadata = normalizePluginMetadata(definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()));
                 String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase();
                 String modelName = String.valueOf(metadata.getOrDefault("topic", metadata.getOrDefault("queue", definition.getName())));
@@ -382,6 +467,52 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
         view.setModelKind(modelKind);
         view.setPhysicalLocator(physicalLocator);
         return view;
+    }
+
+    private boolean isKafkaDatasource(DataSourceDefinition definition) {
+        return definition != null && "kafka".equalsIgnoreCase(definition.getTypeCode());
+    }
+
+    private List<String> discoverKafkaTopics(QueueAbstract queue, DataSourceDefinition definition) throws Exception {
+        try {
+            queue.setPluginQueueConf(Configuration.from(normalizePluginMetadata(
+                    definition.getTypeCode(), decryptMetadata(definition.getTechnicalMetadata()))));
+            queue.init();
+            Method listTopic = queue.getClass().getMethod("listTopic");
+            Object value = listTopic.invoke(queue);
+            Set<String> topics = new HashSet<String>();
+            if (value instanceof Set<?>) {
+                for (Object item : (Set<?>) value) {
+                    if (item != null && !String.valueOf(item).trim().isEmpty()) {
+                        String topic = String.valueOf(item).trim();
+                        if (!topic.startsWith("__")) {
+                            topics.add(topic);
+                        }
+                    }
+                }
+            }
+            List<String> result = new ArrayList<String>(topics);
+            result.sort(Comparator.naturalOrder());
+            return result;
+        } finally {
+            destroyQuietly(queue);
+        }
+    }
+
+    private List<String> filterQueueNames(List<String> names, String keyword) {
+        String normalizedKeyword = keyword == null ? "" : keyword.trim().toLowerCase(Locale.ROOT);
+        if (normalizedKeyword.isEmpty()) {
+            return names == null ? new ArrayList<String>() : names;
+        }
+        List<String> filtered = new ArrayList<String>();
+        if (names != null) {
+            for (String name : names) {
+                if (name != null && name.toLowerCase(Locale.ROOT).contains(normalizedKeyword)) {
+                    filtered.add(name);
+                }
+            }
+        }
+        return filtered;
     }
 
     private List<String> paginate(List<String> names,

@@ -17,6 +17,7 @@ import com.jdragon.studio.dto.model.SqlExecutionResultView;
 import com.jdragon.studio.dto.model.dto.ConnectionTestResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryOptionResult;
 import com.jdragon.studio.dto.model.dto.ModelDiscoveryResult;
+import com.jdragon.studio.dto.enums.ModelKind;
 import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
 import lombok.extern.slf4j.Slf4j;
@@ -58,11 +59,38 @@ public class RuntimeDatasourceProbeExecutor {
 
     public ConnectionTestResult test(DataSourceDefinition datasource) {
         long started = System.nanoTime();
-        ConnectionTestResult result = provider.testConnection(datasource);
-        if (result == null) { result = new ConnectionTestResult(); result.setSuccess(false); result.setMessage("Connection test returned no result"); }
-        result.setStatus(result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE);
-        result.setDurationMs(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
-        return result;
+        log.info("[DATASOURCE_PROBE_START] operationId={} datasourceId={} datasourceType={}",
+                operationId(), datasourceId(datasource), datasourceType(datasource));
+        try {
+            ConnectionTestResult result = provider.testConnection(datasource);
+            if (result == null) {
+                result = new ConnectionTestResult();
+                result.setSuccess(false);
+                result.setMessage("Connection test returned no result");
+            }
+            result.setStatus(result.isSuccess() ? DataSourceConnectionStatus.AVAILABLE : DataSourceConnectionStatus.UNAVAILABLE);
+            result.setDurationMs(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started));
+            if (result.isSuccess()) {
+                log.info("[DATASOURCE_PROBE_COMPLETED] operationId={} datasourceId={} "
+                                + "datasourceType={} success=true durationMillis={}",
+                        operationId(), datasourceId(datasource), datasourceType(datasource),
+                        result.getDurationMs());
+            } else {
+                log.warn("[DATASOURCE_PROBE_COMPLETED] operationId={} datasourceId={} "
+                                + "datasourceType={} success=false status={} message={} durationMillis={}",
+                        operationId(), datasourceId(datasource), datasourceType(datasource),
+                        result.getStatus(), safeExceptionMessage(new IllegalStateException(result.getMessage())),
+                        result.getDurationMs());
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            log.error("[DATASOURCE_PROBE_FAILED] operationId={} datasourceId={} datasourceType={} "
+                            + "exceptionType={} message={} durationMillis={}",
+                    operationId(), datasourceId(datasource), datasourceType(datasource),
+                    exception.getClass().getName(), safeExceptionMessage(exception),
+                    elapsedMillis(started), exception);
+            throw exception;
+        }
     }
     public ModelDiscoveryResult discover(DataSourceDefinition datasource, String keyword, Integer pageNo, Integer pageSize) {
         return provider.discoverModels(datasource, keyword, pageNo, pageSize);
@@ -683,6 +711,11 @@ public class RuntimeDatasourceProbeExecutor {
                 DataModelDefinition candidate = new DataModelDefinition();
                 candidate.setDatasourceId(datasource.getId());
                 candidate.setName(locator.trim());
+                // Queue locators are topics/queues rather than generic datasets. Keep the
+                // discovered model kind when selective sync bypasses full discovery.
+                if (isQueueDatasource(datasource)) {
+                    candidate.setModelKind(ModelKind.TOPIC);
+                }
                 candidate.setPhysicalLocator(locator.trim());
                 Map<String, Object> metadata = new LinkedHashMap<String, Object>();
                 metadata.put("sourceType", datasource.getTypeCode());
@@ -704,6 +737,16 @@ public class RuntimeDatasourceProbeExecutor {
             result.getItems().add(item);
         }
         return result;
+    }
+
+    private boolean isQueueDatasource(DataSourceDefinition datasource) {
+        if (datasource == null || datasource.getTypeCode() == null) {
+            return false;
+        }
+        String typeCode = datasource.getTypeCode().trim();
+        return "kafka".equalsIgnoreCase(typeCode)
+                || "rocketmq".equalsIgnoreCase(typeCode)
+                || "rabbitmq".equalsIgnoreCase(typeCode);
     }
 
     public List<Map<String, Object>> preview(DataSourceDefinition datasource,

@@ -184,8 +184,8 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                 .contains("hdfsSiteFilePath", "coreSiteFilePath", "hadoopConfig", "kerberosPrincipal", "kerberosKeytabFilePath", "krb5Conf")
                 .doesNotContain("endpoint");
         assertThat(extractFieldKeys(findSchema(schemas, "technical:kafka:source")))
-                .contains("bootstrap.servers", "topic", "group.id", "username", "password")
-                .doesNotContain("brokers");
+                .contains("bootstrap.servers", "username", "password")
+                .doesNotContain("topic", "group.id", "brokers");
         assertThat(extractFieldKeys(findSchema(schemas, "technical:rabbitmq:source")))
                 .contains("host", "port", "username", "password", "queueName");
         assertThat(extractFieldKeys(findSchema(schemas, "technical:rocketmq:source")))

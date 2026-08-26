@@ -406,6 +406,7 @@ public class DataSourceService {
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
+        technicalMetadata = normalizeDatasourceConnectionMetadata(request.getTypeCode(), technicalMetadata);
         Long resolvedSchemaVersionId = resolveSchemaVersionId(request, schema);
         Map<String, Object> encryptedTechnicalMetadata = encryptSensitive(technicalMetadata);
         String connectionFingerprint = datasourceConnectionFingerprintService.fingerprint(currentTenantId,
@@ -1300,6 +1301,25 @@ public class DataSourceService {
             }
         }
         return output;
+    }
+
+    /**
+     * Kafka topics and consumer groups belong to models/tasks, not the shared
+     * broker connection. Drop legacy datasource-level values when a datasource
+     * is saved while retaining read-time compatibility for old records.
+     */
+    private Map<String, Object> normalizeDatasourceConnectionMetadata(String typeCode,
+                                                                       Map<String, Object> metadata) {
+        Map<String, Object> normalized = metadata == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(metadata);
+        if ("kafka".equalsIgnoreCase(typeCode)) {
+            normalized.remove("topic");
+            normalized.remove("group.id");
+            normalized.remove("groupId");
+            normalized.remove("consumerGroup");
+        }
+        return normalized;
     }
 
     private Object parseDefaultValue(MetadataFieldDefinition field) {

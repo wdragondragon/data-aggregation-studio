@@ -589,8 +589,9 @@ public class CollectionTaskAssemblerService {
         Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
         readerConfig.put("sourceAlias", binding.getSourceAlias());
         if ("kafka".equalsIgnoreCase(pluginType)) {
-            readerConfig.putAll(buildConnectionConfig(datasource));
+            readerConfig.putAll(buildKafkaJobConfig(datasource));
             readerConfig.put("topic", resolveQueueTopic(model, readerConfig));
+            ensureKafkaGroupId(readerConfig, datasource, model, binding);
             readerConfig.put("columns", fieldMappingResolver.resolveColumnEntries(model, sourceFields, false));
             return readerConfig;
         }
@@ -629,7 +630,7 @@ public class CollectionTaskAssemblerService {
                                                   String pluginType) {
         Map<String, Object> writerConfig = new LinkedHashMap<String, Object>();
         if ("kafka".equalsIgnoreCase(pluginType)) {
-            writerConfig.putAll(buildConnectionConfig(datasource));
+            writerConfig.putAll(buildKafkaJobConfig(datasource));
             writerConfig.put("topic", resolveQueueTopic(model, writerConfig));
             writerConfig.put("columns", fieldMappingResolver.resolveColumnEntries(model, targetFields, false));
             return writerConfig;
@@ -944,11 +945,67 @@ public class CollectionTaskAssemblerService {
     }
 
     private String resolveQueueTopic(DataModelDefinition model, Map<String, Object> config) {
+        if (model != null && model.getPhysicalLocator() != null
+                && !String.valueOf(model.getPhysicalLocator()).trim().isEmpty()) {
+            return String.valueOf(model.getPhysicalLocator()).trim();
+        }
         Object topic = config.get("topic");
         if (topic != null && !String.valueOf(topic).trim().isEmpty()) {
             return String.valueOf(topic);
         }
-        return model.getPhysicalLocator();
+        return model == null ? null : model.getPhysicalLocator();
+    }
+
+    /**
+     * Kafka job plugins use camel-case option names while datasource metadata
+     * follows Kafka client property names (for example bootstrap.servers and
+     * group.id). Normalize the aliases before the reader/writer configuration
+     * reaches the plugin; otherwise Properties.put receives null values and
+     * the job fails during plugin initialization.
+     */
+    private Map<String, Object> buildKafkaJobConfig(DataSourceDefinition datasource) {
+        return normalizeKafkaJobConfig(buildConnectionConfig(datasource));
+    }
+
+    static Map<String, Object> normalizeKafkaJobConfig(Map<String, Object> raw) {
+        Map<String, Object> normalized = new LinkedHashMap<String, Object>();
+        if (raw == null) {
+            return normalized;
+        }
+        for (Map.Entry<String, Object> entry : raw.entrySet()) {
+            String key = entry.getKey();
+            if (!"bootstrap.servers".equals(key)
+                    && !"group.id".equals(key)
+                    && !"groupId".equals(key)) {
+                normalized.put(key, entry.getValue());
+            }
+        }
+        if (!normalized.containsKey("bootstrapServers")) {
+            Object bootstrapServers = raw.get("bootstrap.servers");
+            if (bootstrapServers != null) {
+                normalized.put("bootstrapServers", bootstrapServers);
+            }
+        }
+        return normalized;
+    }
+
+    private void ensureKafkaGroupId(Map<String, Object> config,
+                                    DataSourceDefinition datasource,
+                                    DataModelDefinition model,
+                                    CollectionTaskSourceBinding binding) {
+        Object configured = config.get("groupId");
+        if (configured != null && !String.valueOf(configured).trim().isEmpty()) {
+            return;
+        }
+        String datasourcePart = datasource == null || datasource.getId() == null
+                ? "unknown-datasource" : String.valueOf(datasource.getId());
+        String modelPart = model == null || model.getId() == null
+                ? (model == null ? "unknown-model" : String.valueOf(model.getPhysicalLocator()))
+                : String.valueOf(model.getId());
+        String aliasPart = binding == null || binding.getSourceAlias() == null
+                ? "source" : binding.getSourceAlias();
+        String raw = "studio-" + datasourcePart + "-" + modelPart + "-" + aliasPart;
+        config.put("groupId", raw.replaceAll("[^A-Za-z0-9._-]", "_"));
     }
 
     private Map<String, Object> buildConnectionConfig(DataSourceDefinition datasource) {
