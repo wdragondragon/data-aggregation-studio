@@ -238,6 +238,7 @@ create table if not exists datasource_type_capability (
     source_plugin text,
     reader_plugins_json text,
     writer_plugins_json text,
+    runtime_capabilities_json text,
     sort_order integer default 0,
     description text
 );
@@ -248,9 +249,11 @@ insert or ignore into datasource_type_capability (id, tenant_id, deleted, create
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'oracle', 'Oracle', 'DATABASE', 1, 1, 0, 1, 1, 'oracle', '["oracle"]', '[]', 20, 'Oracle 数据库'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'postgres', 'PostgreSQL', 'DATABASE', 1, 1, 1, 1, 1, 'postgres', '["postgresql"]', '["postgresql"]', 30, 'PostgreSQL 数据库'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'dm', '达梦数据库', 'DATABASE', 1, 1, 1, 1, 1, 'dm', '["dm"]', '["dm"]', 40, '达梦数据库'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'local', 'Local File', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'local', '[]', '[]', 45, '本地文件系统'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'ftp', 'FTP', 'FILE_SYSTEM', 1, 1, 1, 1, 0, 'ftp', '["ftp"]', '["ftp"]', 50, 'FTP 文件数据源'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'sftp', 'SFTP', 'FILE_SYSTEM', 1, 1, 1, 1, 0, 'sftp', '["sftp"]', '["sftp"]', 60, 'SFTP 文件数据源'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'minio', 'MinIO', 'FILE_SYSTEM', 1, 1, 1, 1, 0, 'minio', '["minio"]', '["minio"]', 70, 'MinIO / OSS 对象存储'),
+(abs(random()), 'default', 0, datetime('now'), datetime('now'), 'oss', 'Aliyun OSS', 'FILE_SYSTEM', 1, 0, 0, 1, 0, 'oss', '[]', '[]', 75, '阿里云 OSS 对象存储'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'kafka', 'Kafka', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'kafka', '["kafka"]', '["kafka"]', 80, 'Kafka 消息队列'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'rocketmq', 'RocketMQ', 'MESSAGE_QUEUE', 1, 1, 1, 1, 0, 'rocketmq', '["rocketmq"]', '["rocketmq"]', 90, 'RocketMQ 消息队列'),
 (abs(random()), 'default', 0, datetime('now'), datetime('now'), 'http', 'HTTP', 'HTTP_API', 1, 1, 1, 1, 0, 'http', '["httpreader"]', '["httpwriter"]', 95, 'HTTP 接口数据源'),
@@ -1637,6 +1640,8 @@ create table if not exists so_pf_script_env (
     enabled integer default 1,
     use_application_parent integer default 1,
     environment_version integer default 1,
+    python_install_mode text default 'LOCAL_ARTIFACT',
+    python_repository_id integer,
     description text
 );
 create unique index if not exists uk_so_pf_script_env_code on so_pf_script_env(tenant_id, environment_code);

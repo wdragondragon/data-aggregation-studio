@@ -112,7 +112,7 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
                 .andReturn();
         JsonNode runRecords = readBody(runListResult).path("data").path("runRecords");
         assertThat(runRecords).hasSize(2);
-        assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("successRecords").asLong()).isEqualTo(9L);
+        assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("successRecords").asLong()).isEqualTo(11L);
         assertThat(findRunRecord(runRecords, "41001").path("metricSummary").path("writeSucceedRecords").asLong()).isEqualTo(11L);
         assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("collectedRecords").isNull()).isTrue();
         assertThat(findRunRecord(runRecords, "41002").path("metricSummary").path("successRecords").isNull()).isTrue();
@@ -130,7 +130,7 @@ class RunMetricsApiRegressionTest extends StudioApiRegressionTestSupport {
                         .header("Authorization", authorization))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.metricSummary.collectedRecords").value(12))
-                .andExpect(jsonPath("$.data.metricSummary.successRecords").value(9))
+                .andExpect(jsonPath("$.data.metricSummary.successRecords").value(11))
                 .andExpect(jsonPath("$.data.metricSummary.writeSucceedRecords").value(11))
                 .andExpect(jsonPath("$.data.metricSummary.transformerFilterRecords").value(2));
 

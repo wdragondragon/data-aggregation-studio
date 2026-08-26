@@ -60,7 +60,7 @@ class DataSourceDiscoveryOptionsSourceSlimmingRegressionTest {
 
         ArgumentCaptor<DataSourceDefinition> datasourceCaptor = ArgumentCaptor.forClass(DataSourceDefinition.class);
         verify(probeRouter).discoverOptions(datasourceCaptor.capture(), eq(46L), eq("客户"), eq(1), eq(20));
-        assertThat(datasourceCaptor.getValue().getTechnicalMetadata()).containsKey("password");
+        assertThat(datasourceCaptor.getValue().getTechnicalMetadata()).doesNotContainKey("password");
         verify(probeRouter, never()).discover(any(DataSourceDefinition.class), any(), any(), any(), any());
     }
 

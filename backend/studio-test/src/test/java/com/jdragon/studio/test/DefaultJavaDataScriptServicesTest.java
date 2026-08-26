@@ -32,6 +32,7 @@ class DefaultJavaDataScriptServicesTest {
         DataModelDefinition maskedModel = new DataModelDefinition();
         List<DataModelDefinition> rawModels = Collections.singletonList(rawModel);
         List<DataModelDefinition> maskedModels = Collections.singletonList(maskedModel);
+        when(dataSourceService.getInternalForProject(7L, 11L)).thenReturn(datasource(11L, "cluster-a"));
         when(dataModelService.listByDatasource(11L)).thenReturn(rawModels);
         when(dataModelService.maskSensitiveReaderOptions(rawModels)).thenReturn(maskedModels);
         when(bindingService.filterApplicableDatasourceIds(7L, 9L, Collections.singleton(11L)))
@@ -53,7 +54,7 @@ class DefaultJavaDataScriptServicesTest {
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
         DataSourceDefinition applicable = datasource(11L, "cluster-a");
         DataSourceDefinition otherCluster = datasource(12L, "cluster-b");
-        when(dataSourceService.list()).thenReturn(java.util.Arrays.asList(applicable, otherCluster));
+        when(dataSourceService.listForProject(7L)).thenReturn(java.util.Arrays.asList(applicable, otherCluster));
         when(bindingService.filterApplicableDatasourceIds(
                 org.mockito.ArgumentMatchers.eq(7L),
                 org.mockito.ArgumentMatchers.eq(9L),
@@ -66,7 +67,7 @@ class DefaultJavaDataScriptServicesTest {
         List<DataSourceDefinition> result = services.listDatasources();
         assertThat(result).containsExactly(applicable);
         assertThat(result).doesNotContain(otherCluster);
-        verify(dataSourceService, never()).getInternal(12L);
+        verify(dataSourceService, never()).getInternalForProject(7L, 12L);
     }
 
     @Test
@@ -76,7 +77,7 @@ class DefaultJavaDataScriptServicesTest {
         DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
         DataSourceDefinition datasource = datasource(11L, "cluster-a");
-        when(dataSourceService.getInternal(11L)).thenReturn(datasource);
+        when(dataSourceService.getInternalForProject(7L, 11L)).thenReturn(datasource);
         when(bindingService.filterApplicableDatasourceIds(7L, 9L, Collections.singleton(11L)))
                 .thenReturn(new LinkedHashSet<Long>(Collections.singleton(11L)));
 
@@ -94,6 +95,7 @@ class DefaultJavaDataScriptServicesTest {
         DataModelService dataModelService = mock(DataModelService.class);
         DataDevelopmentSqlExecutor sqlExecutor = mock(DataDevelopmentSqlExecutor.class);
         DatasourceClusterBindingService bindingService = mock(DatasourceClusterBindingService.class);
+        when(dataSourceService.getInternalForProject(7L, 12L)).thenReturn(datasource(12L, "cluster-b"));
         when(bindingService.filterApplicableDatasourceIds(7L, 9L, Collections.singleton(12L)))
                 .thenReturn(Collections.emptySet());
 
@@ -102,7 +104,7 @@ class DefaultJavaDataScriptServicesTest {
 
         assertThatThrownBy(() -> services.executeSql(12L, "select 1", 20))
                 .hasMessage("Datasource is not applicable to the selected runtime cluster");
-        verify(dataSourceService, never()).getInternal(12L);
+        verify(dataSourceService).getInternalForProject(7L, 12L);
         verify(sqlExecutor, never()).executeSql(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyString(),

@@ -274,10 +274,10 @@ class AssistantStudioToolExecutionServiceTest {
         when(dataModelService.preview(Long.valueOf(7L), 20, Long.valueOf(46L))).thenReturn(rows);
         AssistantStudioToolExecutionService service = service(dataModelService);
 
-        Map<String, Object> result = service.execute(request("studio.feature.get", params(
+        Map<String, Object> result = service.execute(request("studio.feature.action", params(
                 "path", "/models",
+                "action", "preview",
                 "id", 7L,
-                "view", "preview",
                 "runtimeClusterId", 46L)));
 
         assertThat(resultMap(result, "data").get("previewRows")).isSameAs(rows);
