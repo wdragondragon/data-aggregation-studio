@@ -188,3 +188,93 @@ TC10 确认页显示 Writer `efile` 完全没有 `planDate`，但实际文件仍
 - FTP 与 MinIO/OSS 的文件内容和错误行为一致，说明本轮主要问题位于公共 EFile Writer/字段装配层，而不是某一文件存储适配器。
 - `tableCode::tableName` 约定已正确保留，未删除模型属性；目标模型 Reader 在两类目标源上均可回读成功文件。
 - 本轮创建的模型、采集任务、运行记录和目标文件均保留在 Studio 中，未清理既有 SFTP 测试产物。
+
+## 8. 20260829 修复后补测
+
+本节记录动态函数实现及 Server 运行依赖修复后的 Studio UI 补测，覆盖 FTP 和 aliyun oss（页面插件类型为 minio）。所有操作仍通过 Studio 页面完成。
+
+### 8.1 动态函数组合预览
+
+保留任务：`Codex动态函数验证20260828`（`codex_dynfn_0828`）。通过编辑页验证并预览以下表达式：
+
+- 源根路径：`/upload/codex/native-streaming-m7-$getCurrentTime('yyyyMMdd','-2d')`
+- 包含 Glob：`**/*.efile`
+- 包含正则：`.*/NativeStreaming-M7-KafkaToOss-$getCurrentTime('yyyyMMdd','-2d')\\.efile$`
+- 目标根路径：`/upload/codex/dynfn-minio-$getCurrentTime('yyyyMMdd')`
+- 目标相对路径模板：`$getCurrentTime('yyyyMM')/${relativePath}/${fileName}`
+
+“校验配置”提示任务配置校验通过；“预览选中文件”得到 1 个文件、187 B，目标路径解析为：
+
+```text
+/upload/codex/dynfn-minio-20260829/202608/NativeStreaming-M7-KafkaToOss-20260827.efile
+```
+
+这确认了源端日期函数先于文件发现执行，包含 Glob 与包含正则同时生效（AND），正则中的点号转义未被破坏，目标端函数先于 `${relativePath}`/`${fileName}` 替换执行。
+
+### 8.2 FTP 目标运行与文件验收
+
+运行记录：
+
+- 运行 ID：`2093376789411467265`
+- 开始/结束：`2026-08-29 00:34:55` / `2026-08-29 00:34:59`
+- Worker：`studio-online-worker-01`，实际集群：`DEFAULT-LOCAL`
+- 状态：`SUCCESS`；总数 1，成功 1，跳过 0，失败 0；传输 187 B
+- 日志摘要：`File transfer completed with status SUCCESS`
+- 日志中的目标路径：`/upload/codex/dynfn-20260829/202608/NativeStreaming-M7-KafkaToOss-20260827.efile`
+
+在 Studio“非结构化管理”中选择 `ftp测试源`，浏览目录 `/upload/codex/dynfn-20260829/202608`，看到：
+
+```text
+NativeStreaming-M7-KafkaToOss-20260827.efile  187 B  2026-08-29 00:34:00
+```
+
+通过页面下载后，文件 SHA-256 为：
+
+```text
+7D9DA4C082D6EAD04DDFA5C3AB81F0EBE5B635923D477C6E67AE3299EA1F8FF5
+```
+
+内容与源端对象逐字节一致：
+
+```text
+<! Entity='demo' dataTime='20260827_12:07:00' type='test' !>
+<T01::Data planDate='20260827' >
+@ id test_param
+// id test_param
+# 117 native-streaming-117-server-outage
+</T01::Data>
+```
+
+此前“动态目录页面为空”的暂定异常已排除；重新在 FTP 页面输入完整目标路径并刷新后文件可浏览、可下载，当前没有证据表明是 FTP Writer 写入失败。
+
+### 8.3 aliyun oss / MinIO 目标运行与文件验收
+
+运行记录：
+
+- 运行 ID：`2093383772273315842`
+- 开始/结束：`2026-08-29 01:02:40` / `2026-08-29 01:02:42`
+- Worker：`studio-online-worker-01`，实际集群：`DEFAULT-LOCAL`
+- 状态：`SUCCESS`；总数 1，成功 1，跳过 0，失败 0；传输 187 B
+- 日志摘要：`File transfer completed with status SUCCESS`
+- 日志中的源/目标：`sourceType=minio`、`targetType=minio`，目标路径为 `/upload/codex/dynfn-minio-20260829/202608/NativeStreaming-M7-KafkaToOss-20260827.efile`
+
+在 Studio“非结构化管理”中选择 `aliyun oss`，浏览目录 `/upload/codex/dynfn-minio-20260829/202608`，看到对象：
+
+```text
+NativeStreaming-M7-KafkaToOss-20260827.efile  187 B  2026-08-29 01:02:41
+```
+
+通过页面下载后，源对象与目标对象 SHA-256 均为：
+
+```text
+7D9DA4C082D6EAD04DDFA5C3AB81F0EBE5B635923D477C6E67AE3299EA1F8FF5
+```
+
+目标对象内容与源对象逐字节一致，`EFile` 头、`tableCode::tableName`、`planDate`、字段行、说明行、数据行和结束标签均保持不变。
+
+### 8.4 补测结论
+
+- FTP：动态源路径、Glob/正则筛选、目标日期目录、`${relativePath}`/`${fileName}` 模板和文件写入均通过；运行 ID `2093376789411467265`。
+- aliyun oss/MinIO：同一组合表达式和目标对象写入、Studio 浏览、页面下载及 SHA-256 比对均通过；运行 ID `2093383772273315842`。
+- 两类目标的文件内容完全一致，未观察到适配器层差异。
+- 20260824 文档中的 D1 是修复前历史记录；本次补测未重新执行 planDate 冲突、空 planDate 和 TAG 多行不一致场景，需以修复后的自动化测试结果和后续专项 UI 回归作为最终判定依据。
