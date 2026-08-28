@@ -40,8 +40,10 @@ public class StudioPlatformProperties {
     private ScriptEnvironmentProperties scriptEnvironment = new ScriptEnvironmentProperties();
     private ModelSyncTaskProperties modelSyncTask = new ModelSyncTaskProperties();
     private DispatchProperties dispatch = new DispatchProperties();
+    private WorkerProperties worker = new WorkerProperties();
     private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
     private RunLogProperties runLog = new RunLogProperties();
+    private StreamingHistoryProperties streamingHistory = new StreamingHistoryProperties();
     private InvocationLogProperties invocationLog = new InvocationLogProperties();
     private DatasourceHealthProperties datasourceHealth = new DatasourceHealthProperties();
     private AlertProperties alert = new AlertProperties();
@@ -99,10 +101,30 @@ public class StudioPlatformProperties {
     }
 
     @Data
+    public static class WorkerProperties {
+        private StreamingWorkerProperties streaming = new StreamingWorkerProperties();
+    }
+
+    @Data
+    public static class StreamingWorkerProperties {
+        private Integer maxConcurrent = 2;
+    }
+
+    @Data
     public static class RunLogProperties {
         private String storageType = "LOCAL";
         private String objectPrefix = "studio/run-logs";
         private ObjectStorageProperties objectStorage = new ObjectStorageProperties();
+    }
+
+    @Data
+    public static class StreamingHistoryProperties {
+        /** Disabled by default so local/test environments retain their evidence. */
+        private boolean cleanupEnabled = false;
+        private Integer retentionDays = 30;
+        private Integer cleanupIntervalMillis = 3_600_000;
+        private Integer cleanupBatchSize = 1_000;
+        private Integer cleanupMaxBatches = 20;
     }
 
     @Data

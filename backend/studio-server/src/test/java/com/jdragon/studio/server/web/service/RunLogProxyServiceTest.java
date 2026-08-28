@@ -10,7 +10,9 @@ import com.jdragon.studio.commons.exception.StudioException;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.RunLogChunkEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
+import com.jdragon.studio.infra.mapper.RunLogChunkMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.service.RunLogStorageService;
 import com.jdragon.studio.infra.service.RunService;
@@ -130,12 +132,45 @@ class RunLogProxyServiceTest {
         }
     }
 
+    @Test
+    void shouldPreviewTheRequestedStreamingChunkThroughItsOwningWorker() throws Exception {
+        HttpServer server = server(true,
+                "{\"success\":true,\"data\":{\"runRecordId\":91,\"content\":\"chunk-content\"}}",
+                new AtomicReference<String>());
+        Fixture fixture = fixture("http://127.0.0.1:" + server.getAddress().getPort(), true, 10 * 1024 * 1024);
+        RunLogChunkEntity chunk = new RunLogChunkEntity();
+        chunk.setId(88L);
+        chunk.setCollectionTaskId(42L);
+        chunk.setRunRecordId(91L);
+        chunk.setTenantId("tenant-a");
+        chunk.setProjectId(101L);
+        when(fixture.runLogChunkMapper.selectOne(any())).thenReturn(chunk);
+        try {
+            RunLogView result = fixture.proxy.viewChunk(42L, 88L, 2, 4096);
+            assertThat(result.getContent()).isEqualTo("chunk-content");
+        } finally {
+            fixture.httpClient.close();
+            server.stop(0);
+        }
+    }
+
     private HttpServer server(boolean authenticated,
                               String responseBody,
                               AtomicReference<String> receivedToken) throws Exception {
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/internal/runs/91/log", exchange -> {
             receivedToken.set(exchange.getRequestHeaders().getFirst(StudioConstants.INTERNAL_API_TOKEN_HEADER));
+            if (authenticated) {
+                exchange.getResponseHeaders().add(RuntimeInternalHeaders.RUNTIME_RESPONSE_HEADER,
+                        RuntimeInternalHeaders.RUNTIME_RESPONSE_AUTHENTICATED);
+            }
+            byte[] bytes = responseBody.getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json;charset=UTF-8");
+            exchange.sendResponseHeaders(200, bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.createContext("/internal/runs/chunks/88/preview", exchange -> {
             if (authenticated) {
                 exchange.getResponseHeaders().add(RuntimeInternalHeaders.RUNTIME_RESPONSE_HEADER,
                         RuntimeInternalHeaders.RUNTIME_RESPONSE_AUTHENTICATED);
@@ -153,10 +188,12 @@ class RunLogProxyServiceTest {
     private Fixture fixture(String workerApiBaseUrl, boolean allowLocalhost, int maxResponseBytes) {
         RunService runService = mock(RunService.class);
         WorkerLeaseMapper workerLeaseMapper = mock(WorkerLeaseMapper.class);
+        RunLogChunkMapper runLogChunkMapper = mock(RunLogChunkMapper.class);
         RunRecordEntity pointer = new RunRecordEntity();
         pointer.setId(91L);
         pointer.setTenantId("tenant-a");
         pointer.setProjectId(101L);
+        pointer.setCollectionTaskId(42L);
         pointer.setActualClusterId(50L);
         pointer.setActualClusterCode("C50");
         pointer.setWorkerCode("worker-a");
@@ -191,21 +228,25 @@ class RunLogProxyServiceTest {
         RuntimeEndpointHttpClient httpClient = new RuntimeEndpointHttpClient();
         RunLogProxyService proxy = new RunLogProxyService(
                 runService, workerLeaseMapper, properties, new ObjectMapper().findAndRegisterModules(),
-                mock(RunLogStorageService.class), new RuntimeEndpointSecurityService(properties), httpClient);
-        return new Fixture(proxy, workerLeaseMapper, httpClient);
+                mock(RunLogStorageService.class), new RuntimeEndpointSecurityService(properties), httpClient,
+                runLogChunkMapper);
+        return new Fixture(proxy, workerLeaseMapper, httpClient, runLogChunkMapper);
     }
 
     private static final class Fixture {
         private final RunLogProxyService proxy;
         private final WorkerLeaseMapper workerLeaseMapper;
         private final RuntimeEndpointHttpClient httpClient;
+        private final RunLogChunkMapper runLogChunkMapper;
 
         private Fixture(RunLogProxyService proxy,
                         WorkerLeaseMapper workerLeaseMapper,
-                        RuntimeEndpointHttpClient httpClient) {
+                        RuntimeEndpointHttpClient httpClient,
+                        RunLogChunkMapper runLogChunkMapper) {
             this.proxy = proxy;
             this.workerLeaseMapper = workerLeaseMapper;
             this.httpClient = httpClient;
+            this.runLogChunkMapper = runLogChunkMapper;
         }
     }
 }

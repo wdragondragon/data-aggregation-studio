@@ -2,11 +2,13 @@ package com.jdragon.studio.infra.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
@@ -14,12 +16,17 @@ import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
+import com.jdragon.studio.dto.model.CollectionTaskStreamingOptions;
+import com.jdragon.studio.dto.model.CollectionTaskStreamingRuntimeView;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.DataModelDefinition;
 import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunLogChunkView;
+import com.jdragon.studio.dto.model.StreamingMetricBucketView;
+import com.jdragon.studio.dto.model.StreamingTaskEventView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.infra.entity.CollectionTaskDefinitionEntity;
 import com.jdragon.studio.infra.entity.CollectionTaskMetricBindingEntity;
@@ -76,6 +83,7 @@ public class CollectionTaskService {
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final CollectionTaskIncrementalCursorSupport incrementalCursorSupport;
     private RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private StreamingTaskRuntimeService streamingTaskRuntimeService;
 
     public CollectionTaskService(CollectionTaskDefinitionMapper definitionMapper,
                                  CollectionTaskMetricBindingMapper metricBindingMapper,
@@ -124,6 +132,11 @@ public class CollectionTaskService {
 
     @org.springframework.beans.factory.annotation.Autowired
     void setRuntimeClusterSelectionService(RuntimeClusterSelectionService runtimeClusterSelectionService) { this.runtimeClusterSelectionService = runtimeClusterSelectionService; }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setStreamingTaskRuntimeService(StreamingTaskRuntimeService streamingTaskRuntimeService) {
+        this.streamingTaskRuntimeService = streamingTaskRuntimeService;
+    }
 
     public List<CollectionTaskListView> listSummaries(String nameKeyword, String targetDatasourceKeyword, String targetModelKeyword) {
         int pageNo = 1;
@@ -329,6 +342,9 @@ public class CollectionTaskService {
         Page<CollectionTaskDefinitionEntity> page = new Page<CollectionTaskDefinitionEntity>(safePageNo, safePageSize);
         LambdaQueryWrapper<CollectionTaskDefinitionEntity> queryWrapper = selectWorkflowOptionColumns(buildAccessibleQuery())
                 .eq(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
+                .and(wrapper -> wrapper.isNull(CollectionTaskDefinitionEntity::getExecutionMode)
+                        .or()
+                        .eq(CollectionTaskDefinitionEntity::getExecutionMode, CollectionTaskExecutionMode.BATCH.name()))
                 .eq(runtimeClusterId != null, CollectionTaskDefinitionEntity::getRuntimeClusterId, runtimeClusterId)
                 .and(hasText(normalizedKeyword), wrapper -> {
                     wrapper.like(CollectionTaskDefinitionEntity::getName, normalizedKeyword)
@@ -407,12 +423,19 @@ public class CollectionTaskService {
     public CollectionTaskDefinitionView save(CollectionTaskSaveRequest request) {
         validateRequest(request);
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
-        CollectionTaskDefinitionEntity entity = request.getId() == null
+        boolean creating = request.getId() == null;
+        CollectionTaskDefinitionEntity entity = creating
                 ? new CollectionTaskDefinitionEntity()
                 : requireWritableEntity(request.getId());
         if (entity == null) {
             entity = new CollectionTaskDefinitionEntity();
         }
+        if (creating) {
+            entity.setId(IdWorker.getId());
+        } else if (executionMode(entity) == CollectionTaskExecutionMode.STREAMING) {
+            requireStreamingRuntimeService().assertEditable(entity);
+        }
+        CollectionTaskExecutionMode executionMode = resolveExecutionMode(request.getExecutionMode(), entity, creating);
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
         List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
                 request.getSourceBindings(), storedSourceBindings(entity));
@@ -429,6 +452,9 @@ public class CollectionTaskService {
         List<FieldMappingDefinition> fieldMappings = request.getFieldMappings() == null
                 ? new ArrayList<FieldMappingDefinition>()
                 : request.getFieldMappings();
+        CollectionTaskStreamingOptions streamingOptions = normalizeStreamingOptions(
+                executionMode, request.getStreamingOptions(), entity, creating);
+        validateExecutionMode(executionMode, sourceBindings, request.getSchedule(), streamingOptions);
 
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
         entity.setTenantId(securityService.currentTenantId());
@@ -437,25 +463,30 @@ public class CollectionTaskService {
         entity.setName(request.getName());
         entity.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION.name() : CollectionTaskType.SINGLE_TABLE.name());
         entity.setSourceCount(sourceBindings.size());
-        entity.setStatus(entity.getId() != null && CollectionTaskStatus.ONLINE.name().equalsIgnoreCase(entity.getStatus())
-                ? CollectionTaskStatus.ONLINE.name()
-                : CollectionTaskStatus.DRAFT.name());
+        entity.setStatus(resolveStatusForSave(entity.getStatus(), creating));
+        entity.setExecutionMode(executionMode.name());
         applyTargetSnapshots(entity, targetBinding);
         entity.setSourceBindingsJson(toListOfMaps(sourceBindings));
         entity.setTargetBindingJson(toMap(targetBinding));
         entity.setFieldMappingsJson(toListOfMaps(fieldMappings));
         entity.setExecutionOptionsJson(executionOptions);
-        if (entity.getId() == null && entity.getCreatedBy() == null) {
+        entity.setStreamingOptionsJson(streamingOptions == null
+                ? new LinkedHashMap<String, Object>() : toMap(streamingOptions));
+        if (creating && entity.getCreatedBy() == null) {
             entity.setCreatedBy(securityService.currentUserId());
         }
 
-        if (entity.getId() == null) {
+        if (creating) {
             definitionMapper.insert(entity);
         } else {
             definitionMapper.updateById(entity);
         }
         rebuildMetricBindings(entity, sourceBindings, targetBinding);
-        saveSchedule(entity.getId(), entity.getProjectId(), request.getSchedule());
+        saveSchedule(entity.getId(), entity.getProjectId(), executionMode == CollectionTaskExecutionMode.STREAMING
+                ? null : request.getSchedule());
+        if (executionMode == CollectionTaskExecutionMode.STREAMING) {
+            requireStreamingRuntimeService().ensureDeployment(entity);
+        }
         dataModelLineageService.scheduleTaskRebuildAfterCommit(entity.getId());
         runtimeClusterSelectionService.markResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, entity.getId());
         return get(entity.getId());
@@ -463,10 +494,13 @@ public class CollectionTaskService {
 
     @Transactional
     public CollectionTaskListView publish(Long id) {
-        CollectionTaskDefinitionEntity entity = requireWritableListEntity(id);
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
         runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, entity.getId());
         runtimeClusterSelectionService.assertExistingResourceRunnable(entity.getProjectId(), entity.getRuntimeClusterId(),
                 datasourceIds(entity));
+        if (executionMode(entity) == CollectionTaskExecutionMode.STREAMING) {
+            requireStreamingRuntimeService().online(entity);
+        }
         definitionMapper.update(null, new LambdaUpdateWrapper<CollectionTaskDefinitionEntity>()
                 .set(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.ONLINE.name())
                 .eq(CollectionTaskDefinitionEntity::getId, entity.getId()));
@@ -474,6 +508,68 @@ public class CollectionTaskService {
                 .set(CollectionTaskMetricBindingEntity::getTaskStatus, CollectionTaskStatus.ONLINE.name())
                 .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, id));
         return getListView(id);
+    }
+
+    @Transactional
+    public CollectionTaskListView offline(Long id) {
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        requireStreamingRuntimeService().offline(entity);
+        definitionMapper.update(null, new LambdaUpdateWrapper<CollectionTaskDefinitionEntity>()
+                .set(CollectionTaskDefinitionEntity::getStatus, CollectionTaskStatus.OFFLINE.name())
+                .eq(CollectionTaskDefinitionEntity::getId, entity.getId()));
+        metricBindingMapper.update(null, new LambdaUpdateWrapper<CollectionTaskMetricBindingEntity>()
+                .set(CollectionTaskMetricBindingEntity::getTaskStatus, CollectionTaskStatus.OFFLINE.name())
+                .eq(CollectionTaskMetricBindingEntity::getCollectionTaskId, id));
+        return getListView(id);
+    }
+
+    @Transactional
+    public CollectionTaskListView recover(Long id) {
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        requireStreamingRuntimeService().recover(entity);
+        return getListView(id);
+    }
+
+    public CollectionTaskStreamingRuntimeView streamingRuntime(Long id) {
+        return requireStreamingRuntimeService().runtime(requireAccessibleStreamingEntity(id));
+    }
+
+    public List<StreamingMetricBucketView> streamingMetrics(Long id,
+                                                            LocalDateTime startTime,
+                                                            LocalDateTime endTime) {
+        if (startTime != null && endTime != null && startTime.isAfter(endTime)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Streaming metric startTime must not be after endTime");
+        }
+        return requireStreamingRuntimeService().metrics(requireAccessibleStreamingEntity(id), startTime, endTime);
+    }
+
+    public PageView<StreamingMetricBucketView> streamingMetricsPage(Long id,
+                                                                     LocalDateTime startTime,
+                                                                     LocalDateTime endTime,
+                                                                     Integer pageNo,
+                                                                     Integer pageSize) {
+        return streamingMetricsPage(id, startTime, endTime, pageNo, pageSize, false);
+    }
+
+    public PageView<StreamingMetricBucketView> streamingMetricsPage(Long id,
+                                                                     LocalDateTime startTime,
+                                                                     LocalDateTime endTime,
+                                                                     Integer pageNo,
+                                                                     Integer pageSize,
+                                                                     boolean onlyWithRecords) {
+        if (startTime != null && endTime != null && startTime.isAfter(endTime)) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Streaming metric startTime must not be after endTime");
+        }
+        return requireStreamingRuntimeService().metricsPage(requireAccessibleStreamingEntity(id),
+                startTime, endTime, pageNo, pageSize, onlyWithRecords);
+    }
+
+    public PageView<StreamingTaskEventView> streamingEvents(Long id, Integer pageNo, Integer pageSize) {
+        return requireStreamingRuntimeService().events(requireAccessibleStreamingEntity(id), pageNo, pageSize);
+    }
+
+    public PageView<RunLogChunkView> streamingLogChunks(Long id, Integer pageNo, Integer pageSize) {
+        return requireStreamingRuntimeService().logChunks(requireAccessibleStreamingEntity(id), pageNo, pageSize);
     }
 
     private Set<Long> datasourceIds(CollectionTaskDefinitionView view) {
@@ -514,6 +610,7 @@ public class CollectionTaskService {
     @Transactional
     public CollectionTaskDefinitionView updateSchedule(Long id, CollectionTaskScheduleDefinition schedule) {
         CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        assertBatchExecution(entity, "Streaming collection tasks do not support schedules");
         if (schedule != null && Boolean.TRUE.equals(schedule.getEnabled()) && runtimeClusterSelectionService != null) {
             CollectionTaskDefinitionView view = toView(entity, false);
             runtimeClusterSelectionService.assertResourceValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, id);
@@ -527,6 +624,11 @@ public class CollectionTaskService {
     @Transactional
     public CollectionTaskDefinitionView resetIncrementalCursor(Long id, String sourceAlias, String incrColumn, String incrModel) {
         CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        if (executionMode(entity) == CollectionTaskExecutionMode.STREAMING
+                && requireStreamingRuntimeService().isRunning(entity.getId())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Running streaming collection task must be offline before resetting cursors");
+        }
         CollectionTaskIncrementalCursorSupport.ResetResult resetResult = incrementalCursorSupport
                 .resetSystemIncrementalCursorFields(entity.getSourceBindingsJson(), sourceAlias, incrColumn, incrModel);
         if (resetResult.isSourceAliasMissing()) {
@@ -541,7 +643,12 @@ public class CollectionTaskService {
 
     @Transactional
     public void delete(Long id) {
-        requireWritableEntity(id);
+        CollectionTaskDefinitionEntity entity = requireWritableEntity(id);
+        if (executionMode(entity) == CollectionTaskExecutionMode.STREAMING
+                && requireStreamingRuntimeService().isRunning(entity.getId())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Running streaming collection task must be offline before it can be deleted");
+        }
         scheduleMapper.delete(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
                 .eq(CollectionTaskScheduleEntity::getCollectionTaskId, id));
         dispatchTaskMapper.delete(new LambdaQueryWrapper<DispatchTaskEntity>()
@@ -555,8 +662,41 @@ public class CollectionTaskService {
     }
 
     public List<CollectionTaskScheduleEntity> findEnabledSchedules() {
-        return scheduleMapper.selectList(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
+        List<CollectionTaskScheduleEntity> schedules = scheduleMapper.selectList(new LambdaQueryWrapper<CollectionTaskScheduleEntity>()
                 .eq(CollectionTaskScheduleEntity::getEnabled, 1));
+        if (schedules.isEmpty()) {
+            return schedules;
+        }
+        Set<Long> taskIds = new HashSet<Long>();
+        for (CollectionTaskScheduleEntity schedule : schedules) {
+            if (schedule != null && schedule.getCollectionTaskId() != null) {
+                taskIds.add(schedule.getCollectionTaskId());
+            }
+        }
+        if (taskIds.isEmpty()) {
+            return new ArrayList<CollectionTaskScheduleEntity>();
+        }
+        List<CollectionTaskDefinitionEntity> tasks = definitionMapper.selectList(
+                new LambdaQueryWrapper<CollectionTaskDefinitionEntity>()
+                        .select(CollectionTaskDefinitionEntity::getId,
+                                CollectionTaskDefinitionEntity::getExecutionMode)
+                        .in(CollectionTaskDefinitionEntity::getId, taskIds));
+        Set<Long> streamingTaskIds = new HashSet<Long>();
+        for (CollectionTaskDefinitionEntity task : tasks) {
+            if (executionMode(task) == CollectionTaskExecutionMode.STREAMING) {
+                streamingTaskIds.add(task.getId());
+            }
+        }
+        if (streamingTaskIds.isEmpty()) {
+            return schedules;
+        }
+        List<CollectionTaskScheduleEntity> result = new ArrayList<CollectionTaskScheduleEntity>();
+        for (CollectionTaskScheduleEntity schedule : schedules) {
+            if (!streamingTaskIds.contains(schedule.getCollectionTaskId())) {
+                result.add(schedule);
+            }
+        }
+        return result;
     }
 
     @Transactional
@@ -615,6 +755,8 @@ public class CollectionTaskService {
         view.setName(entity.getName());
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
+        view.setExecutionMode(executionMode(entity));
+        view.setStreamingOptions(toStreamingOptions(entity));
         view.setSourceCount(entity.getSourceCount());
         List<CollectionTaskSourceBinding> sourceBindings = convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
         sanitizeSourceReaderOptions(sourceBindings, maskSensitiveOptions);
@@ -642,6 +784,9 @@ public class CollectionTaskService {
             schedule.setTimezone(scheduleEntity.getTimezone());
             view.setSchedule(schedule);
         }
+        if (streamingTaskRuntimeService != null) {
+            streamingTaskRuntimeService.hydrate(view, entity.getId());
+        }
         return view;
     }
 
@@ -660,6 +805,7 @@ public class CollectionTaskService {
         view.setName(entity.getName());
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
+        view.setExecutionMode(executionMode(entity));
         view.setSourceCount(entity.getSourceCount());
         view.setTargetDatasourceName(entity.getTargetDatasourceNameSnapshot());
         view.setTargetDatasourceTypeCode(entity.getTargetDatasourceTypeCodeSnapshot());
@@ -667,6 +813,9 @@ public class CollectionTaskService {
         view.setTargetModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
                 entity.getTargetDatasourceTypeCodeSnapshot(), entity.getTargetModelPhysicalLocatorSnapshot()));
         view.setSchedule(schedule);
+        if (streamingTaskRuntimeService != null) {
+            streamingTaskRuntimeService.hydrate(view, entity.getId());
+        }
         return view;
     }
 
@@ -706,6 +855,7 @@ public class CollectionTaskService {
                 CollectionTaskDefinitionEntity::getName,
                 CollectionTaskDefinitionEntity::getTaskType,
                 CollectionTaskDefinitionEntity::getStatus,
+                CollectionTaskDefinitionEntity::getExecutionMode,
                 CollectionTaskDefinitionEntity::getSourceCount,
                 CollectionTaskDefinitionEntity::getTargetDatasourceNameSnapshot,
                 CollectionTaskDefinitionEntity::getTargetDatasourceTypeCodeSnapshot,
@@ -720,6 +870,7 @@ public class CollectionTaskService {
                 CollectionTaskDefinitionEntity::getUpdatedAt,
                 CollectionTaskDefinitionEntity::getName,
                 CollectionTaskDefinitionEntity::getTaskType,
+                CollectionTaskDefinitionEntity::getExecutionMode,
                 CollectionTaskDefinitionEntity::getSourceCount);
     }
 
@@ -913,6 +1064,159 @@ public class CollectionTaskService {
         validateFieldMappings(request.getFieldMappings(), aliases);
     }
 
+    private CollectionTaskExecutionMode resolveExecutionMode(CollectionTaskExecutionMode requestedMode,
+                                                              CollectionTaskDefinitionEntity entity,
+                                                              boolean creating) {
+        if (requestedMode != null) {
+            return requestedMode;
+        }
+        return creating ? CollectionTaskExecutionMode.BATCH : executionMode(entity);
+    }
+
+    private CollectionTaskExecutionMode executionMode(CollectionTaskDefinitionEntity entity) {
+        if (entity == null || !hasText(entity.getExecutionMode())) {
+            return CollectionTaskExecutionMode.BATCH;
+        }
+        try {
+            return CollectionTaskExecutionMode.valueOf(entity.getExecutionMode().trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException exception) {
+            throw new StudioException(StudioErrorCode.BUSINESS_ERROR,
+                    "Unsupported collection task execution mode: " + entity.getExecutionMode());
+        }
+    }
+
+    private String resolveStatusForSave(String existingStatus, boolean creating) {
+        if (creating || !hasText(existingStatus)) {
+            return CollectionTaskStatus.DRAFT.name();
+        }
+        if (CollectionTaskStatus.ONLINE.name().equalsIgnoreCase(existingStatus)) {
+            return CollectionTaskStatus.ONLINE.name();
+        }
+        if (CollectionTaskStatus.OFFLINE.name().equalsIgnoreCase(existingStatus)) {
+            return CollectionTaskStatus.OFFLINE.name();
+        }
+        return CollectionTaskStatus.DRAFT.name();
+    }
+
+    private CollectionTaskStreamingOptions normalizeStreamingOptions(CollectionTaskExecutionMode mode,
+                                                                      CollectionTaskStreamingOptions requested,
+                                                                      CollectionTaskDefinitionEntity entity,
+                                                                      boolean creating) {
+        if (mode != CollectionTaskExecutionMode.STREAMING) {
+            return null;
+        }
+        CollectionTaskStreamingOptions result;
+        if (requested != null) {
+            result = objectMapper.convertValue(requested, CollectionTaskStreamingOptions.class);
+        } else if (!creating && entity != null && entity.getStreamingOptionsJson() != null
+                && !entity.getStreamingOptionsJson().isEmpty()) {
+            result = objectMapper.convertValue(entity.getStreamingOptionsJson(), CollectionTaskStreamingOptions.class);
+        } else {
+            result = new CollectionTaskStreamingOptions();
+        }
+        if (!hasText(result.getGroupId()) && entity != null && entity.getId() != null) {
+            result.setGroupId("studio." + securityService.currentTenantId() + "." + entity.getId());
+        } else if (hasText(result.getGroupId())) {
+            result.setGroupId(result.getGroupId().trim());
+        }
+        if (!hasText(result.getOffsetReset())) {
+            result.setOffsetReset("latest");
+        } else {
+            result.setOffsetReset(result.getOffsetReset().trim().toLowerCase(Locale.ROOT));
+        }
+        return result;
+    }
+
+    private CollectionTaskStreamingOptions toStreamingOptions(CollectionTaskDefinitionEntity entity) {
+        if (executionMode(entity) != CollectionTaskExecutionMode.STREAMING) {
+            return null;
+        }
+        return normalizeStreamingOptions(CollectionTaskExecutionMode.STREAMING, null, entity, false);
+    }
+
+    private void validateExecutionMode(CollectionTaskExecutionMode mode,
+                                       List<CollectionTaskSourceBinding> sourceBindings,
+                                       CollectionTaskScheduleDefinition schedule,
+                                       CollectionTaskStreamingOptions options) {
+        if (mode != CollectionTaskExecutionMode.STREAMING) {
+            return;
+        }
+        if (sourceBindings == null || sourceBindings.size() != 1) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "STREAMING collection task requires exactly one source binding");
+        }
+        CollectionTaskSourceBinding source = sourceBindings.get(0);
+        if (source == null || !"kafka".equalsIgnoreCase(source.getDatasourceTypeCode())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "STREAMING collection task currently supports only a Kafka source");
+        }
+        if (!hasText(source.getModelPhysicalLocator())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Kafka source model physicalLocator must contain the Topic name");
+        }
+        if (schedule != null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "STREAMING collection tasks do not support schedules");
+        }
+        if (options == null) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, "Streaming options are required");
+        }
+        if (!"earliest".equals(options.getOffsetReset()) && !"latest".equals(options.getOffsetReset())) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Streaming offsetReset must be earliest or latest");
+        }
+        requirePositive(options.getPollTimeoutMs(), "pollTimeoutMs");
+        requirePositive(options.getMaxBatchRecords(), "maxBatchRecords");
+        requirePositive(options.getMaxBatchBytes(), "maxBatchBytes");
+        requireNonNegative(options.getBatchRetryCount(), "batchRetryCount");
+        requirePositive(options.getStopTimeoutMs(), "stopTimeoutMs");
+        requirePositive(options.getMaxConsecutiveFailures(), "maxConsecutiveFailures");
+        requirePositive(options.getRetryInitialDelayMs(), "retryInitialDelayMs");
+        requirePositive(options.getRetryMaxDelayMs(), "retryMaxDelayMs");
+        if (options.getRetryMaxDelayMs().longValue() < options.getRetryInitialDelayMs().longValue()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "retryMaxDelayMs must not be less than retryInitialDelayMs");
+        }
+    }
+
+    private void requirePositive(Number value, String field) {
+        if (value == null || value.longValue() <= 0L) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, field + " must be greater than 0");
+        }
+    }
+
+    private void requireNonNegative(Number value, String field) {
+        if (value == null || value.longValue() < 0L) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, field + " must not be negative");
+        }
+    }
+
+    private void assertBatchExecution(CollectionTaskDefinitionEntity entity, String message) {
+        if (executionMode(entity) == CollectionTaskExecutionMode.STREAMING) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, message);
+        }
+    }
+
+    private CollectionTaskDefinitionEntity requireAccessibleStreamingEntity(Long id) {
+        CollectionTaskDefinitionEntity entity = findAccessibleEntity(id);
+        if (entity == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Collection task not found: " + id);
+        }
+        if (executionMode(entity) != CollectionTaskExecutionMode.STREAMING) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Collection task is not configured for STREAMING execution");
+        }
+        return entity;
+    }
+
+    private StreamingTaskRuntimeService requireStreamingRuntimeService() {
+        if (streamingTaskRuntimeService == null) {
+            throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                    "Streaming task runtime service is unavailable");
+        }
+        return streamingTaskRuntimeService;
+    }
+
     private void validateFieldMappings(List<FieldMappingDefinition> mappings, Set<String> sourceAliases) {
         if (mappings == null || mappings.isEmpty()) {
             return;
@@ -959,6 +1263,9 @@ public class CollectionTaskService {
         Long currentProjectId = projectResourceAccessService.requireCurrentProjectId();
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
         CollectionTaskDefinitionEntity existingEntity = request.getId() == null ? null : findAccessibleEntity(request.getId());
+        boolean creating = existingEntity == null;
+        CollectionTaskExecutionMode executionMode = resolveExecutionMode(
+                request.getExecutionMode(), existingEntity, creating);
         List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
                 request.getSourceBindings(), storedSourceBindings(existingEntity));
         incrementalCursorSupport.protectSystemIncrementalCursors(existingEntity, sourceBindings);
@@ -972,12 +1279,17 @@ public class CollectionTaskService {
                 currentProjectId, request.getRuntimeClusterId(),
                 existingEntity == null ? null : existingEntity.getRuntimeClusterId(),
                 existingEntity != null && existingEntity.getId() != null, datasourceIds);
+        CollectionTaskStreamingOptions streamingOptions = normalizeStreamingOptions(
+                executionMode, request.getStreamingOptions(), existingEntity, creating);
+        validateExecutionMode(executionMode, sourceBindings, request.getSchedule(), streamingOptions);
         CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
         definition.setId(request.getId());
         definition.setTenantId(securityService.currentTenantId());
         definition.setProjectId(currentProjectId);
         definition.setRuntimeClusterId(runtimeClusterId);
         definition.setName(request.getName());
+        definition.setExecutionMode(executionMode);
+        definition.setStreamingOptions(streamingOptions);
         definition.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION : CollectionTaskType.SINGLE_TABLE);
         definition.setSourceCount(sourceBindings.size());
         definition.setSourceBindings(sourceBindings);

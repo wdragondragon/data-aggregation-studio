@@ -6,6 +6,7 @@ import com.jdragon.studio.infra.service.DispatchProtectedPayloadService;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
 import com.jdragon.studio.worker.runtime.runner.WorkerLifecycleRunner;
+import com.jdragon.studio.worker.runtime.config.WorkerSchedulingConfig;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
@@ -27,6 +28,11 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
 class WorkerSchedulingConfigurationTest {
+
+    @Test
+    void legacySchedulingCompatibilityClassIsNotASecondSpringConfiguration() {
+        assertThat(WorkerSchedulingConfig.class.getAnnotation(Configuration.class)).isNull();
+    }
 
     @Test
     void configuresWorkerSchedulerPoolFromDispatchProperties() {
@@ -117,6 +123,16 @@ class WorkerSchedulingConfigurationTest {
                         .contains(heartbeat.getName());
             });
         });
+    }
+
+    @Test
+    void activeRunLogSyncUsesTheBoundedSixtySecondCadence() throws Exception {
+        Method sync = WorkerLifecycleRunner.class.getMethod("syncActiveRunLogs");
+        Scheduled scheduled = sync.getAnnotation(Scheduled.class);
+
+        assertThat(scheduled).isNotNull();
+        assertThat(scheduled.initialDelay()).isEqualTo(60000L);
+        assertThat(scheduled.fixedDelay()).isEqualTo(60000L);
     }
 
     @Test

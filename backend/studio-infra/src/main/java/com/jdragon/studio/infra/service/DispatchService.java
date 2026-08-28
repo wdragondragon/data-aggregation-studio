@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.IdWorker;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import com.jdragon.studio.core.spi.WorkflowDispatcher;
 import com.jdragon.studio.dto.enums.DispatchExecutionType;
 import com.jdragon.studio.dto.enums.EdgeCondition;
@@ -372,6 +373,9 @@ public class DispatchService implements WorkflowDispatcher {
         task.setWorkflowDefinitionId(workflow.getId());
         task.setWorkflowVersionId(workflow.getVersionId());
         task.setCollectionTaskId(resolveCollectionTaskId(node));
+        if (task.getCollectionTaskId() != null) {
+            assertBatchCollectionTask(collectionTaskService.requireOnline(task.getCollectionTaskId()));
+        }
         task.setQualityTaskId(resolveQualityTaskId(node));
         String resourceRevision = node.getConfig() == null || node.getConfig().get("_resourceRevision") == null
                 ? null : String.valueOf(node.getConfig().get("_resourceRevision"));
@@ -437,8 +441,9 @@ public class DispatchService implements WorkflowDispatcher {
                                                                     LocalDateTime scheduledFireTime,
                                                                     boolean clusterGuard,
                                                                     Long lockLeaseSeconds,
-                                                                    boolean releaseLock,
-                                                                    boolean bypassPersistedRuntimeValidation) {
+                                                                     boolean releaseLock,
+                                                                     boolean bypassPersistedRuntimeValidation) {
+        assertBatchCollectionTask(definition);
         Long resolvedProjectId = resolveRuntimeProjectId(runtimeProjectId, definition.getProjectId());
         if (!bypassPersistedRuntimeValidation) {
             assertRuntimeValid(StudioConstants.RESOURCE_TYPE_COLLECTION_TASK, definition.getId());
@@ -458,6 +463,13 @@ public class DispatchService implements WorkflowDispatcher {
         }
         return triggerCollectionTaskAfterLock(definition, resolvedProjectId, scheduledFireTime,
                 bypassPersistedRuntimeValidation);
+    }
+
+    private void assertBatchCollectionTask(CollectionTaskDefinitionView definition) {
+        if (definition != null && definition.getExecutionMode() == CollectionTaskExecutionMode.STREAMING) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "STREAMING collection tasks run continuously after online and cannot be triggered");
+        }
     }
 
     private DispatchTriggerStatus triggerCollectionTaskAfterLock(CollectionTaskDefinitionView definition,

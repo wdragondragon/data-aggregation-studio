@@ -60,6 +60,12 @@ management:
         include: health,info
 
 studio:
+  streaming-history:
+    cleanup-enabled: ${STUDIO_STREAMING_HISTORY_CLEANUP_ENABLED:false}
+    retention-days: ${STUDIO_STREAMING_HISTORY_RETENTION_DAYS:30}
+    cleanup-interval-millis: ${STUDIO_STREAMING_HISTORY_CLEANUP_INTERVAL_MILLIS:3600000}
+    cleanup-batch-size: ${STUDIO_STREAMING_HISTORY_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_STREAMING_HISTORY_CLEANUP_MAX_BATCHES:20}
   schema:
     auto-upgrade-on-startup: false
   aggregation-home: ${STUDIO_AGGREGATION_HOME:}
@@ -143,6 +149,9 @@ studio:
     worker-scheduler-pool-size: ${STUDIO_WORKER_SCHEDULER_POOL_SIZE:4}
     dispatch-lease-minutes: ${STUDIO_DISPATCH_LEASE_MINUTES:10}
     worker-offline-grace-minutes: ${STUDIO_WORKER_OFFLINE_GRACE_MINUTES:120}
+  worker:
+    streaming:
+      max-concurrent: ${STUDIO_WORKER_STREAMING_MAX_CONCURRENT:2}
   object-storage:
     provider: ${STUDIO_OBJECT_PROVIDER:${STUDIO_RUN_LOG_OBJECT_PROVIDER:MINIO}}
     endpoint: ${STUDIO_OBJECT_ENDPOINT:${STUDIO_RUN_LOG_OBJECT_ENDPOINT:}}

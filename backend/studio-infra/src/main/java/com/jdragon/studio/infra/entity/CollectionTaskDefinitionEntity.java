@@ -20,6 +20,7 @@ public class CollectionTaskDefinitionEntity extends BaseProjectTenantEntity {
     private String name;
     private String taskType;
     private String status;
+    private String executionMode;
     private Integer sourceCount;
     private String targetDatasourceNameSnapshot;
     private String targetDatasourceTypeCodeSnapshot;
@@ -37,4 +38,7 @@ public class CollectionTaskDefinitionEntity extends BaseProjectTenantEntity {
 
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Map<String, Object> executionOptionsJson = new LinkedHashMap<String, Object>();
+
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Map<String, Object> streamingOptionsJson = new LinkedHashMap<String, Object>();
 }

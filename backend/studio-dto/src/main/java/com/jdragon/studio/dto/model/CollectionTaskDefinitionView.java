@@ -2,6 +2,9 @@ package com.jdragon.studio.dto.model;
 
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.enums.CollectionTaskType;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
+import com.jdragon.studio.dto.enums.StreamingDesiredState;
+import com.jdragon.studio.dto.enums.StreamingObservedState;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 
@@ -18,6 +21,13 @@ public class CollectionTaskDefinitionView extends BaseDefinition {
     private String name;
     private CollectionTaskType taskType;
     private CollectionTaskStatus status;
+    private CollectionTaskExecutionMode executionMode;
+    private CollectionTaskStreamingOptions streamingOptions;
+    private StreamingDesiredState desiredState;
+    private StreamingObservedState observedState;
+    private Long streamingGeneration;
+    private Long currentStreamRunId;
+    private Long currentStreamAttemptId;
     private Integer sourceCount;
     private List<CollectionTaskSourceBinding> sourceBindings = new ArrayList<CollectionTaskSourceBinding>();
     private CollectionTaskTargetBinding targetBinding;

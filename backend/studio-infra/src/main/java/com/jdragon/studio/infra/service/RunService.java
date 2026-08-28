@@ -406,6 +406,7 @@ public class RunService {
                         RunRecordEntity::getCreatedAt,
                         RunRecordEntity::getUpdatedAt,
                         RunRecordEntity::getNodeCode,
+                        RunRecordEntity::getCollectionTaskId,
                         RunRecordEntity::getActualClusterId,
                         RunRecordEntity::getActualClusterCode,
                         RunRecordEntity::getWorkerGroupCode,

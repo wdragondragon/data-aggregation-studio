@@ -9,8 +9,10 @@ import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
 import com.jdragon.studio.infra.service.ClusterLockService;
 import com.jdragon.studio.infra.service.FileTransferEventService;
 import com.jdragon.studio.infra.service.FileTransferOutboxCleanupService;
+import com.jdragon.studio.infra.service.StreamingHistoryCleanupService;
 import com.jdragon.studio.infra.service.FileTransferRunService;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
+import com.jdragon.studio.infra.service.RunLogObjectStore;
 import com.jdragon.studio.infra.service.StudioSecurityService;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
@@ -59,5 +61,16 @@ public class FileTransferOutboxServerConfiguration {
             StudioPlatformProperties properties,
             ObjectProvider<MeterRegistry> meterRegistryProvider) {
         return new FileTransferOutboxCleanupService(jdbcTemplate, clusterLockService, properties, meterRegistryProvider);
+    }
+
+    @Bean
+    public StreamingHistoryCleanupService streamingHistoryCleanupService(
+            JdbcTemplate jdbcTemplate,
+            ClusterLockService clusterLockService,
+            StudioPlatformProperties properties,
+            RunLogObjectStore runLogObjectStore,
+            ObjectProvider<MeterRegistry> meterRegistryProvider) {
+        return new StreamingHistoryCleanupService(jdbcTemplate, clusterLockService, properties,
+                runLogObjectStore, meterRegistryProvider);
     }
 }

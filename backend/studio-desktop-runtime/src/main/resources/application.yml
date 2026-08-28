@@ -45,6 +45,12 @@ management:
         include: health,info
 
 studio:
+  streaming-history:
+    cleanup-enabled: ${STUDIO_STREAMING_HISTORY_CLEANUP_ENABLED:false}
+    retention-days: ${STUDIO_STREAMING_HISTORY_RETENTION_DAYS:30}
+    cleanup-interval-millis: ${STUDIO_STREAMING_HISTORY_CLEANUP_INTERVAL_MILLIS:3600000}
+    cleanup-batch-size: ${STUDIO_STREAMING_HISTORY_CLEANUP_BATCH_SIZE:1000}
+    cleanup-max-batches: ${STUDIO_STREAMING_HISTORY_CLEANUP_MAX_BATCHES:20}
   alert:
     enabled: ${STUDIO_ALERT_ENABLED:true}
     evaluation-enabled: ${STUDIO_ALERT_EVALUATION_ENABLED:true}

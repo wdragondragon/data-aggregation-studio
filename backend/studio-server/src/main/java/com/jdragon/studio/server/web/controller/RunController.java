@@ -19,6 +19,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 import java.time.LocalDateTime;
 
@@ -100,6 +107,21 @@ public class RunController {
     @GetMapping("/{id}/log/download")
     public Result<RunLogView> download(@PathVariable("id") Long id) {
         return Result.success(runLogProxyService.downloadLog(id));
+    }
+
+    @Operation(summary = "Stream all run log chunks as a ZIP archive")
+    @GetMapping("/{id}/log/archive")
+    public ResponseEntity<StreamingResponseBody> archive(@PathVariable("id") Long id) {
+        String name = "run-" + id + ".zip";
+        String encoded = URLEncoder.encode(name, StandardCharsets.UTF_8).replace("+", "%20");
+        StreamingResponseBody body = output -> runLogProxyService.streamArchive(id, output);
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType("application/zip"))
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .header(HttpHeaders.CACHE_CONTROL, "no-store, private")
+                .header("X-Content-Type-Options", "nosniff")
+                .header("X-Accel-Buffering", "no")
+                .body(body);
     }
 
     @Operation(summary = "Terminate a queued or running run record")

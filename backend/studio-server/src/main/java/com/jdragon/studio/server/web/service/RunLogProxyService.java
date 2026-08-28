@@ -10,7 +10,9 @@ import com.jdragon.studio.commons.logging.StudioSensitiveLogSanitizer;
 import com.jdragon.studio.dto.model.RunLogView;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.RunRecordEntity;
+import com.jdragon.studio.infra.entity.RunLogChunkEntity;
 import com.jdragon.studio.infra.entity.WorkerLeaseEntity;
+import com.jdragon.studio.infra.mapper.RunLogChunkMapper;
 import com.jdragon.studio.infra.mapper.WorkerLeaseMapper;
 import com.jdragon.studio.infra.service.RunService;
 import com.jdragon.studio.infra.service.RunLogStorageService;
@@ -18,10 +20,12 @@ import com.jdragon.studio.infra.service.RuntimeEndpointHttpClient;
 import com.jdragon.studio.infra.service.RuntimeEndpointSecurityService;
 import com.jdragon.studio.infra.service.RuntimeInternalHeaders;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.nio.charset.StandardCharsets;
+import java.io.OutputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -43,6 +47,7 @@ public class RunLogProxyService {
     private final RunLogStorageService runLogStorageService;
     private final RuntimeEndpointSecurityService runtimeEndpointSecurityService;
     private final RuntimeEndpointHttpClient runtimeEndpointHttpClient;
+    private final RunLogChunkMapper runLogChunkMapper;
 
     public RunLogProxyService(RunService runService,
                               WorkerLeaseMapper workerLeaseMapper,
@@ -51,6 +56,19 @@ public class RunLogProxyService {
                               RunLogStorageService runLogStorageService,
                               RuntimeEndpointSecurityService runtimeEndpointSecurityService,
                               RuntimeEndpointHttpClient runtimeEndpointHttpClient) {
+        this(runService, workerLeaseMapper, properties, objectMapper, runLogStorageService,
+                runtimeEndpointSecurityService, runtimeEndpointHttpClient, null);
+    }
+
+    @Autowired
+    public RunLogProxyService(RunService runService,
+                              WorkerLeaseMapper workerLeaseMapper,
+                              StudioPlatformProperties properties,
+                              ObjectMapper objectMapper,
+                              RunLogStorageService runLogStorageService,
+                              RuntimeEndpointSecurityService runtimeEndpointSecurityService,
+                              RuntimeEndpointHttpClient runtimeEndpointHttpClient,
+                              RunLogChunkMapper runLogChunkMapper) {
         this.runService = runService;
         this.workerLeaseMapper = workerLeaseMapper;
         this.properties = properties;
@@ -58,6 +76,7 @@ public class RunLogProxyService {
         this.runLogStorageService = runLogStorageService;
         this.runtimeEndpointSecurityService = runtimeEndpointSecurityService;
         this.runtimeEndpointHttpClient = runtimeEndpointHttpClient;
+        this.runLogChunkMapper = runLogChunkMapper;
     }
 
     public RunLogView viewLog(Long runRecordId, Integer pageNo, Integer pageSizeBytes) {
@@ -95,6 +114,107 @@ public class RunLogProxyService {
                 .buildAndExpand(runRecordId)
                 .toUriString();
         return exchange(url);
+    }
+
+    /** Reads only the requested streaming log chunk after task and tenant/project checks. */
+    public RunLogView viewChunk(Long collectionTaskId,
+                                Long chunkId,
+                                Integer pageNo,
+                                Integer pageSizeBytes) {
+        if (runLogChunkMapper == null || collectionTaskId == null || chunkId == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk not found");
+        }
+        RunLogChunkEntity chunk = runLogChunkMapper.selectOne(new LambdaQueryWrapper<RunLogChunkEntity>()
+                .eq(RunLogChunkEntity::getId, chunkId)
+                .eq(RunLogChunkEntity::getCollectionTaskId, collectionTaskId)
+                .last("limit 1"));
+        if (chunk == null || chunk.getRunRecordId() == null) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk not found");
+        }
+        RunRecordEntity record = runService.getLogPointer(chunk.getRunRecordId());
+        if (record.getCollectionTaskId() == null || !collectionTaskId.equals(record.getCollectionTaskId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk not found");
+        }
+        if (record.getTenantId() != null && !record.getTenantId().equals(chunk.getTenantId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk not found");
+        }
+        if (record.getProjectId() != null && !record.getProjectId().equals(chunk.getProjectId())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk not found");
+        }
+        if (StringUtils.hasText(chunk.getObjectBucket()) && StringUtils.hasText(chunk.getObjectKey())) {
+            return runLogStorageService.readObjectChunk(record, chunk, pageNo, pageSizeBytes);
+        }
+        if (!StringUtils.hasText(record.getLogFilePath()) || !StringUtils.hasText(record.getWorkerCode())) {
+            throw new StudioException(StudioErrorCode.NOT_FOUND, "Streaming log chunk is not available");
+        }
+        String apiBaseUrl = resolveWorkerApiBaseUrl(record);
+        String url = UriComponentsBuilder.fromUriString(apiBaseUrl)
+                .path("/internal/runs/chunks/{chunkId}/preview")
+                .queryParam("pageSizeBytes", normalizePageSize(pageSizeBytes))
+                .queryParamIfPresent("pageNo", pageNo == null || pageNo.intValue() <= 0
+                        ? java.util.Optional.empty() : java.util.Optional.of(pageNo))
+                .buildAndExpand(chunkId)
+                .toUriString();
+        return exchange(url);
+    }
+
+    /** Streams a ZIP archive through the owning Worker or object storage. */
+    public void streamArchive(Long runRecordId, OutputStream output) {
+        if (output == null) {
+            throw new IllegalArgumentException("output must not be null");
+        }
+        RunRecordEntity entity = runService.getLogPointer(runRecordId);
+        if (isObjectStorageLog(entity)) {
+            runLogStorageService.streamObjectLogArchive(entity, output);
+            return;
+        }
+        if (!StringUtils.hasText(entity.getLogFilePath()) || !StringUtils.hasText(entity.getWorkerCode())) {
+            RunLogView fallback = runService.buildHistoricalFallback(runService.getEntity(runRecordId));
+            try {
+                java.util.zip.ZipOutputStream zip = new java.util.zip.ZipOutputStream(output);
+                zip.putNextEntry(new java.util.zip.ZipEntry("run-" + runRecordId + ".log"));
+                byte[] bytes = (fallback.getContent() == null ? "" : fallback.getContent())
+                        .getBytes(StandardCharsets.UTF_8);
+                zip.write(bytes);
+                zip.closeEntry();
+                zip.finish();
+                zip.flush();
+                return;
+            } catch (java.io.IOException failure) {
+                throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                        "Failed to stream historical run log archive");
+            }
+        }
+        RuntimeEndpointSecurityService.ValidatedRuntimeEndpoint target;
+        try {
+            target = runtimeEndpointSecurityService.validateRequestTarget(
+                    UriComponentsBuilder.fromUriString(resolveWorkerApiBaseUrl(entity))
+                            .path("/internal/runs/{id}/log/archive")
+                            .buildAndExpand(runRecordId).toUriString());
+        } catch (Exception exception) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Worker log endpoint is not allowed by runtime endpoint policy");
+        }
+        try {
+            Map<String, List<String>> headers = new LinkedHashMap<String, List<String>>();
+            addHeader(headers, StudioConstants.INTERNAL_API_TOKEN_HEADER, properties.getInternalApiToken());
+            addHeader(headers, "Accept", "application/zip");
+            RuntimeEndpointHttpClient.StreamingResponse response = runtimeEndpointHttpClient.executeStreaming(
+                    target, "GET", headers, null, CONNECT_TIMEOUT_MILLIS, 300000, output);
+            if (!RuntimeInternalHeaders.isAuthenticatedRuntimeResponse(response.getHeaders())) {
+                throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                        unauthenticatedRuntimeResponseMessage(null));
+            }
+            if (response.getStatusCode() < 200 || response.getStatusCode() >= 300) {
+                throw new StudioException(StudioErrorCode.INTERNAL_SERVER_ERROR,
+                        "Worker returned an invalid run log archive status");
+            }
+        } catch (StudioException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new StudioException(StudioErrorCode.SERVICE_UNAVAILABLE,
+                    "Worker log archive endpoint is unavailable");
+        }
     }
 
     private RunLogView exchange(String url) {

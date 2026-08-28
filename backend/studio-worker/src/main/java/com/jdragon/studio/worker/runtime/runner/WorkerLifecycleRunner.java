@@ -39,6 +39,7 @@ import com.jdragon.studio.infra.security.StudioRequestContext;
 import com.jdragon.studio.infra.security.StudioRequestContextHolder;
 import com.jdragon.studio.worker.runtime.WorkflowDispatchNodeResolver;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
+import com.jdragon.studio.worker.runtime.streaming.StreamingTaskWorkerExecutor;
 import com.jdragon.studio.worker.plugin.ObjectStoragePluginRuntimeResolver;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
@@ -106,7 +107,10 @@ public class WorkerLifecycleRunner {
     private volatile boolean acceptingTasks = false;
     private final ExecutorService fileTransferExecutor;
     private final Semaphore fileTransferSlots;
+    private final ExecutorService streamingExecutor;
+    private final Semaphore streamingSlots;
     private final Map<Long, ActiveExecution> activeExecutions = new ConcurrentHashMap<Long, ActiveExecution>();
+    private StreamingTaskWorkerExecutor streamingTaskWorkerExecutor;
 
     public WorkerLifecycleRunner(DispatchTaskMapper dispatchTaskMapper,
                                  WorkerLeaseMapper workerLeaseMapper,
@@ -146,6 +150,20 @@ public class WorkerLifecycleRunner {
             return thread;
         };
         this.fileTransferExecutor = Executors.newFixedThreadPool(fileTransferPoolSize, threadFactory);
+        int streamingPoolSize = properties.getWorker() == null
+                || properties.getWorker().getStreaming() == null
+                || properties.getWorker().getStreaming().getMaxConcurrent() == null
+                || properties.getWorker().getStreaming().getMaxConcurrent() < 1
+                ? 2 : properties.getWorker().getStreaming().getMaxConcurrent();
+        this.streamingSlots = new Semaphore(streamingPoolSize);
+        AtomicInteger streamingThreadNumber = new AtomicInteger();
+        ThreadFactory streamingThreadFactory = runnable -> {
+            Thread thread = new Thread(runnable,
+                    "studio-worker-streaming-" + streamingThreadNumber.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
+        this.streamingExecutor = Executors.newFixedThreadPool(streamingPoolSize, streamingThreadFactory);
     }
 
     @Autowired(required = false)
@@ -183,6 +201,11 @@ public class WorkerLifecycleRunner {
         this.pluginRuntimeResolver = pluginRuntimeResolver;
     }
 
+    @Autowired(required = false)
+    void setStreamingTaskWorkerExecutor(StreamingTaskWorkerExecutor streamingTaskWorkerExecutor) {
+        this.streamingTaskWorkerExecutor = streamingTaskWorkerExecutor;
+    }
+
     @EventListener(ApplicationReadyEvent.class)
     public void recoverLeasedRunningTasks() {
         List<Long> runtimeClusterIds = currentRuntimeClusterIds();
@@ -212,7 +235,11 @@ public class WorkerLifecycleRunner {
         }
         List<DispatchTaskEntity> runningTasks = dispatchTaskMapper.selectList(query);
         for (DispatchTaskEntity task : runningTasks) {
-            recoverInterruptedTask(task);
+            if (isStreamingTask(task) && streamingTaskWorkerExecutor != null) {
+                streamingTaskWorkerExecutor.recoverInterrupted(task);
+            } else {
+                recoverInterruptedTask(task);
+            }
         }
         reconcileInterruptedFileTransferRuns(runtimeClusterIds);
         reconcileOrphanedFileTransferRuns(runtimeClusterIds);
@@ -522,6 +549,9 @@ public class WorkerLifecycleRunner {
         updateRuntimeClusterHeartbeat(runtimeClusters, now);
         acceptingTasks = true;
         renewRunningTaskLeases();
+        if (streamingTaskWorkerExecutor != null) {
+            streamingTaskWorkerExecutor.heartbeatActiveAttempts();
+        }
     }
 
     private void heartbeatLease(String tenantId, Long runtimeClusterId, LocalDateTime now) {
@@ -588,6 +618,7 @@ public class WorkerLifecycleRunner {
         capabilities.put("bootId", clusterInstanceIdentity.bootId());
         capabilities.put("runtimeClusterId", runtimeClusterId);
         capabilities.put("runtimeClusterCode", runtimeClusterCode());
+        capabilities.put("streamingMaxConcurrent", streamingMaxConcurrent());
         capabilities.put("podName", clusterInstanceIdentity.podName());
         capabilities.put("nodeName", clusterInstanceIdentity.nodeName());
         if (pluginRuntimeStatus != null) {
@@ -632,16 +663,40 @@ public class WorkerLifecycleRunner {
                 continue;
             }
             boolean fileTransfer = isFileTransferTask(task);
+            boolean streaming = isStreamingTask(task);
             if (fileTransfer && !isFileTransferDispatchRunnable(task)) {
                 continue;
             }
+            if (streaming && streamingTaskWorkerExecutor == null) {
+                continue;
+            }
+            if (streaming && !streamingSlots.tryAcquire()) {
+                continue;
+            }
             if (fileTransfer && !fileTransferSlots.tryAcquire()) {
+                if (streaming) {
+                    streamingSlots.release();
+                }
                 continue;
             }
             if (!claimTask(task)) {
                 if (fileTransfer) {
                     fileTransferSlots.release();
                 }
+                if (streaming) {
+                    streamingSlots.release();
+                }
+                continue;
+            }
+            if (streaming) {
+                DispatchTaskEntity claimedTask = task;
+                streamingExecutor.execute(() -> {
+                    try {
+                        executeClaimedStreamingTask(claimedTask);
+                    } finally {
+                        streamingSlots.release();
+                    }
+                });
                 continue;
             }
             if (fileTransfer) {
@@ -661,6 +716,23 @@ public class WorkerLifecycleRunner {
 
     private boolean isFileTransferTask(DispatchTaskEntity task) {
         return task != null && DispatchExecutionType.FILE_TRANSFER.name().equalsIgnoreCase(task.getExecutionType());
+    }
+
+    private boolean isStreamingTask(DispatchTaskEntity task) {
+        return task != null && DispatchExecutionType.STREAMING_COLLECTION_TASK.name()
+                .equalsIgnoreCase(task.getExecutionType());
+    }
+
+    private void executeClaimedStreamingTask(DispatchTaskEntity task) {
+        ActiveExecution activeExecution = registerActiveExecution(task);
+        try {
+            streamingTaskWorkerExecutor.execute(task, activeExecution::setGracefulCancelCallback);
+        } finally {
+            if (task != null && task.getId() != null) {
+                activeExecutions.remove(task.getId());
+            }
+            Thread.interrupted();
+        }
     }
 
     private boolean isFileTransferDispatchRunnable(DispatchTaskEntity task) {
@@ -877,7 +949,7 @@ public class WorkerLifecycleRunner {
         }
     }
 
-    @Scheduled(initialDelay = 10000L, fixedDelay = 10000L)
+    @Scheduled(initialDelay = 60000L, fixedDelay = 60000L)
     public void syncActiveRunLogs() {
         Map<Long, RunLogFileService.RunLogStorageResult> results = runLogFileService.syncActiveObjectLogs();
         if (results == null || results.isEmpty()) {
@@ -901,6 +973,7 @@ public class WorkerLifecycleRunner {
         }
         activeExecutions.clear();
         fileTransferExecutor.shutdownNow();
+        streamingExecutor.shutdownNow();
         WorkerLeaseEntity update = new WorkerLeaseEntity();
         update.setStatus("OFFLINE");
         update.setLeaseExpiresAt(LocalDateTime.now());
@@ -1972,6 +2045,16 @@ public class WorkerLifecycleRunner {
         return value != null && value.trim().length() > 0;
     }
 
+    private int streamingMaxConcurrent() {
+        if (properties.getWorker() == null
+                || properties.getWorker().getStreaming() == null
+                || properties.getWorker().getStreaming().getMaxConcurrent() == null
+                || properties.getWorker().getStreaming().getMaxConcurrent() < 1) {
+            return 2;
+        }
+        return properties.getWorker().getStreaming().getMaxConcurrent();
+    }
+
     private ActiveExecution registerActiveExecution(DispatchTaskEntity task) {
         ActiveExecution execution = new ActiveExecution(task == null ? null : task.getId(),
                 task == null ? null : task.getRunRecordId(), Thread.currentThread());
@@ -1999,6 +2082,7 @@ public class WorkerLifecycleRunner {
         private volatile Long runRecordId;
         private final Thread executionThread;
         private volatile Runnable cancelCallback;
+        private volatile boolean interruptAfterCallback = true;
         private volatile boolean cancelled;
 
         private ActiveExecution(Long dispatchTaskId, Long runRecordId, Thread executionThread) {
@@ -2021,6 +2105,11 @@ public class WorkerLifecycleRunner {
             }
         }
 
+        private synchronized void setGracefulCancelCallback(Runnable cancelCallback) {
+            interruptAfterCallback = false;
+            setCancelCallback(cancelCallback);
+        }
+
         private void setRunRecordId(Long runRecordId) {
             this.runRecordId = runRecordId;
         }
@@ -2037,8 +2126,9 @@ public class WorkerLifecycleRunner {
                 if (executionThread != null) {
                     executionThread.interrupt();
                 }
+                return;
             }
-            if (executionThread != null) {
+            if (interruptAfterCallback && executionThread != null) {
                 executionThread.interrupt();
             }
         }

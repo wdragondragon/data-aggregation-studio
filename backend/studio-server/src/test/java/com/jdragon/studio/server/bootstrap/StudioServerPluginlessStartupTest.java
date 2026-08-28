@@ -50,7 +50,8 @@ import static org.assertj.core.api.Assertions.assertThat;
         properties = {
                 "spring.config.import=",
                 "spring.cloud.nacos.config.enabled=false",
-                "spring.cloud.nacos.discovery.enabled=false"
+                "spring.cloud.nacos.discovery.enabled=false",
+                "spring.arthas.enabled=false"
         })
 class StudioServerPluginlessStartupTest {
     private static final Path PROJECT_ROOT = locateProjectRoot();

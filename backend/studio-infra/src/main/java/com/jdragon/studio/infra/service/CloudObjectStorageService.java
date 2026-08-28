@@ -86,7 +86,7 @@ public class CloudObjectStorageService {
         putFile(bucket, objectKey, source, contentType, true);
     }
 
-    /** Uploads only to an existing bucket; intended for guarded repository mutations. */
+    /** Uploads a local file using the provider's streaming/file API. */
     public void putFileExistingBucket(String bucket, String objectKey, Path source, String contentType) {
         putFile(bucket, objectKey, source, contentType, false);
     }
@@ -180,6 +180,19 @@ public class CloudObjectStorageService {
                 // The primary failure is more useful to the caller; staging cleanup retries later.
             }
             throw new IllegalStateException("Failed to download object " + objectKey, e);
+        }
+    }
+
+    /** Streams an object directly to the caller without retaining it in memory. */
+    public void downloadTo(String bucket, String objectKey, OutputStream output) {
+        ensureConfigured(bucket, objectKey);
+        if (output == null) {
+            throw new IllegalArgumentException("output must not be null");
+        }
+        try (ObjectStorageClient client = newClient(bucket, false)) {
+            client.download(normalizeObjectKey(objectKey), output);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to stream object " + objectKey, e);
         }
     }
 
@@ -302,6 +315,8 @@ public class CloudObjectStorageService {
         boolean exists(String objectKey) throws Exception;
 
         void download(String objectKey, Path target, long maxBytes) throws Exception;
+
+        void download(String objectKey, OutputStream output) throws Exception;
 
         void delete(String objectKey) throws Exception;
 
@@ -427,6 +442,14 @@ public class CloudObjectStorageService {
         }
 
         @Override
+        public void download(String objectKey, OutputStream output) throws Exception {
+            try (InputStream input = client.getObject(GetObjectArgs.builder()
+                    .bucket(bucket).object(objectKey).build())) {
+                copyToLimited(input, output, Long.MAX_VALUE);
+            }
+        }
+
+        @Override
         public void delete(String objectKey) throws Exception {
             client.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(objectKey).build());
         }
@@ -537,6 +560,13 @@ public class CloudObjectStorageService {
                          StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
                          StandardOpenOption.WRITE)) {
                 copyToLimited(input, output, maxBytes);
+            }
+        }
+
+        @Override
+        public void download(String objectKey, OutputStream output) throws Exception {
+            try (InputStream input = client.getObject(bucket, objectKey).getObjectContent()) {
+                copyToLimited(input, output, Long.MAX_VALUE);
             }
         }
 

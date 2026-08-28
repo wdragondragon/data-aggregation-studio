@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.RunTerminationView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
@@ -52,6 +53,10 @@ public class RunTerminationService {
     @Transactional
     public RunTerminationView terminateCollectionTask(Long collectionTaskId) {
         CollectionTaskDefinitionView definition = collectionTaskService.get(collectionTaskId);
+        if (definition.getExecutionMode() == CollectionTaskExecutionMode.STREAMING) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "STREAMING collection tasks must be stopped with the offline operation");
+        }
         String tenantId = securityService.currentTenantId();
         if (definition.getTenantId() != null && !definition.getTenantId().equals(tenantId)) {
             throw new StudioException(StudioErrorCode.NOT_FOUND,

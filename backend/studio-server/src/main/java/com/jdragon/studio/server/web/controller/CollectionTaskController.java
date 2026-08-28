@@ -5,16 +5,23 @@ import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.dto.model.CollectionTaskListView;
 import com.jdragon.studio.dto.model.CollectionTaskOptionView;
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
+import com.jdragon.studio.dto.model.CollectionTaskStreamingRuntimeView;
 import com.jdragon.studio.dto.model.CollectionTaskWorkflowOptionView;
 import com.jdragon.studio.dto.model.PageView;
+import com.jdragon.studio.dto.model.RunLogChunkView;
 import com.jdragon.studio.dto.model.RunTerminationView;
+import com.jdragon.studio.dto.model.StreamingMetricBucketView;
+import com.jdragon.studio.dto.model.StreamingTaskEventView;
 import com.jdragon.studio.dto.model.request.CollectionTaskSaveRequest;
 import com.jdragon.studio.dto.model.request.RuntimeClusterTriggerRequest;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.DispatchService;
 import com.jdragon.studio.infra.service.RunTerminationService;
+import com.jdragon.studio.server.web.service.RunLogProxyService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,6 +32,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import jakarta.validation.Valid;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -36,13 +44,23 @@ public class CollectionTaskController {
     private final CollectionTaskService collectionTaskService;
     private final DispatchService dispatchService;
     private final RunTerminationService runTerminationService;
+    private final RunLogProxyService runLogProxyService;
 
     public CollectionTaskController(CollectionTaskService collectionTaskService,
                                     DispatchService dispatchService,
                                     RunTerminationService runTerminationService) {
+        this(collectionTaskService, dispatchService, runTerminationService, null);
+    }
+
+    @Autowired
+    public CollectionTaskController(CollectionTaskService collectionTaskService,
+                                    DispatchService dispatchService,
+                                    RunTerminationService runTerminationService,
+                                    RunLogProxyService runLogProxyService) {
         this.collectionTaskService = collectionTaskService;
         this.dispatchService = dispatchService;
         this.runTerminationService = runTerminationService;
+        this.runLogProxyService = runLogProxyService;
     }
 
     @Operation(summary = "List collection tasks")
@@ -106,6 +124,70 @@ public class CollectionTaskController {
     @PostMapping("/{id}/online")
     public Result<CollectionTaskListView> publish(@PathVariable("id") Long id) {
         return Result.success(collectionTaskService.publish(id));
+    }
+
+    @Operation(summary = "Take streaming collection task offline")
+    @PostMapping("/{id}/offline")
+    public Result<CollectionTaskListView> offline(@PathVariable("id") Long id) {
+        return Result.success(collectionTaskService.offline(id));
+    }
+
+    @Operation(summary = "Recover failed streaming collection task")
+    @PostMapping("/{id}/recover")
+    public Result<CollectionTaskListView> recover(@PathVariable("id") Long id) {
+        return Result.success(collectionTaskService.recover(id));
+    }
+
+    @Operation(summary = "Get streaming collection task runtime")
+    @GetMapping("/{id}/streaming-runtime")
+    public Result<CollectionTaskStreamingRuntimeView> streamingRuntime(@PathVariable("id") Long id) {
+        return Result.success(collectionTaskService.streamingRuntime(id));
+    }
+
+    @Operation(summary = "List streaming collection task minute metrics")
+    @GetMapping("/{id}/streaming-metrics")
+    public Result<PageView<StreamingMetricBucketView>> streamingMetrics(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "startTime", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startTime,
+            @RequestParam(value = "endTime", required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endTime,
+            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize,
+            @RequestParam(value = "onlyWithRecords", required = false, defaultValue = "false") boolean onlyWithRecords) {
+        return Result.success(collectionTaskService.streamingMetricsPage(id, startTime, endTime, pageNo, pageSize,
+                onlyWithRecords));
+    }
+
+    @Operation(summary = "Page streaming collection task events")
+    @GetMapping("/{id}/streaming-events")
+    public Result<PageView<StreamingTaskEventView>> streamingEvents(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(collectionTaskService.streamingEvents(id, pageNo, pageSize));
+    }
+
+    @Operation(summary = "Page streaming collection task log chunks")
+    @GetMapping("/{id}/streaming-log-chunks")
+    public Result<PageView<RunLogChunkView>> streamingLogChunks(
+            @PathVariable("id") Long id,
+            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        return Result.success(collectionTaskService.streamingLogChunks(id, pageNo, pageSize));
+    }
+
+    @Operation(summary = "Preview one streaming collection task log chunk")
+    @GetMapping("/{id}/streaming-log-chunks/{chunkId}/preview")
+    public Result<com.jdragon.studio.dto.model.RunLogView> streamingLogChunkPreview(
+            @PathVariable("id") Long id,
+            @PathVariable("chunkId") Long chunkId,
+            @RequestParam(value = "pageNo", required = false) Integer pageNo,
+            @RequestParam(value = "pageSizeBytes", required = false) Integer pageSizeBytes) {
+        if (runLogProxyService == null) {
+            throw new IllegalStateException("Run log preview service is not configured");
+        }
+        return Result.success(runLogProxyService.viewChunk(id, chunkId, pageNo, pageSizeBytes));
     }
 
     @Operation(summary = "Update collection task schedule")

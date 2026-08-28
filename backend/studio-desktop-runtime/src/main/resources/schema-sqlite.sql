@@ -1039,6 +1039,7 @@ create table if not exists collection_task_definition (
     name text,
     task_type text,
     status text,
+    execution_mode text not null default 'BATCH',
     source_count integer default 1,
     target_datasource_name_snapshot text,
     target_datasource_type_code_snapshot text,
@@ -1047,7 +1048,8 @@ create table if not exists collection_task_definition (
     source_bindings_json text,
     target_binding_json text,
     field_mappings_json text,
-    execution_options_json text
+    execution_options_json text,
+    streaming_options_json text
 );
 create unique index if not exists uk_collection_task_definition_project_name on collection_task_definition(project_id, name);
 create index if not exists idx_collection_task_definition_project on collection_task_definition(project_id);
@@ -1091,6 +1093,160 @@ create table if not exists collection_task_schedule (
     last_triggered_at text
 );
 create index if not exists idx_collection_task_schedule_project on collection_task_schedule(project_id);
+
+create table if not exists stream_task_deploy (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer not null,
+    runtime_cluster_id integer,
+    generation integer not null default 0,
+    desired_state text not null default 'STOPPED',
+    observed_state text not null default 'STOPPED',
+    current_run_id integer,
+    current_attempt_id integer,
+    consecutive_failure_count integer not null default 0,
+    next_retry_at text,
+    last_checkpoint_json text,
+    last_checkpoint_at text,
+    last_error_code text,
+    last_error_summary text,
+    version integer not null default 0
+);
+create unique index if not exists uk_stream_deploy_task on stream_task_deploy(tenant_id, project_id, collection_task_id);
+create index if not exists idx_stream_deploy_state on stream_task_deploy(tenant_id, runtime_cluster_id, desired_state, observed_state, next_retry_at);
+
+create table if not exists stream_task_run (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer not null,
+    generation integer not null,
+    runtime_cluster_id integer,
+    status text not null,
+    delivery_semantics text not null default 'AT_LEAST_ONCE',
+    group_id text not null,
+    started_by integer,
+    started_at text,
+    stop_requested_at text,
+    stopped_by integer,
+    stopped_at text,
+    stop_reason text,
+    final_checkpoint_json text
+);
+create unique index if not exists uk_stream_run_task_gen on stream_task_run(tenant_id, project_id, collection_task_id, generation);
+create index if not exists idx_stream_run_task_time on stream_task_run(tenant_id, project_id, collection_task_id, started_at);
+
+create table if not exists stream_task_attempt (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    run_id integer not null,
+    collection_task_id integer not null,
+    generation integer not null,
+    attempt_no integer not null,
+    dispatch_task_id integer,
+    run_record_id integer,
+    runtime_cluster_id integer,
+    worker_instance_id text,
+    worker_boot_id text,
+    status text not null,
+    started_at text,
+    ended_at text,
+    heartbeat_at text,
+    retry_after text,
+    checkpoint_json text,
+    error_code text,
+    error_summary text,
+    committed_batch_count integer not null default 0
+);
+create unique index if not exists uk_stream_attempt_run_no on stream_task_attempt(tenant_id, project_id, run_id, attempt_no);
+create index if not exists idx_stream_attempt_task_status on stream_task_attempt(tenant_id, project_id, collection_task_id, status, updated_at);
+
+create table if not exists stream_metric_bucket (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer not null,
+    run_id integer not null,
+    attempt_id integer not null,
+    bucket_start text not null,
+    records_read integer not null default 0,
+    write_succeed_records integer not null default 0,
+    write_failed_records integer not null default 0,
+    dirty_records integer not null default 0,
+    bytes_read integer not null default 0,
+    batch_count integer not null default 0,
+    retry_count integer not null default 0,
+    current_lag integer not null default 0,
+    max_lag integer not null default 0,
+    last_message_at text,
+    last_checkpoint_at text,
+    rebalance_count integer not null default 0
+);
+create unique index if not exists uk_stream_metric_attempt_min on stream_metric_bucket(tenant_id, project_id, attempt_id, bucket_start);
+create index if not exists idx_stream_metric_task_time on stream_metric_bucket(tenant_id, project_id, collection_task_id, bucket_start);
+
+create table if not exists stream_task_event (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer not null,
+    deployment_id integer,
+    run_id integer,
+    attempt_id integer,
+    generation integer,
+    event_type text not null,
+    from_state text,
+    to_state text,
+    message text,
+    details_json text,
+    actor_id integer,
+    occurred_at text not null
+);
+create index if not exists idx_stream_event_task_time on stream_task_event(tenant_id, project_id, collection_task_id, occurred_at);
+create index if not exists idx_stream_event_run_attempt on stream_task_event(run_id, attempt_id, occurred_at);
+
+create table if not exists run_log_chunk (
+    id integer primary key,
+    tenant_id text default 'default',
+    project_id integer,
+    deleted integer default 0,
+    created_at text,
+    updated_at text,
+    collection_task_id integer,
+    run_record_id integer,
+    stream_attempt_id integer,
+    sequence_no integer not null,
+    status text not null,
+    local_path text,
+    storage_type text,
+    object_bucket text,
+    object_key text,
+    size_bytes integer not null default 0,
+    checksum_sha256 text,
+    chunk_started_at text,
+    chunk_ended_at text,
+    uploaded_at text
+);
+create unique index if not exists uk_run_log_chunk_attempt_seq on run_log_chunk(tenant_id, project_id, stream_attempt_id, sequence_no);
+create index if not exists idx_run_log_chunk_record_seq on run_log_chunk(run_record_id, sequence_no);
+create index if not exists idx_run_log_chunk_task_time on run_log_chunk(collection_task_id, chunk_started_at);
 
 create table if not exists data_service_definition (
     id integer primary key,

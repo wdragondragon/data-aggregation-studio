@@ -25,4 +25,18 @@ backend/.idea/
 /tmp/
 /backend/runtime/
 backend/**/runtime/
+
+# The broad runtime-output rule also matches Java package directories. Keep
+# runtime artifacts ignored while allowing the native streaming implementation.
+!backend/studio-worker/src/main/java/com/jdragon/studio/worker/runtime/
+backend/studio-worker/src/main/java/com/jdragon/studio/worker/runtime/*
+!backend/studio-worker/src/main/java/com/jdragon/studio/worker/runtime/streaming/
+!backend/studio-worker/src/main/java/com/jdragon/studio/worker/runtime/streaming/*.java
+!backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/
+backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/*
+!backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/runner/
+backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/runner/*
+!backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/runner/WorkerStreamingDispatchTest.java
+!backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/streaming/
+!backend/studio-worker/src/test/java/com/jdragon/studio/worker/runtime/streaming/*.java
 aggregation-home/

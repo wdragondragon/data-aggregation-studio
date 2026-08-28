@@ -2,8 +2,10 @@ package com.jdragon.studio.dto.model.request;
 
 import com.jdragon.studio.dto.model.CollectionTaskScheduleDefinition;
 import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
+import com.jdragon.studio.dto.model.CollectionTaskStreamingOptions;
 import com.jdragon.studio.dto.model.CollectionTaskTargetBinding;
 import com.jdragon.studio.dto.model.FieldMappingDefinition;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
@@ -26,6 +28,12 @@ public class CollectionTaskSaveRequest {
     @NotBlank(message = "Task name is required")
     @Schema(description = "Task name", required = true)
     private String name;
+
+    @Schema(description = "Execution mode; historical and omitted values default to BATCH")
+    private CollectionTaskExecutionMode executionMode;
+
+    @Schema(description = "Native streaming options, valid only when executionMode is STREAMING")
+    private CollectionTaskStreamingOptions streamingOptions;
 
     @Schema(description = "Source bindings")
     private List<CollectionTaskSourceBinding> sourceBindings = new ArrayList<CollectionTaskSourceBinding>();

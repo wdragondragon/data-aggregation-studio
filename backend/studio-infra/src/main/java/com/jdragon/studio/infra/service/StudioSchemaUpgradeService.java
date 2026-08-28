@@ -22,6 +22,7 @@ public class StudioSchemaUpgradeService {
     private final StudioSchemaIntrospector schemaIntrospector;
     private final StudioDatabaseDialectDetector dialectDetector;
     private final StudioDatasourceCapabilityUpgradeSupport datasourceCapabilityUpgradeSupport;
+    private final StudioStreamingSchemaUpgradeSupport streamingSchemaUpgradeSupport;
     private final ObjectMapper objectMapper;
 
     public StudioSchemaUpgradeService(JdbcTemplate jdbcTemplate) {
@@ -29,6 +30,7 @@ public class StudioSchemaUpgradeService {
         this.schemaIntrospector = new StudioSchemaIntrospector(jdbcTemplate);
         this.dialectDetector = new StudioDatabaseDialectDetector(jdbcTemplate);
         this.datasourceCapabilityUpgradeSupport = new StudioDatasourceCapabilityUpgradeSupport(jdbcTemplate, schemaIntrospector);
+        this.streamingSchemaUpgradeSupport = new StudioStreamingSchemaUpgradeSupport(jdbcTemplate, schemaIntrospector);
         this.objectMapper = new ObjectMapper();
     }
 
@@ -46,6 +48,7 @@ public class StudioSchemaUpgradeService {
     private void upgradeMysql() {
         ensureRuntimeClusterTablesMysql();
         ensureRuntimeClusterColumnsMysql();
+        streamingSchemaUpgradeSupport.ensureMysql();
         ensureFileTransferTablesMysql();
         ensureUnstructuredManagementTablesMysql();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
@@ -715,6 +718,7 @@ public class StudioSchemaUpgradeService {
     private void upgradeSqlite() {
         ensureRuntimeClusterTablesSqlite();
         ensureRuntimeClusterColumnsSqlite();
+        streamingSchemaUpgradeSupport.ensureSqlite();
         ensureFileTransferTablesSqlite();
         ensureUnstructuredManagementTablesSqlite();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",

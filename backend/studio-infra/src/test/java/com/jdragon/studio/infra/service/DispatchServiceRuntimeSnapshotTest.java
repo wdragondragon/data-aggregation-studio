@@ -1,5 +1,6 @@
 package com.jdragon.studio.infra.service;
 
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import com.jdragon.studio.dto.enums.CollectionTaskStatus;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
@@ -22,6 +23,22 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class DispatchServiceRuntimeSnapshotTest {
+
+    @Test
+    void shouldRejectStreamingTaskBeforeCreatingBatchDispatch() {
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        DispatchTaskMapper dispatchTaskMapper = mock(DispatchTaskMapper.class);
+        CollectionTaskDefinitionView definition = definition(LocalDateTime.of(2026, 8, 27, 3, 0));
+        definition.setExecutionMode(CollectionTaskExecutionMode.STREAMING);
+        when(collectionTaskService.requireOnline(200L)).thenReturn(definition);
+
+        DispatchService service = service(dispatchTaskMapper, collectionTaskService,
+                mock(RuntimeResourceRevisionService.class));
+
+        assertThatThrownBy(() -> service.triggerCollectionTask(200L))
+                .hasMessageContaining("cannot be triggered");
+        verify(dispatchTaskMapper, never()).insert(any(DispatchTaskEntity.class));
+    }
 
     @Test
     void shouldRejectDispatchWhenResourceChangesAfterInitialRead() {

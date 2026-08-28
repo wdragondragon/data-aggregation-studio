@@ -3,6 +3,8 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.MybatisSqlSessionFactoryBuilder;
 import com.baomidou.mybatisplus.extension.plugins.MybatisPlusInterceptor;
+import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.CollectionTaskExecutionMode;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
 import com.jdragon.studio.infra.config.MybatisPlusConfig;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
@@ -25,11 +27,33 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class RunTerminationSqliteIntegrationTest {
+
+    @Test
+    void streamingTaskMustUseOfflineInsteadOfBatchTermination() {
+        CollectionTaskService collectionTaskService = mock(CollectionTaskService.class);
+        CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
+        definition.setId(10L);
+        definition.setExecutionMode(CollectionTaskExecutionMode.STREAMING);
+        when(collectionTaskService.get(10L)).thenReturn(definition);
+        DispatchTaskMapper dispatchMapper = mock(DispatchTaskMapper.class);
+        RunRecordMapper runRecordMapper = mock(RunRecordMapper.class);
+        RunTerminationService service = new RunTerminationService(
+                dispatchMapper, runRecordMapper, mock(RunService.class),
+                collectionTaskService, mock(StudioSecurityService.class));
+
+        StudioException exception = assertThrows(StudioException.class,
+                () -> service.terminateCollectionTask(10L));
+
+        assertTrue(exception.getMessage().contains("offline"));
+        verifyNoInteractions(dispatchMapper, runRecordMapper);
+    }
 
     @Test
     void persistsTerminationMetadataInDispatchAndRunRecordJson() throws Exception {

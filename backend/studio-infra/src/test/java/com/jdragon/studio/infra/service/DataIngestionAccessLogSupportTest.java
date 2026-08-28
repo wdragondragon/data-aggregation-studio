@@ -28,6 +28,8 @@ import org.mockito.InOrder;
 import org.slf4j.LoggerFactory;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.Collections;
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -219,8 +222,10 @@ class DataIngestionAccessLogSupportTest {
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
         when(ingestionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(accessLogObjectPointer());
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(sectionedLog().getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                sectionedLog());
 
         RunLogView targetLog = service.downloadLogSection(OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
                 78L,
@@ -262,8 +267,10 @@ class DataIngestionAccessLogSupportTest {
         DataIngestionAccessLogMapper ingestionMapper = mock(DataIngestionAccessLogMapper.class);
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(objectIndexedLog(false).getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                objectIndexedLog(false));
 
         boolean deleted = service.deleteDataIngestionArchivedObjects(Long.valueOf(78L),
                 "studio-log-bucket",
@@ -374,8 +381,10 @@ class DataIngestionAccessLogSupportTest {
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
         when(ingestionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(accessLogObjectPointer());
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(objectIndexedLog(false).getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                objectIndexedLog(false));
 
         RunLogView fullLog = service.viewLog(OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES, 78L, 1, 4096);
 
@@ -392,10 +401,14 @@ class DataIngestionAccessLogSupportTest {
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
         when(ingestionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(accessLogObjectPointer());
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(objectIndexedLog(false).getBytes(StandardCharsets.UTF_8));
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned/targets/target_1_orders_2026070201.log"))
-                .thenReturn(targetObjectLog("target_1_orders_2026070201", "orders", "orders target wrote Alice").getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                objectIndexedLog(false));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned/targets/target_1_orders_2026070201.log",
+                targetObjectLog("target_1_orders_2026070201", "orders", "orders target wrote Alice"));
 
         RunLogView targetLog = service.downloadLogSection(OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
                 78L,
@@ -413,12 +426,18 @@ class DataIngestionAccessLogSupportTest {
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
         when(ingestionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(accessLogObjectPointer());
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(objectIndexedLog(false).getBytes(StandardCharsets.UTF_8));
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned/targets/target_1_orders_2026070201.log"))
-                .thenReturn(targetObjectLog("target_1_orders_2026070201", "orders", "orders target wrote Alice").getBytes(StandardCharsets.UTF_8));
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned/targets/target_2_customers_2026070202.log"))
-                .thenReturn(targetObjectLog("target_2_customers_2026070202", "customers", "customers target wrote Bob").getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                objectIndexedLog(false));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned/targets/target_1_orders_2026070201.log",
+                targetObjectLog("target_1_orders_2026070201", "orders", "orders target wrote Alice"));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned/targets/target_2_customers_2026070202.log",
+                targetObjectLog("target_2_customers_2026070202", "customers", "customers target wrote Bob"));
 
         RunLogView fullLog = service.downloadLog(OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES, 78L);
 
@@ -435,8 +454,10 @@ class DataIngestionAccessLogSupportTest {
         RunLogObjectStore objectStore = mock(RunLogObjectStore.class);
         OpenServiceInvocationLogService service = invocationLogService(ingestionMapper, objectStore);
         when(ingestionMapper.selectOne(any(LambdaQueryWrapper.class))).thenReturn(accessLogObjectPointer());
-        when(objectStore.get("studio-log-bucket", "studio/invocation/sectioned.log"))
-                .thenReturn(objectIndexedLog(true).getBytes(StandardCharsets.UTF_8));
+        stubObjectDownload(objectStore,
+                "studio-log-bucket",
+                "studio/invocation/sectioned.log",
+                objectIndexedLog(true));
 
         RunLogView targetLog = service.downloadLogSection(OpenServiceInvocationLogService.DOMAIN_DATA_INGESTION_SERVICES,
                 78L,
@@ -534,6 +555,17 @@ class DataIngestionAccessLogSupportTest {
         ArgumentCaptor<DataIngestionAccessLogEntity> captor = ArgumentCaptor.forClass(DataIngestionAccessLogEntity.class);
         verify(accessLogMapper).insert(captor.capture());
         return captor.getValue();
+    }
+
+    private static void stubObjectDownload(RunLogObjectStore objectStore,
+                                           String bucket,
+                                           String objectKey,
+                                           String content) {
+        doAnswer(invocation -> {
+            Path target = invocation.getArgument(2);
+            Files.write(target, content.getBytes(StandardCharsets.UTF_8));
+            return null;
+        }).when(objectStore).downloadTo(eq(bucket), eq(objectKey), any(Path.class));
     }
 
     private static OpenServiceInvocationLogService invocationLogService(DataIngestionAccessLogMapper ingestionMapper) {
