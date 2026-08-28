@@ -27,6 +27,7 @@
     - [studio-future-roadmap.md](./规划/studio-future-roadmap.md)
     - [可配置多集群运行与数据源适用范围](./规划/studio-configurable-runtime-cluster-plan-20260720.md)
     - [统一 Worker 执行面与纯控制面计划](./规划/studio-worker-only-execution-plane-plan-20260721.md)
+    - [Studio Native Kafka 长期运行能力实施主计划](./规划/studio-native-kafka-streaming-plan-20260827.md)
     - [Studio 非结构化文件传输三阶段实施计划](./规划/studio-unstructured-file-transfer-plan-20260807.md)
     - [Studio 单集群文件传输与非结构化管理改造变更跟踪](./规划/studio-unstructured-file-transfer-change-log-20260809.md)
 
@@ -47,6 +48,8 @@
     - [studio-server-worker-configuration.md](./运维/部署/studio-server-worker-configuration.md)：纯控制面 Server、全能力 Worker、内部调用、运行日志和插件边界说明。
     - [studio-runtime-cluster-deployment.md](./运维/部署/studio-runtime-cluster-deployment.md)：OMS 纯控制面、统一 Worker 执行面、单/多集群部署与历史迁移说明。
     - [studio-production-runtime-acceptance.md](./运维/部署/studio-production-runtime-acceptance.md)：生产 SLB、OMS/Worker 网络边界和共享对象存储的无秘密验收工具与证据模板。
+     - [Studio Native Kafka 长期运行部署与回滚](./运维/部署/studio-native-kafka-streaming-deployment.md)：数据库、插件、Worker、Server、Web 发布顺序，运行配置、监控、故障处置和保留数据回滚边界。
+     - [Studio Native Kafka 发布交付白名单](./运维/部署/studio-native-kafka-streaming-delivery-manifest-20260827.md)：两个 Git 仓库的源码、SQL、测试、文档交付范围、排除项和构建证据。
     - [Studio 单集群非结构化文件传输部署与安全边界](./运维/部署/studio-file-transfer-deployment.md)：单 Worker、文件插件、SSE、FTP/OSS 网络边界和发布验收。
     - [data-service-metrics-retention-impact.md](./运维/监控/data-service-metrics-retention-impact.md)
     - [alert-webhook-security.md](./运维/监控/alert-webhook-security.md)：告警 Webhook 的 SSRF、签名、秘密与投递安全配置。
@@ -62,6 +65,7 @@
       - [datasource-connection-status-test-cases.md](./测试/数据资产/datasource-connection-status-test-cases.md)
     - 数据采集：
       - [指标监控数据源选项回归记录（2026-08-09）](./测试/数据采集/run-metrics-datasource-options-regression-20260809.md)
+      - [Studio Native Kafka 长期运行验收用例](./测试/数据采集/studio-native-kafka-streaming-test-cases-20260827.md)
     - 多运行集群：
       - [P0-MC-01 多集群运行验收执行记录](./测试/长期跟踪/records/20260720-P0-MC-01多集群运行验收执行记录.md)
     - 质量指标：

@@ -14,7 +14,7 @@
 - 管理端基础地址：`${BASE_URL}`，默认在线环境为 `http://127.0.0.1:18080/api/v1`。
 - 认证头：`Authorization: Bearer ${TOKEN}`。
 - 租户和项目上下文：大多数项目内接口需要 `X-Tenant-Id: ${TENANT_ID}` 与 `X-Project-Id: ${PROJECT_ID}`。
-- 返回包裹：所有管理端 JSON 接口返回 `Result<T>`：`{ success, code, message, data, timestamp }`。分页通常为 `PageResult<T>`：`{ pageNo, pageSize, total, items }`。
+- 返回包裹：所有管理端 JSON 接口返回 `Result<T>`：`{ success, code, message, data, timestamp }`。分页数据为 `PageView<T>`：`{ pageNo, pageSize, total, items }`，位于 `Result.data`。
 
 ## 典型调用链
 
@@ -35,6 +35,74 @@
 - `GET /runs` 和 `GET /runs/page` 支持 `requestedClusterId/actualClusterId` 过滤，运行记录返回请求集群、实际集群和实际集群编码。
 
 定时运行不接受覆盖，始终使用任务保存的集群；目标集群离线时 Dispatch 保留排队，不会转移到其它集群。以上契约优先于下方历史自动抽取表中的旧签名。
+
+## 2026-08-27 Native Streaming 增量契约
+
+### 模式、状态与保存字段
+
+- `executionMode` 为 `BATCH | STREAMING`，省略时按 `BATCH` 处理，历史任务升级后统一回填为 `BATCH` 且不会自动启动。
+- `streamingOptions` 只对 `STREAMING` 有效，包含 `groupId`、`offsetReset`、`resetOffset`、`pollTimeoutMs`、`maxBatchRecords`、`maxBatchBytes`、`batchRetryCount`、`stopTimeoutMs`、`maxConsecutiveFailures`、`retryInitialDelayMs` 和 `retryMaxDelayMs`。
+- 未填写 `groupId` 时，服务端按 `studio.<tenantId>.<taskId>` 生成。Kafka Topic 不保存在数据源连接中，来自源/目标模型的 `physicalLocator`。
+- 任务业务状态为 `DRAFT | ONLINE | OFFLINE`；流式部署期望状态为 `RUNNING | STOPPED`，观测状态为 `STARTING | RUNNING | STOPPING | STOPPED | RECOVERING | FAILED`。
+- STREAMING 的交付语义固定为 `AT_LEAST_ONCE`。目标微批成功后才提交 Kafka offset；提交失败允许同一批次重放。
+
+STREAMING 保存示例：
+
+```json
+{
+  "name": "NativeStreaming-example",
+  "runtimeClusterId": "<runtimeClusterId>",
+  "executionMode": "STREAMING",
+  "streamingOptions": {
+    "groupId": "studio.<tenantId>.<taskId>",
+    "offsetReset": "earliest",
+    "resetOffset": false,
+    "pollTimeoutMs": 1000,
+    "maxBatchRecords": 1000,
+    "maxBatchBytes": 16777216,
+    "batchRetryCount": 3,
+    "stopTimeoutMs": 60000,
+    "maxConsecutiveFailures": 10,
+    "retryInitialDelayMs": 5000,
+    "retryMaxDelayMs": 300000
+  },
+  "sourceBindings": [],
+  "targetBinding": {},
+  "fieldMappings": [],
+  "executionOptions": {}
+}
+```
+
+示例中的数据源、模型、字段映射和 ID 必须使用选项接口返回的真实值，不应直接提交空数组或占位符。
+
+### 流式生命周期和监控接口
+
+| 操作 | 方法与路径 | 请求 | `Result.data` |
+|---|---|---|---|
+| 上线 | `POST /collection-tasks/{id}/online` | 无 Body | `CollectionTaskListView` |
+| 下线 | `POST /collection-tasks/{id}/offline` | 无 Body | `CollectionTaskListView` |
+| 人工恢复 | `POST /collection-tasks/{id}/recover` | 无 Body | `CollectionTaskListView` |
+| 运行态 | `GET /collection-tasks/{id}/streaming-runtime` | 无 | `CollectionTaskStreamingRuntimeView` |
+| 分钟指标 | `GET /collection-tasks/{id}/streaming-metrics` | Query：`startTime/endTime/pageNo/pageSize/onlyWithRecords`，时间为 ISO 日期时间，可选；`onlyWithRecords=true` 仅统计 `recordsRead > 0` 的分钟桶；页码从 1 开始，页大小默认 20、最大 200 | `PageView<StreamingMetricBucketView>`，按 `bucketStart` 倒序；筛选在聚合后、分页前执行 |
+| 事件 | `GET /collection-tasks/{id}/streaming-events` | Query：`pageNo/pageSize`，可选 | `PageView<StreamingTaskEventView>` |
+| 日志分片 | `GET /collection-tasks/{id}/streaming-log-chunks` | Query：`pageNo/pageSize`，可选 | `PageView<RunLogChunkView>` |
+| 日志分片预览 | `GET /collection-tasks/{id}/streaming-log-chunks/{chunkId}/preview` | Query：`pageNo/pageSizeBytes`，可选；单页最多 512KB | `RunLogView`，只读取当前分片并执行敏感信息脱敏 |
+| 日志分页 | `GET /runs/{runRecordId}/log` | Query：`pageNo/pageSizeBytes`，单页最大 512KB | `RunLogView` |
+| 日志归档 | `GET /runs/{runRecordId}/log/archive` | 无 | ZIP 二进制响应 |
+
+`online`、`offline` 和 `recover` 都是幂等操作。重复上线返回同一代 deployment/run/active attempt；重复下线不会创建额外停止记录；已满足恢复后的目标状态时重复请求不会创建双 attempt。`recover` 只接受 `desiredState=RUNNING` 且 `observedState=FAILED` 的任务。
+
+除 `/runs/{id}/log/archive` 外，上表接口统一返回 Studio `Result<T>`；事件、日志分片和分钟指标的分页对象使用 `PageView<T>`，分页数据在 `Result.data.items`。分钟指标先按任务分钟聚合跨 attempt 原始桶，再按 `onlyWithRecords` 过滤和分页，第一页展示最新分钟。监控页面只将当前页内连续、计数全为 0 且 lag/checkpoint/attempt 状态不变的桶折叠为空闲时间段，原始 `stream_metric_bucket` 记录不被删除。日志分片预览只读取指定 `chunkId`，对象存储和 Worker 本地分片均沿用现有权限、分页和脱敏链路，单页最多 512KB。归档接口直接返回 `HTTP 200 application/zip`，并带 `Content-Disposition: attachment`，不能按 JSON 或 `Result<T>` 解析。
+
+### STREAMING 操作限制
+
+- STREAMING 不支持 `schedule`；保存或调用 `/schedule` 会返回业务错误。
+- STREAMING 不支持 `/trigger`，上线即开始持续消费；下线才停止。
+- `desiredState=RUNNING` 期间禁止修改运行配置和删除任务，前端应禁用编辑、保存和删除，后端仍会拒绝绕过 UI 的请求。
+- STREAMING 不使用任务级 `/terminate` 停止，调用方应使用 `/offline`；BATCH 保持原有发布、定时和手动触发行为。
+- 下线默认等待当前微批最多 60 秒，超时取消后该批次不提交 offset，下次上线或恢复时允许重放。
+
+常见错误包括：`STREAMING collection tasks do not support schedules`、`STREAMING collection tasks do not support manual trigger`、`Running streaming collection task must be offline before it can be edited`。前端应展示 `Result.message`，同时保留任务当前 `desiredState/observedState` 供用户判断下一步操作。
 
 ## 前端 SDK 接口清单
 
@@ -57,6 +125,13 @@
 | `runs.listPage()` | GET | `/runs/page` | params?: RunRecordPageQuery | `RunRecordPageResponse` | `frontend/apps/web/src/views/CollectionTaskRunsView.vue:243`<br>`frontend/apps/web/src/views/QualityTaskRunsView.vue:231` | `frontend/packages/api-sdk/src/client.ts:1612` |
 | `collectionTasks.resetIncrementalCursor()` | POST | ``/collection-tasks/${id}/incremental-cursors/reset`` | id: EntityId<br>sourceAlias?: string<br>scope?: { incrColumn?: string; incrModel?: string }<br>query: `{ ...(sourceAlias ? { sourceAlias } : {}), ...(scope?.incrColumn ? { incrColumn: scope.incrColumn } : {}), ...(scope?.incrModel ? { incrModel: scope.incrModel } : {}), }` | `CollectionTaskDefinitionView` | `frontend/apps/web/src/views/CollectionTaskEditorView.vue:1402` | `frontend/packages/api-sdk/src/client.ts:1314` |
 | `collectionTasks.publish()` | POST | ``/collection-tasks/${id}/online`` | id: EntityId | `CollectionTaskListView` | `frontend/apps/web/src/views/CollectionTasksView.vue:341` | `frontend/packages/api-sdk/src/client.ts:1308` |
+| `collectionTasks.offline()` | POST | ``/collection-tasks/${id}/offline`` | id: EntityId | `CollectionTaskListView` | `frontend/apps/web/src/views/CollectionTasksView.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.recover()` | POST | ``/collection-tasks/${id}/recover`` | id: EntityId | `CollectionTaskListView` | `frontend/apps/web/src/views/CollectionTasksView.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.streamingRuntime()` | GET | ``/collection-tasks/${id}/streaming-runtime`` | id: EntityId | `CollectionTaskStreamingRuntimeView` | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.streamingMetrics()` | GET | ``/collection-tasks/${id}/streaming-metrics`` | id: EntityId<br>params?: `{ startTime?: string; endTime?: string; pageNo?: number; pageSize?: number; onlyWithRecords?: boolean }` | `PageView<StreamingMetricBucketView>` | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.streamingEvents()` | GET | ``/collection-tasks/${id}/streaming-events`` | id: EntityId<br>params?: `{ pageNo?: number; pageSize?: number }` | `PageView<StreamingTaskEventView>` | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.streamingLogChunks()` | GET | ``/collection-tasks/${id}/streaming-log-chunks`` | id: EntityId<br>params?: `{ pageNo?: number; pageSize?: number }` | `PageView<RunLogChunkView>` | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
+| `collectionTasks.streamingLogChunkPreview()` | GET | ``/collection-tasks/${id}/streaming-log-chunks/${chunkId}/preview`` | id: EntityId, chunkId: EntityId<br>params?: `RunLogQuery` (`pageNo/pageSizeBytes`) | `RunLogView` | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `collectionTasks.saveSchedule()` | POST | ``/collection-tasks/${id}/schedule`` | id: EntityId<br>payload: CollectionTaskScheduleDefinition<br>body: `payload` | `CollectionTaskDefinitionView` | - | `frontend/packages/api-sdk/src/client.ts:1311` |
 | `collectionTasks.trigger()` | POST | ``/collection-tasks/${id}/trigger`` | id: EntityId | `void` | `frontend/apps/web/src/views/CollectionTasksView.vue:376` | `frontend/packages/api-sdk/src/client.ts:1325` |
 | `collectionTasks.delete()` | DELETE | ``/collection-tasks/${id}`` | id: EntityId | `void` | `frontend/apps/web/src/views/CollectionTasksView.vue:393` | `frontend/packages/api-sdk/src/client.ts:1328` |
@@ -64,6 +139,7 @@
 | `fieldMappingRules.delete()` | DELETE | ``/field-mapping-rules/${id}`` | id: EntityId | `void` | `frontend/apps/web/src/views/FieldMappingRulesView.vue:163` | `frontend/packages/api-sdk/src/client.ts:489` |
 | `fieldMappingRules.get()` | GET | ``/field-mapping-rules/${id}`` | id: EntityId | `FieldMappingRuleView` | `frontend/apps/web/src/views/CollectionTaskEditorView.vue:380`<br>`frontend/apps/web/src/views/DataServiceEditorView.vue:820`<br>`frontend/apps/web/src/views/FieldMappingRuleEditorView.vue:179`<br>`frontend/apps/web/src/views/ProtocolConversionServiceEditorView.vue:837` | `frontend/packages/api-sdk/src/client.ts:483` |
 | `runs.downloadLog()` | GET | ``/runs/${id}/log/download`` | id: EntityId | `RunLogView` | `frontend/apps/web/src/components/RunLogDrawer.vue:235` | `frontend/packages/api-sdk/src/client.ts:1628` |
+| `runs.downloadLogArchive()` | GET | ``/runs/${id}/log/archive`` | id: EntityId<br>config?: StudioRequestConfig | `Blob`（ZIP） | `frontend/apps/web/src/components/collection-task/StreamingTaskMonitorDrawer.vue` | `frontend/packages/api-sdk/src/client.ts` |
 | `runs.getLog()` | GET | ``/runs/${id}/log`` | id: EntityId<br>params?: RunLogQuery | `RunLogView` | `frontend/apps/web/src/components/RunLogDrawer.vue:197`<br>`frontend/apps/web/src/views/DataDevelopmentView.vue:856` | `frontend/packages/api-sdk/src/client.ts:1625` |
 | `runs.getSummary()` | GET | ``/runs/${id}/summary`` | id: EntityId | `RunRecordListView` | `frontend/apps/web/src/components/RunLogDrawer.vue:183` | `frontend/packages/api-sdk/src/client.ts:1622` |
 | `runs.get()` | GET | ``/runs/${id}`` | id: EntityId | `RunRecord` | - | `frontend/packages/api-sdk/src/client.ts:1619` |
@@ -79,6 +155,13 @@
 | CollectionTaskController | DELETE | `/api/v1/collection-tasks/{id}` | `delete()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:128` |
 | CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/incremental-cursors/reset` | `resetIncrementalCursor()` | path: `@PathVariable("id") Long id`<br>query: `@RequestParam(value = "sourceAlias"`<br>implicit: `required = false) String sourceAlias`<br>query: `@RequestParam(value = "incrColumn"`<br>implicit: `required = false) String incrColumn`<br>query: `@RequestParam(value = "incrModel"`<br>implicit: `required = false) String incrModel` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:112` |
 | CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/online` | `publish()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:99` |
+| CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/offline` | `offline()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/recover` | `recover()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/{id}/streaming-runtime` | `streamingRuntime()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/{id}/streaming-metrics` | `streamingMetrics()` | path: `id`<br>query: `startTime/endTime/pageNo/pageSize/onlyWithRecords`（时间为 ISO 日期时间，可选；`onlyWithRecords=true` 仅保留 `recordsRead > 0`；默认页码 1、页大小 20，最大 200） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/{id}/streaming-events` | `streamingEvents()` | path: `id`<br>query: `pageNo/pageSize`（可选） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/{id}/streaming-log-chunks` | `streamingLogChunks()` | path: `id`<br>query: `pageNo/pageSize`（可选） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
+| CollectionTaskController | GET | `/api/v1/collection-tasks/{id}/streaming-log-chunks/{chunkId}/preview` | `streamingLogChunkPreview()` | path: `id/chunkId`<br>query: `pageNo/pageSizeBytes`（可选；单页最大 512KB） | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java` |
 | CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/schedule` | `updateSchedule()` | path: `@PathVariable("id") Long id`<br>body: `@RequestBody(required = false) CollectionTaskScheduleDefinition request` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:105` |
 | CollectionTaskController | POST | `/api/v1/collection-tasks/{id}/trigger` | `trigger()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:121` |
 | CollectionTaskController | GET | `/api/v1/collection-tasks/online` | `listOnline()` | - | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/CollectionTaskController.java:67` |
@@ -98,6 +181,7 @@
 | RunController | GET | `/api/v1/runs/{id}` | `get()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:66` |
 | RunController | GET | `/api/v1/runs/{id}/log` | `log()` | path: `@PathVariable("id") Long id`<br>query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSizeBytes"`<br>implicit: `required = false) Integer pageSizeBytes` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:78` |
 | RunController | GET | `/api/v1/runs/{id}/log/download` | `download()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:86` |
+| RunController | GET | `/api/v1/runs/{id}/log/archive` | `archive()` | path: `@PathVariable("id") Long id`；直接返回 `application/zip` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java` |
 | RunController | GET | `/api/v1/runs/{id}/summary` | `summary()` | path: `@PathVariable("id") Long id` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:72` |
 | RunController | GET | `/api/v1/runs/page` | `listPage()` | query: `@RequestParam(value = "collectionTaskId"`<br>implicit: `required = false) Long collectionTaskId`<br>query: `@RequestParam(value = "qualityTaskId"`<br>implicit: `required = false) Long qualityTaskId`<br>query: `@RequestParam(value = "workflowDefinitionId"`<br>implicit: `required = false) Long workflowDefinitionId`<br>query: `@RequestParam(value = "collectionTaskOnly"`<br>implicit: `required = false) Boolean collectionTaskOnly`<br>query: `@RequestParam(value = "qualityTaskOnly"`<br>implicit: `required = false) Boolean qualityTaskOnly`<br>query: `@RequestParam(value = "status"`<br>implicit: `required = false) String status`<br>query: `@RequestParam(value = "startTime"`<br>implicit: `required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime startTime`<br>query: `@RequestParam(value = "endTime"`<br>implicit: `required = false) @DateTimeFormat(pattern = "yyyy-MM-dd HH:mm:ss") LocalDateTime endTime`<br>query: `@RequestParam(value = "pageNo"`<br>implicit: `required = false) Integer pageNo`<br>query: `@RequestParam(value = "pageSize"`<br>implicit: `required = false) Integer pageSize` | `backend/studio-server/src/main/java/com/jdragon/studio/server/web/controller/RunController.java:49` |
 
@@ -325,8 +409,17 @@ interface CollectionTaskDefinitionView extends BaseRecord
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | name | 是 | `string` | |
+| runtimeClusterId | 否 | `EntityId` | 任务保存的运行集群 ID。 |
+| runtimeClusterName | 否 | `string` | 运行集群展示名。 |
 | taskType | 否 | `CollectionTaskType` | |
-| status | 否 | `CollectionTaskStatus` | |
+| status | 否 | `CollectionTaskStatus` | `DRAFT | ONLINE | OFFLINE`。 |
+| executionMode | 否 | `CollectionTaskExecutionMode` | `BATCH | STREAMING`。 |
+| streamingOptions | 否 | `CollectionTaskStreamingOptions` | STREAMING 微批、offset、重试和停止配置。 |
+| desiredState | 否 | `StreamingDesiredState` | `RUNNING | STOPPED`。 |
+| observedState | 否 | `StreamingObservedState` | `STARTING | RUNNING | STOPPING | STOPPED | RECOVERING | FAILED`。 |
+| streamingGeneration | 否 | `number` | 部署代次，用于并发控制。 |
+| currentStreamRunId | 否 | `EntityId` | 当前逻辑 run。 |
+| currentStreamAttemptId | 否 | `EntityId` | 当前物理 attempt。 |
 | sourceCount | 否 | `number` | |
 | sourceBindings | 是 | `CollectionTaskSourceBinding[]` | |
 | targetBinding | 否 | `CollectionTaskTargetBinding` | |
@@ -359,8 +452,16 @@ interface CollectionTaskListView extends BaseRecord
 | 字段 | 必填 | 类型 | 说明/自动化取值提示 |
 |---|---:|---|---|
 | name | 是 | `string` | |
+| runtimeClusterId | 否 | `EntityId` | |
+| runtimeClusterName | 否 | `string` | |
 | taskType | 否 | `CollectionTaskType` | |
 | status | 否 | `CollectionTaskStatus` | |
+| executionMode | 否 | `CollectionTaskExecutionMode` | `BATCH | STREAMING`。 |
+| desiredState | 否 | `StreamingDesiredState` | `RUNNING | STOPPED`。 |
+| observedState | 否 | `StreamingObservedState` | `STARTING | RUNNING | STOPPING | STOPPED | RECOVERING | FAILED`。 |
+| streamingGeneration | 否 | `number` | |
+| currentStreamRunId | 否 | `EntityId` | |
+| currentStreamAttemptId | 否 | `EntityId` | |
 | sourceCount | 否 | `number` | |
 | targetDatasourceName | 否 | `string` | |
 | targetDatasourceTypeCode | 否 | `string` | |
@@ -380,11 +481,42 @@ interface CollectionTaskSaveRequest
 |---|---:|---|---|
 | id | 否 | `EntityId` | |
 | name | 是 | `string` | |
+| runtimeClusterId | 是 | `EntityId` | 来源和目标必须适用于该运行集群。 |
 | sourceBindings | 是 | `CollectionTaskSourceBinding[]` | |
 | targetBinding | 是 | `CollectionTaskTargetBinding` | |
 | fieldMappings | 是 | `FieldMappingDefinition[]` | |
 | executionOptions | 是 | `Record<string, unknown>` | |
+| executionMode | 否 | `CollectionTaskExecutionMode` | 默认 `BATCH`。 |
+| streamingOptions | 否 | `CollectionTaskStreamingOptions` | `STREAMING` 时有效。 |
 | schedule | 否 | `CollectionTaskScheduleDefinition` | |
+
+### CollectionTaskStreamingOptions
+
+来源：`frontend/packages/api-sdk/src/types.ts`
+
+| 字段 | 必填 | 类型 | 默认值/说明 |
+|---|---:|---|---|
+| groupId | 否 | `string` | 服务端默认 `studio.<tenantId>.<taskId>`。 |
+| offsetReset | 否 | `string` | `latest`；可选 `earliest/latest`。 |
+| resetOffset | 否 | `boolean` | `false`；只允许逻辑 run 首个 attempt 重置。 |
+| pollTimeoutMs | 否 | `number` | `1000`。 |
+| maxBatchRecords | 否 | `number` | `1000`。 |
+| maxBatchBytes | 否 | `number` | `16777216`（16MB）。 |
+| batchRetryCount | 否 | `number` | `3` 次重试，不含首次执行。 |
+| stopTimeoutMs | 否 | `number` | `60000`。 |
+| maxConsecutiveFailures | 否 | `number` | `10`。 |
+| retryInitialDelayMs | 否 | `number` | `5000`。 |
+| retryMaxDelayMs | 否 | `number` | `300000`。 |
+
+### CollectionTaskStreamingRuntimeView
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| collectionTaskId/taskName | `EntityId/string` | 任务标识与名称。 |
+| deployment | `StreamingTaskDeploymentView` | generation、期望/观测状态、当前 run/attempt、失败计数、重试时间、最近 checkpoint 和脱敏错误。 |
+| currentRun | `StreamingTaskRunView` | 一次上线到下线的逻辑 run，包含 `AT_LEAST_ONCE`、groupId 和停止信息。 |
+| currentAttempt | `StreamingTaskAttemptView` | 当前 Worker 物理 attempt、heartbeat、checkpoint、状态和提交批次数。 |
+| recentAttempts | `StreamingTaskAttemptView[]` | 最近 attempt 时间线，Worker 重启不会重建逻辑 run。 |
 
 ### CollectionTaskScheduleDefinition
 
