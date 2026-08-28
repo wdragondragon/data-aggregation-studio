@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jdragon.aggregation.commons.util.DynamicFunctionResolver;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -27,9 +28,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class FileTransferTaskService {
+
+    private static final Pattern TEMPLATE_EXPRESSION = Pattern.compile("\\$\\{([^}]+)}");
+    private static final Pattern DYNAMIC_FUNCTION_EXPRESSION =
+            Pattern.compile("\\$[A-Za-z_][A-Za-z0-9_]*\\(");
 
     private static final int DEFAULT_PAGE_SIZE = 20;
     private static final int MAX_PAGE_SIZE = 200;
@@ -265,6 +272,7 @@ public class FileTransferTaskService {
         if (mapping == null || !StringUtils.hasText(asString(mapping.get("targetRootPath")))) {
             throw bad("mapping.targetRootPath is required");
         }
+        validateExpressions(selection, mapping);
         FileTransferScheduleDefinition schedule = request.getSchedule();
         if (schedule != null && Boolean.TRUE.equals(schedule.getEnabled())) {
             if (!StringUtils.hasText(schedule.getCronExpression())) {
@@ -294,17 +302,143 @@ public class FileTransferTaskService {
         return datasource;
     }
 
+    private void validateExpressions(Map<String, Object> selection, Map<String, Object> mapping) {
+        validateExpression("selection.rootPath", asString(selection.get("rootPath")), false);
+        validateExpressionList("selection.paths", selection.get("paths"), false);
+        validateExpressionList("selection.includeGlobs", selection.get("includeGlobs"), false);
+        validateExpression("selection.includeRegex", asString(selection.get("includeRegex")), false);
+        validateExpressionList("selection.excludeGlobs", selection.get("excludeGlobs"), false);
+        validateExpression("mapping.targetRootPath", asString(mapping.get("targetRootPath")), false);
+        validateExpression("mapping.targetPathTemplate", asString(mapping.get("targetPathTemplate")), true);
+    }
+
+    private void validateExpressionList(String field, Object value, boolean allowPerFileTemplates) {
+        if (!(value instanceof Iterable<?> values)) {
+            return;
+        }
+        int index = 0;
+        for (Object item : values) {
+            validateExpression(field + "[" + index + "]", item == null ? null : String.valueOf(item),
+                    allowPerFileTemplates);
+            index++;
+        }
+    }
+
+    private void validateExpression(String field, String value, boolean allowPerFileTemplates) {
+        if (!StringUtils.hasText(value)) {
+            return;
+        }
+        validateTemplateSyntax(field, value);
+        List<String> functionErrors = DynamicFunctionResolver.validate(value, DynamicFunctionResolver.Mode.STRICT);
+        if (!functionErrors.isEmpty()) {
+            throw bad("Invalid dynamic function in " + field + ": " + functionErrors.get(0));
+        }
+        validateTimeTemplateExpressions(field, value);
+        Matcher matcher = TEMPLATE_EXPRESSION.matcher(value);
+        boolean hasRuntimeExpression = value.contains("${")
+                || DYNAMIC_FUNCTION_EXPRESSION.matcher(value).find();
+        while (matcher.find()) {
+            String expression = matcher.group(1);
+            if ("relativePath".equals(expression) || "fileName".equals(expression)) {
+                if (!allowPerFileTemplates) {
+                    throw bad("Template ${" + expression + "} in " + field
+                            + " is only supported in mapping.targetPathTemplate");
+                }
+                continue;
+            }
+            if ("runId".equals(expression) || "plannedAt".equals(expression)
+                    || expression.startsWith("now:") || expression.startsWith("date:")
+                    || expression.startsWith("param:") || expression.startsWith("parameter:")
+                    || expression.startsWith("parameter.")) {
+                continue;
+            }
+            throw bad("Unknown template variable in " + field + ": ${" + expression + "}");
+        }
+        // Compile only expressions that are static after function substitution. Dynamic
+        // regular expressions are compiled again by the worker after resolution.
+        if ("selection.includeRegex".equals(field) && !hasRuntimeExpression) {
+            try {
+                Pattern.compile(value);
+            } catch (RuntimeException exception) {
+                throw bad("Invalid regular expression in " + field + ": " + exception.getMessage());
+            }
+        }
+    }
+
+    private void validateTemplateSyntax(String field, String value) {
+        int cursor = 0;
+        while (cursor < value.length()) {
+            int start = value.indexOf("${", cursor);
+            if (start < 0) {
+                return;
+            }
+            int end = value.indexOf('}', start + 2);
+            if (end < 0) {
+                throw bad("Invalid template in " + field + ": " + value);
+            }
+            String expression = value.substring(start + 2, end);
+            if (!StringUtils.hasText(expression)) {
+                throw bad("Invalid template in " + field + ": template variable name is required");
+            }
+            if (expression.contains("${")
+                    || expression.matches(".*\\$[A-Za-z_][A-Za-z0-9_]*\\(.*")) {
+                throw bad("Dynamic functions and templates cannot be nested in " + field + ": " + value);
+            }
+            cursor = end + 1;
+        }
+    }
+
+    private void validateTimeTemplateExpressions(String field, String value) {
+        Matcher matcher = TEMPLATE_EXPRESSION.matcher(value);
+        while (matcher.find()) {
+            String expression = matcher.group(1);
+            if (expression.startsWith("now:") || expression.startsWith("date:")) {
+                String pattern = expression.substring(expression.indexOf(':') + 1);
+                if (!StringUtils.hasText(pattern)) {
+                    throw bad("Invalid time template in " + field + ": ${" + expression + "}");
+                }
+                try {
+                    java.time.format.DateTimeFormatter.ofPattern(pattern);
+                } catch (RuntimeException exception) {
+                    throw bad("Invalid time template in " + field + ": ${" + expression + "}");
+                }
+            }
+        }
+    }
+
     private void assertTransferPermissions(Long runtimeClusterId,
                                            Long sourceDatasourceId,
                                            Map<String, Object> selection,
                                            Long targetDatasourceId,
                                            Map<String, Object> mapping) {
-        unstructuredManagementService.assertPermission(runtimeClusterId, sourceDatasourceId,
-                asString(selection == null ? null : selection.get("rootPath")),
-                UnstructuredAclPermission.DOWNLOAD);
-        unstructuredManagementService.assertPermission(runtimeClusterId, targetDatasourceId,
-                asString(mapping == null ? null : mapping.get("targetRootPath")),
-                UnstructuredAclPermission.EDIT);
+        String sourcePath = asString(selection == null ? null : selection.get("rootPath"));
+        String targetPath = asString(mapping == null ? null : mapping.get("targetRootPath"));
+        String sourcePermissionPath = stablePathPrefix(sourcePath);
+        String targetPermissionPath = stablePathPrefix(targetPath);
+        if (StringUtils.hasText(sourcePermissionPath)) {
+            unstructuredManagementService.assertPermission(runtimeClusterId, sourceDatasourceId,
+                    sourcePermissionPath, UnstructuredAclPermission.DOWNLOAD);
+        }
+        if (StringUtils.hasText(targetPermissionPath)) {
+            unstructuredManagementService.assertPermission(runtimeClusterId, targetDatasourceId,
+                    targetPermissionPath, UnstructuredAclPermission.EDIT);
+        }
+    }
+
+    static String stablePathPrefix(String value) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        int expressionStart = value.indexOf('$');
+        if (expressionStart < 0) {
+            return value;
+        }
+        String prefix = value.substring(0, expressionStart).replace('\\', '/');
+        int slash = prefix.lastIndexOf('/');
+        if (slash < 0) {
+            return null;
+        }
+        return slash == 0 ? "/" : prefix.substring(0, slash);
     }
 
     private void ensureUnique(Long projectId, String name, String code, Long selfId) {

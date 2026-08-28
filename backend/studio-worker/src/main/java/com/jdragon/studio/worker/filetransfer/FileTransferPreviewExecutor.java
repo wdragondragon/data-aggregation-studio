@@ -10,6 +10,8 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.dto.model.FileTransferPreviewItemView;
 import com.jdragon.studio.dto.model.FileTransferSelectionPreviewView;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import com.jdragon.studio.infra.service.UnstructuredManagementService;
+import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import com.jdragon.studio.infra.service.StudioFileTransferContractAdapter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -20,6 +22,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Component
 public class FileTransferPreviewExecutor {
@@ -27,25 +30,42 @@ public class FileTransferPreviewExecutor {
     private final AggregationSourceCapabilityProvider sourceCapabilityProvider;
     private final StudioFileTransferContractAdapter contractAdapter;
     private final FileTransferEnginePort enginePort;
+    private final UnstructuredManagementService unstructuredManagementService;
 
     public FileTransferPreviewExecutor(AggregationSourceCapabilityProvider sourceCapabilityProvider) {
         this(sourceCapabilityProvider, new StudioFileTransferContractAdapter(),
-                new DataAggregationFileTransferEngineAdapter());
+                new DataAggregationFileTransferEngineAdapter(), null);
+    }
+
+    public FileTransferPreviewExecutor(AggregationSourceCapabilityProvider sourceCapabilityProvider,
+                                       StudioFileTransferContractAdapter contractAdapter,
+                                       FileTransferEnginePort enginePort) {
+        this(sourceCapabilityProvider, contractAdapter, enginePort, null);
     }
 
     @Autowired
     public FileTransferPreviewExecutor(AggregationSourceCapabilityProvider sourceCapabilityProvider,
                                        StudioFileTransferContractAdapter contractAdapter,
-                                       FileTransferEnginePort enginePort) {
+                                       FileTransferEnginePort enginePort,
+                                       UnstructuredManagementService unstructuredManagementService) {
         this.sourceCapabilityProvider = sourceCapabilityProvider;
         this.contractAdapter = contractAdapter;
         this.enginePort = enginePort;
+        this.unstructuredManagementService = unstructuredManagementService;
     }
 
     public FileTransferSelectionPreviewView preview(DataSourceDefinition datasource,
                                                     Map<String, Object> rawSpec,
                                                     Map<String, String> parameters,
                                                     Integer limit) {
+        return preview(datasource, rawSpec, parameters, limit, null);
+    }
+
+    public FileTransferSelectionPreviewView preview(DataSourceDefinition datasource,
+                                                    Map<String, Object> rawSpec,
+                                                    Map<String, String> parameters,
+                                                    Integer limit,
+                                                    Long runtimeClusterId) {
         if (datasource == null || datasource.getId() == null || datasource.getTypeCode() == null) {
             throw new IllegalArgumentException("File transfer preview datasource is required");
         }
@@ -61,10 +81,32 @@ public class FileTransferPreviewExecutor {
                 : new LinkedHashMap<String, String>(parameters));
         String previewId = "preview-" + UUID.randomUUID();
         Instant plannedAt = Instant.now();
+        TransferSpec transferSpec = contractAdapter.map(spec);
+        TransferSpec resolvedSpec = new com.jdragon.aggregation.transfer.DynamicTemplateResolver()
+                .resolve(transferSpec, previewId, plannedAt);
+        if (resolvedSpec.selection().rootPath() == null || resolvedSpec.selection().rootPath().isBlank()) {
+            throw new IllegalArgumentException("Resolved selection.rootPath is empty");
+        }
+        if (resolvedSpec.mapping().targetRootPath() == null || resolvedSpec.mapping().targetRootPath().isBlank()) {
+            throw new IllegalArgumentException("Resolved mapping.targetRootPath is empty");
+        }
+        String resolvedRegex = resolvedSpec.selection().includeRegex();
+        if (resolvedRegex != null && !resolvedRegex.isBlank()) {
+            try {
+                Pattern.compile(resolvedRegex);
+            } catch (RuntimeException exception) {
+                throw new IllegalArgumentException(
+                        "Invalid resolved regular expression in selection.includeRegex: " + resolvedRegex,
+                        exception);
+            }
+        }
+        if (unstructuredManagementService != null && runtimeClusterId != null) {
+            unstructuredManagementService.assertPermission(runtimeClusterId, datasource.getId(),
+                    resolvedSpec.selection().rootPath(), UnstructuredAclPermission.DOWNLOAD);
+        }
         try (TransferFileSystem source = sourceCapabilityProvider.openTransferFileSystem(datasource)) {
-            TransferSpec transferSpec = contractAdapter.map(spec);
             PreparedTransfer prepared = enginePort.prepare(
-                    transferSpec, source, null, previewId, plannedAt, null);
+                    resolvedSpec, source, null, previewId, plannedAt, null);
             return toView(prepared, sampleLimit);
         } catch (Exception exception) {
             throw new IllegalStateException("File transfer preview failed: " + exception.getMessage(), exception);

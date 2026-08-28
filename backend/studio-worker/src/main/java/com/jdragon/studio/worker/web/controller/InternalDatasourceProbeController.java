@@ -307,7 +307,7 @@ public class InternalDatasourceProbeController {
         }
         return execute(token, request, false, datasource -> fileTransferPreviewExecutor.preview(
                 datasource, request.getFileTransferSpec(), request.getFileTransferParameters(),
-                request.getFileTransferPreviewLimit()));
+                request.getFileTransferPreviewLimit(), request.getTargetClusterId()));
     }
 
     private <T> Result<T> execute(String token,

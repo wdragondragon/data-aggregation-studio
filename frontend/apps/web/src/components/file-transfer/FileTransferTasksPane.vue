@@ -154,22 +154,39 @@
 
         <div v-show="editorStep === 2" class="editor-step-grid columns-2">
           <el-form-item label="源根路径" required>
-            <el-input v-model="form.sourceRootPath" class="studio-mono" />
+            <div class="transfer-expression-input">
+              <el-input :ref="registerSourceRootInput" v-model="form.sourceRootPath" class="studio-mono" @click="rememberExpressionSelection('sourceRootPath', $event)" @keyup="rememberExpressionSelection('sourceRootPath', $event)" />
+              <el-button plain size="small" @click="insertFunction('sourceRootPath')">函数</el-button>
+              <el-button plain size="small" @click="insertTemplate('sourceRootPath')">模板变量</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="最多发现文件数">
             <el-input-number v-model="form.maxFiles" :min="1" :max="1000000" controls-position="right" />
           </el-form-item>
           <el-form-item label="指定相对路径">
-            <el-input v-model="form.pathsText" type="textarea" :rows="4" placeholder="每行一个文件或目录；留空扫描根路径" />
+            <div class="transfer-expression-input transfer-expression-input--textarea">
+              <el-input :ref="registerPathsInput" v-model="form.pathsText" type="textarea" :rows="4" placeholder="每行一个文件或目录；留空扫描根路径" @click="rememberExpressionSelection('pathsText', $event)" @keyup="rememberExpressionSelection('pathsText', $event)" />
+              <div><el-button plain size="small" @click="insertFunction('pathsText')">函数</el-button><el-button plain size="small" @click="insertTemplate('pathsText')">模板变量</el-button></div>
+            </div>
           </el-form-item>
           <el-form-item label="包含 Glob">
-            <el-input v-model="form.includeGlobsText" type="textarea" :rows="4" placeholder="每行一个，例如 **/*.csv" />
+            <div class="transfer-expression-input transfer-expression-input--textarea">
+              <el-input :ref="registerIncludeGlobsInput" v-model="form.includeGlobsText" type="textarea" :rows="4" placeholder="每行一个，例如 **/*.csv" @click="rememberExpressionSelection('includeGlobsText', $event)" @keyup="rememberExpressionSelection('includeGlobsText', $event)" />
+              <div><el-button plain size="small" @click="insertFunction('includeGlobsText')">函数</el-button><el-button plain size="small" @click="insertTemplate('includeGlobsText')">模板变量</el-button></div>
+            </div>
           </el-form-item>
           <el-form-item label="包含正则">
-            <el-input v-model="form.includeRegex" class="studio-mono" clearable />
+            <div class="transfer-expression-input">
+              <el-input :ref="registerIncludeRegexInput" v-model="form.includeRegex" class="studio-mono" clearable @click="rememberExpressionSelection('includeRegex', $event)" @keyup="rememberExpressionSelection('includeRegex', $event)" />
+              <el-button plain size="small" @click="insertFunction('includeRegex')">函数</el-button>
+              <el-button plain size="small" @click="insertTemplate('includeRegex')">模板变量</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="排除 Glob">
-            <el-input v-model="form.excludeGlobsText" type="textarea" :rows="3" placeholder="每行一个，例如 **/.tmp/**" />
+            <div class="transfer-expression-input transfer-expression-input--textarea">
+              <el-input :ref="registerExcludeGlobsInput" v-model="form.excludeGlobsText" type="textarea" :rows="3" placeholder="每行一个，例如 **/.tmp/**" @click="rememberExpressionSelection('excludeGlobsText', $event)" @keyup="rememberExpressionSelection('excludeGlobsText', $event)" />
+              <div><el-button plain size="small" @click="insertFunction('excludeGlobsText')">函数</el-button><el-button plain size="small" @click="insertTemplate('excludeGlobsText')">模板变量</el-button></div>
+            </div>
           </el-form-item>
           <el-form-item label="文件大小范围（字节）">
             <div class="inline-number-range">
@@ -194,10 +211,18 @@
 
         <div v-show="editorStep === 3" class="editor-step-grid columns-2">
           <el-form-item label="目标根路径" required>
-            <el-input v-model="form.targetRootPath" class="studio-mono" />
+            <div class="transfer-expression-input">
+              <el-input :ref="registerTargetRootInput" v-model="form.targetRootPath" class="studio-mono" @click="rememberExpressionSelection('targetRootPath', $event)" @keyup="rememberExpressionSelection('targetRootPath', $event)" />
+              <el-button plain size="small" @click="insertFunction('targetRootPath')">函数</el-button>
+              <el-button plain size="small" @click="insertTemplate('targetRootPath')">模板变量</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="目标相对路径模板">
-            <el-input v-model="form.targetPathTemplate" class="studio-mono" placeholder="${relativePath}" />
+            <div class="transfer-expression-input">
+              <el-input :ref="registerTargetPathInput" v-model="form.targetPathTemplate" class="studio-mono" placeholder="${relativePath}" @click="rememberExpressionSelection('targetPathTemplate', $event)" @keyup="rememberExpressionSelection('targetPathTemplate', $event)" />
+              <el-button plain size="small" @click="insertFunction('targetPathTemplate')">函数</el-button>
+              <el-button plain size="small" @click="insertTemplate('targetPathTemplate')">模板变量</el-button>
+            </div>
           </el-form-item>
           <el-form-item label="保留相对目录">
             <el-switch v-model="form.preserveRelativePath" />
@@ -324,11 +349,19 @@
         </el-table>
       </StudioTableShell>
     </el-drawer>
+
+    <FileTransferExpressionDialog
+      v-model:visible="expressionDialog.visible"
+      :kind="expressionDialog.kind"
+      :selected-snippet="expressionDialog.selectedSnippet"
+      :allow-per-file-templates="expressionDialog.field === 'targetPathTemplate'"
+      @confirm="confirmExpressionInsert"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onMounted, reactive, ref } from "vue";
 import { Plus, Refresh } from "@element-plus/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import type {
@@ -341,6 +374,7 @@ import type {
   RuntimeClusterView,
 } from "@studio/api-sdk";
 import { OverflowActionGroup, StatusPill, StudioTableShell, type OverflowActionItem } from "@studio/ui";
+import FileTransferExpressionDialog from "./FileTransferExpressionDialog.vue";
 import { studioApi } from "@/api/studio";
 import {
   fileTransferStatusLabel,
@@ -406,6 +440,14 @@ const form = reactive<TaskEditorForm>(emptyForm());
 const previewVisible = ref(false);
 const previewLoading = ref(false);
 const preview = ref<FileTransferSelectionPreviewView>();
+const expressionDialog = reactive({
+  visible: false,
+  kind: "function" as "function" | "template",
+  field: "",
+  selectedSnippet: "",
+});
+const expressionInputRefs = new Map<string, HTMLInputElement | HTMLTextAreaElement>();
+const expressionSelections = reactive<Record<string, { start: number; end: number }>>({});
 
 function emptyForm(): TaskEditorForm {
   return {
@@ -584,7 +626,7 @@ function buildPayload(): FileTransferTaskSaveRequest {
   }
   if (!form.sourceRootPath.trim() || !form.targetRootPath.trim()) throw new Error("请填写源根路径和目标根路径");
   if (form.sourceSuccessAction === "BACKUP" && !form.sourceBackupRootPath.trim()) throw new Error("请填写源端备份根路径");
-  const retryBackoffMillis = splitValues(form.retryBackoffText).map((item) => {
+  const retryBackoffMillis = splitCommaValues(form.retryBackoffText).map((item) => {
     const seconds = Number(item);
     if (!Number.isFinite(seconds) || seconds < 0) throw new Error("重试退避必须是非负秒数");
     return Math.round(seconds * 1000);
@@ -600,11 +642,11 @@ function buildPayload(): FileTransferTaskSaveRequest {
     targetDatasourceId: form.targetDatasourceId as EntityId,
     selection: compact({
       rootPath: normalizeTransferPath(form.sourceRootPath),
-      paths: splitValues(form.pathsText),
+      paths: splitLineValues(form.pathsText),
       recursive: form.recursive,
-      includeGlobs: splitValues(form.includeGlobsText),
+      includeGlobs: splitLineValues(form.includeGlobsText),
       includeRegex: form.includeRegex.trim() || undefined,
-      excludeGlobs: splitValues(form.excludeGlobsText),
+      excludeGlobs: splitLineValues(form.excludeGlobsText),
       minSize: form.minSize,
       maxSize: form.maxSize,
       modifiedAfterMillis: form.modifiedRange[0] ? new Date(form.modifiedRange[0]).getTime() : undefined,
@@ -746,8 +788,69 @@ function sourceActionLabel(value: unknown) {
   return ({ KEEP: "保留源", DELETE: "删除源", BACKUP: "备份源" } as Record<string, string>)[String(value ?? "KEEP")] || String(value ?? "KEEP");
 }
 
-function splitValues(value: string) {
-  return value.split(/[\r\n,]+/).map((item) => item.trim()).filter(Boolean);
+function splitLineValues(value: string) {
+  return value.split(/[\r\n]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function splitCommaValues(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function insertFunction(field: string) {
+  expressionDialog.kind = "function";
+  expressionDialog.field = field;
+  expressionDialog.selectedSnippet = selectedText(field);
+  expressionDialog.visible = true;
+}
+
+function insertTemplate(field: string) {
+  expressionDialog.kind = "template";
+  expressionDialog.field = field;
+  expressionDialog.selectedSnippet = selectedText(field);
+  expressionDialog.visible = true;
+}
+
+async function confirmExpressionInsert(expression: string) {
+  if (!expression) {
+    return;
+  }
+  const field = expressionDialog.field as keyof TaskEditorForm;
+  const current = String(form[field] ?? "");
+  const range = expressionSelections[field] ?? { start: current.length, end: current.length };
+  const nextValue = `${current.slice(0, range.start)}${expression}${current.slice(range.end)}`;
+  (form[field] as unknown as string) = nextValue;
+  expressionSelections[field] = { start: range.start + expression.length, end: range.start + expression.length };
+  expressionDialog.visible = false;
+  await nextTick();
+  const input = expressionInputRefs.get(field);
+  input?.focus();
+  input?.setSelectionRange(expressionSelections[field].start, expressionSelections[field].end);
+}
+
+function registerExpressionInput(field: string, element: unknown) {
+  const input = (element as { input?: HTMLInputElement; textarea?: HTMLTextAreaElement; $el?: HTMLElement } | null);
+  const native = input?.input ?? input?.textarea ?? input?.$el?.querySelector<HTMLInputElement | HTMLTextAreaElement>("input, textarea");
+  if (native) expressionInputRefs.set(field, native);
+}
+
+const registerSourceRootInput = (element: unknown) => registerExpressionInput("sourceRootPath", element);
+const registerPathsInput = (element: unknown) => registerExpressionInput("pathsText", element);
+const registerIncludeGlobsInput = (element: unknown) => registerExpressionInput("includeGlobsText", element);
+const registerIncludeRegexInput = (element: unknown) => registerExpressionInput("includeRegex", element);
+const registerExcludeGlobsInput = (element: unknown) => registerExpressionInput("excludeGlobsText", element);
+const registerTargetRootInput = (element: unknown) => registerExpressionInput("targetRootPath", element);
+const registerTargetPathInput = (element: unknown) => registerExpressionInput("targetPathTemplate", element);
+
+function rememberExpressionSelection(field: string, event: Event) {
+  const input = event.target as HTMLInputElement | HTMLTextAreaElement | null;
+  if (input?.selectionStart == null) return;
+  expressionSelections[field] = { start: input.selectionStart, end: input.selectionEnd ?? input.selectionStart };
+}
+
+function selectedText(field: string) {
+  const value = String(form[field as keyof TaskEditorForm] ?? "");
+  const range = expressionSelections[field] ?? { start: value.length, end: value.length };
+  return range.end > range.start ? value.slice(range.start, range.end) : "";
 }
 
 function stringList(value: unknown) {
@@ -881,6 +984,30 @@ onMounted(async () => {
 
 .inline-number-range {
   width: 100%;
+}
+
+.transfer-expression-input {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 6px;
+  width: 100%;
+}
+
+.transfer-expression-input--textarea {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.transfer-expression-input--textarea > div {
+  display: flex;
+  gap: 6px;
+}
+
+.expression-dialog-hint {
+  margin: -4px 0 0;
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  line-height: 1.6;
 }
 
 .inline-number-range .el-input-number {

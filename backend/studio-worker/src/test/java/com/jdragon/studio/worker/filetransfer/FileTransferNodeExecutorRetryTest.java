@@ -90,6 +90,28 @@ class FileTransferNodeExecutorRetryTest {
             mock(AggregationSourceCapabilityProvider.class), new ObjectMapper(), mutationService);
 
     @Test
+    void plannedAtMillisIsCreatedOnceAndReusedByRetries() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+
+        assertThat(FileTransferNodeExecutor.ensurePlannedAtMillis(snapshot, 1000L))
+                .isEqualTo(1000L);
+        assertThat(snapshot).containsEntry("plannedAtMillis", 1000L);
+        assertThat(FileTransferNodeExecutor.ensurePlannedAtMillis(snapshot, 2000L))
+                .isEqualTo(1000L);
+        assertThat(snapshot).containsEntry("plannedAtMillis", 1000L);
+    }
+
+    @Test
+    void plannedAtMillisAcceptsPersistedStringSnapshotValue() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("plannedAtMillis", "3000");
+
+        assertThat(FileTransferNodeExecutor.ensurePlannedAtMillis(snapshot, 4000L))
+                .isEqualTo(3000L);
+        assertThat(snapshot).containsEntry("plannedAtMillis", "3000");
+    }
+
+    @Test
     void transferRetrySelectsOnlyTheRequestedCoreItem() {
         PreparedTransfer prepared = prepared(SourceSuccessAction.KEEP,
                 item("completed-item"), item("retry-item"));

@@ -27,7 +27,9 @@ import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.StudioFileTransferContractAdapter;
+import com.jdragon.studio.infra.service.UnstructuredManagementService;
 import com.jdragon.studio.infra.service.execution.AggregationSourceCapabilityProvider;
+import com.jdragon.studio.dto.enums.UnstructuredAclPermission;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +60,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
     private final FileTransferPlanPersistenceService planPersistenceService;
     private final FileTransferResultPersistenceService resultPersistenceService;
     private final FileTransferPostActionRetryService postActionRetryService;
+    private UnstructuredManagementService unstructuredManagementService;
 
     public FileTransferNodeExecutor(FileTransferRunMapper runMapper,
                                     FileTransferRunItemMapper itemMapper,
@@ -109,6 +112,12 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                 sourceCapabilityProvider, objectMapper, null);
     }
 
+    /** Optional for focused unit tests; production wiring supplies the ACL service. */
+    @Autowired(required = false)
+    void setUnstructuredManagementService(UnstructuredManagementService service) {
+        this.unstructuredManagementService = service;
+    }
+
     @Override
     public boolean supports(WorkflowNodeDefinition definition) {
         return definition != null && definition.getNodeType() == NodeType.FILE_TRANSFER;
@@ -137,7 +146,8 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         Map<String, Object> runSnapshot = copy(run.getResolvedSpecJson());
         boolean snapshotChanged = false;
         if (optionalLong(runSnapshot.get("plannedAtMillis")).isEmpty()) {
-            runSnapshot.put("plannedAtMillis", Instant.now().toEpochMilli());
+            runSnapshot.put("plannedAtMillis", ensurePlannedAtMillis(runSnapshot,
+                    Instant.now().toEpochMilli()));
             snapshotChanged = true;
         }
         if (optionalLong(runSnapshot.get("contractVersion")).isEmpty()) {
@@ -178,6 +188,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                             execution.targetDatasourceId, endpointType(execution, "target"));
                     PreparedTransfer prepared;
                     if (postActionOnly) {
+                        preflightResolvedPaths(execution, spec, coreRunId, plannedAt(runSnapshot));
                         Optional<PreparedTransfer> retryPrepared = preparePostActionRetry(
                                 run, execution, spec, coreRunId, retryCoreItemId, runSnapshot);
                         if (retryPrepared.isEmpty()) {
@@ -185,6 +196,7 @@ public class FileTransferNodeExecutor implements NodeExecutor {
                         }
                         prepared = retryPrepared.get();
                     } else {
+                        preflightResolvedPaths(execution, spec, coreRunId, plannedAt(runSnapshot));
                         try (TransferFileSystem source = execution.sourceFactory.open();
                              TransferFileSystem target = execution.targetFactory.open()) {
                             prepared = enginePort.prepare(spec, source, target, coreRunId,
@@ -339,6 +351,46 @@ public class FileTransferNodeExecutor implements NodeExecutor {
         return optionalLong(snapshot == null ? null : snapshot.get("plannedAtMillis"))
                 .map(Instant::ofEpochMilli)
                 .orElseGet(Instant::now);
+    }
+
+    /**
+     * Assigns the first execution timestamp only when the run snapshot does not
+     * already contain one. Keeping this mutation isolated makes the retry and
+     * worker-recovery contract explicit and deterministic.
+     */
+    static long ensurePlannedAtMillis(Map<String, Object> snapshot, long fallbackMillis) {
+        if (snapshot == null) {
+            throw new IllegalArgumentException("run snapshot is required");
+        }
+        Object existing = snapshot.get("plannedAtMillis");
+        if (existing instanceof Number number) {
+            return number.longValue();
+        }
+        if (existing != null && !String.valueOf(existing).trim().isEmpty()) {
+            return Long.parseLong(String.valueOf(existing).trim());
+        }
+        snapshot.put("plannedAtMillis", fallbackMillis);
+        return fallbackMillis;
+    }
+
+    private void preflightResolvedPaths(TransferExecution execution, TransferSpec spec,
+                                        String coreRunId, Instant plannedAt) {
+        TransferSpec resolved = new com.jdragon.aggregation.transfer.DynamicTemplateResolver()
+                .resolve(spec, coreRunId, plannedAt);
+        String sourcePath = resolved.selection().rootPath();
+        if (sourcePath == null || sourcePath.isBlank()) {
+            throw new IllegalArgumentException("Resolved selection.rootPath is empty");
+        }
+        String targetPath = resolved.mapping().targetRootPath();
+        if (targetPath == null || targetPath.isBlank()) {
+            throw new IllegalArgumentException("Resolved mapping.targetRootPath is empty");
+        }
+        if (unstructuredManagementService != null) {
+            unstructuredManagementService.assertPermission(execution.sourceClusterId,
+                    execution.sourceDatasourceId, sourcePath, UnstructuredAclPermission.DOWNLOAD);
+            unstructuredManagementService.assertPermission(execution.targetClusterId,
+                    execution.targetDatasourceId, targetPath, UnstructuredAclPermission.EDIT);
+        }
     }
 
     private void persistPlan(FileTransferRunEntity run, TransferExecution execution,

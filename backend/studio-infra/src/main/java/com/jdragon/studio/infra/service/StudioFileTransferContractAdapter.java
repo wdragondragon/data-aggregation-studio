@@ -72,7 +72,7 @@ public class StudioFileTransferContractAdapter {
                                     runtime.get("checkpointRecoveryMode"),
                                     defaults.checkpointRecoveryMode(),
                                     "runtime.checkpointRecoveryMode")),
-                    text(configuration.get("timeZone"), "UTC"),
+                    text(configuration.get("timeZone"), "Asia/Shanghai"),
                     stringMap(configuration.get("parameters")));
             return TransferSpecNormalizer.normalize(spec);
         } catch (TransferContractException exception) {

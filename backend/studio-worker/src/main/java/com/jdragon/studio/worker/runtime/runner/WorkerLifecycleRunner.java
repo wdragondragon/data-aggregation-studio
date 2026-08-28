@@ -24,6 +24,7 @@ import com.jdragon.studio.infra.service.RuntimeClusterHeartbeatService;
 import com.jdragon.studio.infra.service.FileTransferStateMutationService;
 import com.jdragon.studio.infra.service.WorkerAuthorizationService;
 import com.jdragon.studio.infra.service.RunLogStorageService;
+import com.jdragon.studio.infra.service.StudioAccessService;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
 import com.jdragon.studio.infra.entity.FileTransferRunEntity;
@@ -104,6 +105,7 @@ public class WorkerLifecycleRunner {
     private RuntimeClusterHeartbeatService runtimeClusterHeartbeatService;
     private DispatchProtectedPayloadService dispatchProtectedPayloadService;
     private ObjectStoragePluginRuntimeResolver pluginRuntimeResolver;
+    private StudioAccessService studioAccessService;
     private volatile boolean acceptingTasks = false;
     private final ExecutorService fileTransferExecutor;
     private final Semaphore fileTransferSlots;
@@ -199,6 +201,11 @@ public class WorkerLifecycleRunner {
     @Autowired(required = false)
     void setPluginRuntimeResolver(ObjectStoragePluginRuntimeResolver pluginRuntimeResolver) {
         this.pluginRuntimeResolver = pluginRuntimeResolver;
+    }
+
+    @Autowired(required = false)
+    void setStudioAccessService(StudioAccessService studioAccessService) {
+        this.studioAccessService = studioAccessService;
     }
 
     @Autowired(required = false)
@@ -1657,10 +1664,17 @@ public class WorkerLifecycleRunner {
     private Map<String, Object> executeWithTaskContext(DispatchTaskEntity task,
                                                        Map<String, Object> runtimeContext) {
         StudioRequestContext previousContext = StudioRequestContextHolder.getContext();
-        StudioRequestContext taskContext = new StudioRequestContext();
-        taskContext.setTenantId(task.getTenantId());
-        taskContext.setProjectId(task.getProjectId());
-        taskContext.setUsername(workerCode());
+        StudioRequestContext taskContext;
+        if (studioAccessService != null && task.getTriggeredByUserId() != null) {
+            taskContext = studioAccessService.buildExecutionContext(task.getTriggeredByUserId(),
+                    task.getTenantId(), task.getProjectId());
+        } else {
+            taskContext = new StudioRequestContext();
+            taskContext.setUserId(task.getTriggeredByUserId());
+            taskContext.setTenantId(task.getTenantId());
+            taskContext.setProjectId(task.getProjectId());
+            taskContext.setUsername(workerCode());
+        }
         StudioRequestContextHolder.setContext(taskContext);
         try {
             WorkflowNodeDefinition node = toNode(task);
