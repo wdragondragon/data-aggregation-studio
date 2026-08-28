@@ -1,10 +1,11 @@
 <template>
-  <div class="http-reader-options-editor">
+  <el-form class="http-reader-options-editor" :disabled="disabled">
     <MetaFormRenderer
       v-if="baseFields.length"
       :fields="baseFields"
       :model-value="modelValue"
       :dynamic-function-fields="baseDynamicFunctionFields"
+      :disabled="disabled"
       @update:model-value="emitMergedValue($event)"
       @field-change="emit('dirty-key', $event)"
     />
@@ -95,7 +96,7 @@
       :token-prefix="dynamicFunctionTokenPrefix"
       @confirm="confirmDynamicFunctionInsert"
     />
-  </div>
+  </el-form>
 </template>
 
 <script setup lang="ts">
@@ -143,11 +144,13 @@ const props = withDefaults(
     fields: MetadataFieldDefinition[];
     modelValue: Record<string, unknown>;
     dynamicFunctionFields?: string[];
+    disabled?: boolean;
   }>(),
   {
     fields: () => [],
     modelValue: () => ({}),
     dynamicFunctionFields: () => [],
+    disabled: false,
   },
 );
 

@@ -24,6 +24,7 @@
       <CollectionTaskEditorHeader
         :task-id="taskId"
         :saving="saving"
+        :locked="streamingLocked"
         :actions="editorHeaderActions"
       />
 
@@ -36,8 +37,17 @@
         :description="runtimeValidation.message || t('web.runtimeClusterSelection.invalidFallback')"
       />
 
-      <CollectionTaskStepIndicator v-model:active-step="activeStep" />
+      <CollectionTaskStepIndicator v-model:active-step="activeStep" :execution-mode="form.executionMode" />
 
+      <el-alert
+        v-if="streamingLocked"
+        type="warning"
+        show-icon
+        :closable="false"
+        :title="t('web.collectionTasks.streamingEditLocked')"
+      />
+
+      <el-form :disabled="streamingLocked" class="collection-task-editor-form">
       <CollectionTaskBindingSection
         v-if="activeStep === 1"
         v-model:collection-mode="collectionMode"
@@ -45,6 +55,7 @@
         :task-id="taskId"
         :task-type-label="taskTypeLabel"
         :collection-mode-visible="collectionModeVisible"
+        :streaming-locked="streamingLocked"
         :is-fusion-task="isFusionTask"
         :datasources="datasources"
         :runtime-clusters="runtimeClusters"
@@ -67,6 +78,7 @@
         :fusion-reader-advanced-fields="fusionReaderAdvancedFields"
         :fusion-reader-options="fusionReaderOptions"
         :source-alias-options="sourceAliasOptions"
+        :single-source-fields="singleSourceFields"
         :source-field-options-by-alias="sourceFieldOptionsByAlias"
         :target-field-options="targetFieldOptions"
         :field-mapping-rules="fieldMappingRules"
@@ -74,10 +86,11 @@
         :writer-soap-body-preview-fields="writerSoapBodyPreviewFields"
         :writer-options="form.targetBinding.writerOptions ?? {}"
         :mapping-actions="mappingSectionActions"
+        :streaming-locked="streamingLocked"
       />
 
       <CollectionTaskScheduleSection
-        v-else-if="activeStep === 3"
+        v-else-if="activeStep === 3 && form.executionMode === 'BATCH'"
         :schedule="form.schedule"
         :runtime-invalid="runtimeValidation.invalid"
       />
@@ -91,10 +104,13 @@
         :preview-config="previewConfig"
         :load-preview-config="loadPreviewConfig"
       />
+      </el-form>
 
       <CollectionTaskEditorFooter
         v-model:active-step="activeStep"
         :saving="saving"
+        :locked="streamingLocked"
+        :max-step="form.executionMode === 'STREAMING' ? 3 : 4"
         :save-task="saveTask"
       />
     </template>
@@ -142,6 +158,7 @@ import {
   isPlainRecord,
   mergeRuntimeDefaults,
   migrateLegacyWriteMode,
+  isStreamingTaskConfigurationLocked,
   normalizeIncremental,
   normalizeSourceBinding,
   normalizeTargetBinding,
@@ -216,8 +233,17 @@ const httpReaderDirtyKeys = new WeakMap<object, Set<string>>();
 const form = reactive(createDefaultCollectionTaskForm());
 
 const isFusionTask = computed(() => form.sourceBindings.length > 1);
+const streamingLocked = computed(() => isStreamingTaskConfigurationLocked(
+  form.executionMode,
+  form.desiredState,
+  form.observedState,
+));
 const taskTypeLabel = computed(() => (isFusionTask.value ? t("web.collectionTasks.typeFusion") : t("web.collectionTasks.typeSingle")));
 const sourceAliasOptions = computed(() => form.sourceBindings.map((item) => item.sourceAlias).filter(Boolean));
+const singleSourceFields = computed(() => {
+  const source = form.sourceBindings[0];
+  return source ? sourceFieldOptions(source) : [];
+});
 const targetModel = computed(() => resolveModelById(form.targetBinding.modelId));
 const targetFieldOptions = computed(() => resolveFieldsByModel(targetModel.value));
 const targetPrimaryKeyFields = computed(() => resolvePrimaryKeyFieldsByModel(targetModel.value));
@@ -451,6 +477,13 @@ function applyTask(task: CollectionTaskDefinitionView) {
     joinType: "LEFT",
     ...executionOptions,
   };
+  form.executionMode = task.executionMode ?? "BATCH";
+  form.desiredState = task.desiredState;
+  form.observedState = task.observedState;
+  form.streamingOptions = {
+    ...createDefaultCollectionTaskForm().streamingOptions,
+    ...(task.streamingOptions ?? {}),
+  };
   form.sourceBindings = cloneDeep(task.sourceBindings ?? []).map((item, index) =>
     normalizeSourceBinding(item, collectionMode.value, `src${index + 1}`));
   form.targetBinding = targetBinding;
@@ -659,6 +692,13 @@ function buildRequestPayload(): CollectionTaskSaveRequest {
     }
   });
   payload.targetBinding = normalizeTargetBinding(payload.targetBinding);
+  payload.executionMode = form.executionMode;
+  payload.streamingOptions = form.executionMode === "STREAMING"
+    ? cloneDeep(form.streamingOptions)
+    : undefined;
+  if (form.executionMode === "STREAMING") {
+    payload.schedule = undefined;
+  }
   return payload;
 }
 
@@ -1549,6 +1589,10 @@ async function saveTask() {
     ElMessage.error(detailLoadError.value);
     return;
   }
+  if (streamingLocked.value) {
+    ElMessage.warning(t("web.collectionTasks.streamingEditLocked"));
+    return;
+  }
   if (!form.runtimeClusterId) {
     ElMessage.warning(t("web.runtimeClusterSelection.selectFirst"));
     return;
@@ -1729,7 +1773,8 @@ watch(
   () => route.query.step,
   (value) => {
     const parsed = Number(value);
-    activeStep.value = Number.isFinite(parsed) && parsed >= 1 && parsed <= 4 ? parsed : 1;
+    const maxStep = form.executionMode === "STREAMING" ? 3 : 4;
+    activeStep.value = Number.isFinite(parsed) && parsed >= 1 && parsed <= maxStep ? parsed : 1;
   },
   { immediate: true },
 );
@@ -1786,6 +1831,15 @@ watch(isFusionTask, async (value) => {
 watch(collectionModeVisible, (visible) => {
   if (!visible && collectionMode.value !== "FULL") {
     collectionMode.value = "FULL";
+  }
+});
+
+watch(() => form.executionMode, (mode) => {
+  if (mode === "STREAMING" && activeStep.value === 3) {
+    activeStep.value = 3;
+  }
+  if (mode === "BATCH" && activeStep.value > 4) {
+    activeStep.value = 4;
   }
 });
 

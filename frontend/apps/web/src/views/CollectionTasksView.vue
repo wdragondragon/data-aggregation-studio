@@ -59,11 +59,11 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column :label="`${t('web.collectionTasks.type')} / ${t('web.collectionTasks.sourceCount')}`" min-width="150">
+        <el-table-column :label="`${t('web.collectionTasks.type')} / ${t('web.collectionTasks.executionMode')}`" min-width="180">
           <template #default="{ row }">
             <div class="stack-cell">
               <span>{{ formatCollectionTaskType(t, row.taskType) }}</span>
-              <span class="cell-subtle">{{ row.sourceCount || 0 }} {{ t("web.collectionTasks.sourceCountUnit") }}</span>
+              <span class="cell-subtle">{{ row.executionMode === "STREAMING" ? t("web.collectionTasks.executionModeStreaming") : t("web.collectionTasks.executionModeBatch") }}</span>
             </div>
           </template>
         </el-table-column>
@@ -81,8 +81,11 @@
         <el-table-column :label="t('web.collectionTasks.schedule')" min-width="180">
           <template #default="{ row }">
             <div class="stack-cell">
-              <span>{{ row.schedule?.enabled ? t("common.on") : t("common.off") }}</span>
-              <span class="cell-subtle">{{ row.schedule?.enabled ? row.schedule?.cronExpression || t('common.none') : t('common.none') }}</span>
+              <span v-if="row.executionMode === 'STREAMING'">{{ t("web.collectionTasks.notApplicable") }}</span>
+              <template v-else>
+                <span>{{ row.schedule?.enabled ? t("common.on") : t("common.off") }}</span>
+                <span class="cell-subtle">{{ row.schedule?.enabled ? row.schedule?.cronExpression || t('common.none') : t('common.none') }}</span>
+              </template>
             </div>
           </template>
         </el-table-column>
@@ -91,7 +94,7 @@
             <el-tooltip v-if="row.runtimeValid === false" :content="row.runtimeValidationMessage || t('web.runtimeClusterSelection.invalidFallback')" placement="top">
               <span><StatusPill :label="t('web.runtimeClusterSelection.invalid')" tone="danger" /></span>
             </el-tooltip>
-            <StatusPill v-else :label="formatStatusLabel(t, row.status)" :tone="row.status === STUDIO_RUN_STATUS.ONLINE ? 'success' : 'warning'" />
+            <StatusPill v-else :label="formatStatusLabel(t, row.executionMode === 'STREAMING' ? row.observedState || row.status : row.status)" :tone="toneFromStatus(row.executionMode === 'STREAMING' ? row.observedState || row.status : row.status)" />
           </template>
         </el-table-column>
         <el-table-column prop="createdAt" label="创建时间" min-width="180" show-overflow-tooltip />
@@ -205,6 +208,7 @@
     </el-drawer>
 
     <RunLogDrawer v-model="logDrawerVisible" :run-record-id="activeRunRecordId" variant="collection-task" />
+    <StreamingTaskMonitorDrawer v-model="streamingMonitorVisible" :task="streamingMonitorTask" />
     <ManualRunClusterDialog
       v-if="manualRunTask"
       v-model="manualRunDialogVisible"
@@ -231,6 +235,7 @@ import ManualRunClusterDialog from "@/components/ManualRunClusterDialog.vue";
 import MessagePreviewText from "@/components/MessagePreviewText.vue";
 import { useAuthStore } from "@/stores/auth";
 import RunLogDrawer from "../components/RunLogDrawer.vue";
+import StreamingTaskMonitorDrawer from "@/components/collection-task/StreamingTaskMonitorDrawer.vue";
 import { getPaginatedRowNumber, useClientPagination } from "@/composables/useClientPagination";
 import { STUDIO_RESOURCE_TYPE, STUDIO_RUN_STATUS } from "@/constants/studioDomain";
 import { formatCollectionTaskType, formatStatusLabel, isSharedFromAnotherProject, resolveProjectName, toneFromStatus } from "@/utils/studio";
@@ -256,6 +261,8 @@ const manualRunTask = ref<CollectionTaskListView | null>(null);
 const manualRunDialogVisible = ref(false);
 const manualRunSubmitting = ref(false);
 const terminatingRunIds = ref<Set<string>>(new Set());
+const streamingMonitorVisible = ref(false);
+const streamingMonitorTask = ref<CollectionTaskListView | null>(null);
 const filters = ref<CollectionTaskListQuery>({
   name: "",
   targetDatasource: "",
@@ -329,6 +336,20 @@ function viewTaskRuns(task: CollectionTaskListView) {
 
 function buildTaskActions(task: CollectionTaskListView) {
   const shared = isSharedTask(task);
+  if (task.executionMode === "STREAMING") {
+    const failed = String(task.observedState || "").toUpperCase() === "FAILED";
+    const running = ["STARTING", "RUNNING", "STOPPING", "RECOVERING"].includes(String(task.observedState || "").toUpperCase())
+      || task.desiredState === "RUNNING";
+    return [
+      { key: "edit", label: t("common.edit"), type: "primary", disabled: shared || running, onClick: () => editTask(task) },
+      { key: "monitor", label: t("web.collectionTasks.monitor"), onClick: () => openStreamingMonitor(task) },
+      { key: "online", label: t("web.collectionTasks.online"), type: "success", disabled: shared || running || task.runtimeValid === false, onClick: () => publishTask(task) },
+      { key: "offline", label: t("web.collectionTasks.offline"), type: "warning", disabled: shared || !running, onClick: () => offlineTask(task) },
+      { key: "recover", label: t("web.collectionTasks.recover"), type: "success", disabled: shared || !failed, onClick: () => recoverTask(task) },
+      { key: "logs", label: t("web.collectionTasks.runRecords"), onClick: () => viewTaskRuns(task) },
+      { key: "delete", label: t("common.delete"), type: "danger", disabled: shared || running, onClick: () => deleteTask(task) },
+    ];
+  }
   return [
     { key: "edit", label: t("common.edit"), type: "primary", disabled: shared, onClick: () => editTask(task) },
     { key: "schedule", label: t("web.collectionTasks.scheduleManage"), disabled: shared, onClick: () => manageSchedule(task) },
@@ -391,6 +412,9 @@ function patchTaskRow(task: CollectionTaskListView, patch: Partial<CollectionTas
     "status",
     "sourceCount",
     "schedule",
+    "executionMode",
+    "desiredState",
+    "observedState",
   ];
   const next: Partial<CollectionTaskListView> = {};
   for (const key of keys) {
@@ -457,6 +481,33 @@ function displayRunMessage(row: RunRecordListView) {
   return row.message?.includes("Manually terminated by user")
     ? t("web.collectionTasks.manualTerminationReason")
     : row.message;
+}
+
+function openStreamingMonitor(task: CollectionTaskListView) {
+  streamingMonitorTask.value = task;
+  streamingMonitorVisible.value = true;
+}
+
+async function offlineTask(task: CollectionTaskListView) {
+  if (!task.id) return;
+  try {
+    const updated = await studioApi.collectionTasks.offline(task.id);
+    patchTaskRow(task, updated);
+    ElMessage.success(t("web.collectionTasks.offlineSuccess"));
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.offlineFailed"));
+  }
+}
+
+async function recoverTask(task: CollectionTaskListView) {
+  if (!task.id) return;
+  try {
+    const updated = await studioApi.collectionTasks.recover(task.id);
+    patchTaskRow(task, updated);
+    ElMessage.success(t("web.collectionTasks.recoverSuccess"));
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : t("web.collectionTasks.recoverFailed"));
+  }
 }
 
 function terminationErrorMessage(error: unknown, fallbackKey: string) {

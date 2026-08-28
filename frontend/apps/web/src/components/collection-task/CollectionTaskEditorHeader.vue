@@ -7,7 +7,7 @@
     <div class="studio-toolbar-actions">
       <el-button @click="actions.backToList">{{ t("common.backToList") }}</el-button>
       <el-button plain @click="actions.refresh">{{ t("common.refresh") }}</el-button>
-      <el-button type="primary" :loading="saving" @click="actions.saveTask">{{ t("common.saveDraft") }}</el-button>
+      <el-button type="primary" :loading="saving" :disabled="locked" @click="actions.saveTask">{{ t("common.saveDraft") }}</el-button>
     </div>
   </div>
 </template>
@@ -24,6 +24,7 @@ interface HeaderActions {
 defineProps<{
   taskId?: string;
   saving: boolean;
+  locked?: boolean;
   actions: HeaderActions;
 }>();
 

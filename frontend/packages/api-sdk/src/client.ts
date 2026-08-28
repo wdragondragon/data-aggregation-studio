@@ -35,7 +35,9 @@ import type {
   CollectionTaskOptionView,
   CollectionTaskSaveRequest,
   CollectionTaskScheduleDefinition,
+  CollectionTaskStreamingRuntimeView,
   CollectionTaskWorkflowOptionView,
+  RunLogChunkView,
   ConnectionTestResult,
   DataDevelopmentDirectory,
   DataDevelopmentDirectorySaveRequest,
@@ -221,6 +223,8 @@ import type {
   RunListResponse,
   RunLogQuery,
   RunLogView,
+  StreamingMetricBucketView,
+  StreamingTaskEventView,
   RunRecord,
   RunRecordListView,
   RunTerminationView,
@@ -1512,6 +1516,43 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       publish(id: EntityId) {
         return request<CollectionTaskListView>({ url: `/collection-tasks/${id}/online`, method: "POST" });
       },
+      offline(id: EntityId) {
+        return request<CollectionTaskListView>({ url: `/collection-tasks/${id}/offline`, method: "POST" });
+      },
+      recover(id: EntityId) {
+        return request<CollectionTaskListView>({ url: `/collection-tasks/${id}/recover`, method: "POST" });
+      },
+      streamingRuntime(id: EntityId) {
+        return request<CollectionTaskStreamingRuntimeView>({ url: `/collection-tasks/${id}/streaming-runtime`, method: "GET" });
+      },
+      streamingMetrics(id: EntityId, params?: {
+        startTime?: string;
+        endTime?: string;
+        pageNo?: number;
+        pageSize?: number;
+        onlyWithRecords?: boolean;
+      }) {
+        return request<unknown>({ url: `/collection-tasks/${id}/streaming-metrics`, method: "GET", params }).then((payload) =>
+          normalizePageResult<StreamingMetricBucketView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      streamingEvents(id: EntityId, params?: { pageNo?: number; pageSize?: number }) {
+        return request<unknown>({ url: `/collection-tasks/${id}/streaming-events`, method: "GET", params }).then((payload) =>
+          normalizePageResult<StreamingTaskEventView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      streamingLogChunks(id: EntityId, params?: { pageNo?: number; pageSize?: number }) {
+        return request<unknown>({ url: `/collection-tasks/${id}/streaming-log-chunks`, method: "GET", params }).then((payload) =>
+          normalizePageResult<RunLogChunkView>(payload, params?.pageNo ?? 1, params?.pageSize ?? 20),
+        );
+      },
+      streamingLogChunkPreview(id: EntityId, chunkId: EntityId, params?: RunLogQuery) {
+        return request<RunLogView>({
+          url: `/collection-tasks/${id}/streaming-log-chunks/${chunkId}/preview`,
+          method: "GET",
+          params,
+        });
+      },
       saveSchedule(id: EntityId, payload: CollectionTaskScheduleDefinition) {
         return request<CollectionTaskDefinitionView>({ url: `/collection-tasks/${id}/schedule`, method: "POST", data: payload });
       },
@@ -2097,6 +2138,9 @@ export function createStudioApi(options: StudioApiOptions = {}) {
       },
       downloadLog(id: EntityId) {
         return request<RunLogView>({ url: `/runs/${id}/log/download`, method: "GET" });
+      },
+      downloadLogArchive(id: EntityId, config?: StudioRequestConfig) {
+        return requestBlob({ ...config, url: `/runs/${id}/log/archive`, method: "GET", timeout: 0 });
       },
       terminate(id: EntityId) {
         return request<RunTerminationView>({ url: `/runs/${id}/terminate`, method: "POST" });

@@ -10,7 +10,7 @@
         <span>{{ t("common.fields", { count: section.fields.length }) }}</span>
       </header>
 
-      <el-form label-position="top">
+      <el-form label-position="top" :disabled="disabled">
         <div class="meta-form__grid">
           <el-form-item
             v-for="field in section.fields"
@@ -188,12 +188,14 @@ const props = withDefaults(
     modelValue: Record<string, unknown>;
     dynamicFunctionFields?: string[];
     savedSensitiveFieldKeys?: string[];
+    disabled?: boolean;
   }>(),
   {
     fields: () => [],
     modelValue: () => ({}),
     dynamicFunctionFields: () => [],
     savedSensitiveFieldKeys: () => [],
+    disabled: false,
   },
 );
 

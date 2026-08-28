@@ -2,22 +2,67 @@
   <SectionCard :title="t('web.collectionTasks.bindingTitle')" :description="t('web.collectionTasks.bindingDescription')">
     <div class="studio-form-grid">
       <el-form-item :label="t('web.runtimeClusterSelection.runtimeCluster')" required>
-        <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="onRuntimeClusterChange">
+        <el-select v-model="form.runtimeClusterId" :loading="runtimeClustersLoading" :disabled="streamingLocked || singleRuntimeCluster" :placeholder="t('web.runtimeClusterSelection.placeholder')" @change="onRuntimeClusterChange">
           <el-option v-for="cluster in runtimeClusters" :key="String(cluster.id)" :label="runtimeClusterOptionLabel(cluster)" :value="cluster.id" :disabled="runtimeClusterOptionDisabled(cluster)" />
         </el-select>
       </el-form-item>
       <el-form-item :label="t('web.collectionTasks.name')">
-        <el-input v-model="form.name" :placeholder="t('web.collectionTasks.namePlaceholder')" />
+        <el-input v-model="form.name" :disabled="streamingLocked" :placeholder="t('web.collectionTasks.namePlaceholder')" />
       </el-form-item>
       <el-form-item :label="t('web.collectionTasks.type')">
         <el-input :model-value="taskTypeLabel" disabled />
       </el-form-item>
+      <el-form-item :label="t('web.collectionTasks.executionMode')">
+        <el-radio-group v-model="form.executionMode" :disabled="streamingLocked">
+          <el-radio-button value="BATCH">{{ t("web.collectionTasks.executionModeBatch") }}</el-radio-button>
+          <el-radio-button value="STREAMING">{{ t("web.collectionTasks.executionModeStreaming") }}</el-radio-button>
+        </el-radio-group>
+      </el-form-item>
       <el-form-item v-if="collectionModeVisible" :label="t('web.collectionTasks.collectionMode')">
-        <el-radio-group v-model="collectionModeModel">
+        <el-radio-group v-model="collectionModeModel" :disabled="streamingLocked">
           <el-radio-button value="FULL">{{ t("web.collectionTasks.collectionModeFull") }}</el-radio-button>
           <el-radio-button value="INCREMENTAL">{{ t("web.collectionTasks.collectionModeIncremental") }}</el-radio-button>
         </el-radio-group>
       </el-form-item>
+    </div>
+
+    <div v-if="form.executionMode === 'STREAMING'" class="streaming-options-panel">
+      <div class="runtime-option-header">
+        <div>
+          <strong>{{ t("web.collectionTasks.streamingOptionsTitle") }}</strong>
+          <p>{{ t("web.collectionTasks.streamingOptionsDescription") }}</p>
+        </div>
+        <el-tag type="warning">{{ t("web.collectionTasks.atLeastOnce") }}</el-tag>
+      </div>
+      <div class="studio-form-grid streaming-options-grid">
+        <el-form-item :label="t('web.collectionTasks.groupId')">
+          <el-input v-model="form.streamingOptions.groupId" :disabled="streamingLocked" :placeholder="t('web.collectionTasks.groupIdPlaceholder')" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.offsetReset')">
+          <el-select v-model="form.streamingOptions.offsetReset" :disabled="streamingLocked">
+            <el-option label="earliest" value="earliest" />
+            <el-option label="latest" value="latest" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.resetOffset')">
+          <el-switch v-model="form.streamingOptions.resetOffset" :disabled="streamingLocked" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.pollTimeoutMs')">
+          <el-input-number v-model="form.streamingOptions.pollTimeoutMs" :disabled="streamingLocked" :min="100" :max="60000" :step="100" controls-position="right" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.maxBatchRecords')">
+          <el-input-number v-model="form.streamingOptions.maxBatchRecords" :disabled="streamingLocked" :min="1" :max="100000" controls-position="right" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.maxBatchBytes')">
+          <el-input-number v-model="form.streamingOptions.maxBatchBytes" :disabled="streamingLocked" :min="1024" :max="268435456" controls-position="right" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.batchRetryCount')">
+          <el-input-number v-model="form.streamingOptions.batchRetryCount" :disabled="streamingLocked" :min="0" :max="10" controls-position="right" />
+        </el-form-item>
+        <el-form-item :label="t('web.collectionTasks.stopTimeoutMs')">
+          <el-input-number v-model="form.streamingOptions.stopTimeoutMs" :disabled="streamingLocked" :min="1000" :max="600000" :step="1000" controls-position="right" />
+        </el-form-item>
+      </div>
     </div>
 
     <div class="soft-panel">
@@ -26,14 +71,14 @@
           <strong>{{ t("web.collectionTasks.sourcesTitle") }}</strong>
           <p>{{ isFusionTask ? t("web.collectionTasks.sourcesDescription") : t("web.collectionTasks.singleSourceDescription") }}</p>
         </div>
-        <el-button type="primary" plain @click="bindingActions.appendSourceBinding">{{ t("common.addRow") }}</el-button>
+        <el-button type="primary" plain :disabled="streamingLocked" @click="bindingActions.appendSourceBinding">{{ t("common.addRow") }}</el-button>
       </div>
 
       <StudioTableShell min-width="720px">
       <el-table :data="form.sourceBindings" border>
         <el-table-column v-if="isFusionTask" :label="t('web.collectionTasks.sourceAlias')" min-width="150">
           <template #default="{ row }">
-            <el-input v-model="row.sourceAlias" :placeholder="t('web.collectionTasks.sourceAliasPlaceholder')" />
+            <el-input v-model="row.sourceAlias" :disabled="streamingLocked" :placeholder="t('web.collectionTasks.sourceAliasPlaceholder')" />
           </template>
         </el-table-column>
 
@@ -42,7 +87,7 @@
             <el-select
               :model-value="String(row.datasourceId ?? '')"
               filterable
-              :disabled="!form.runtimeClusterId"
+              :disabled="streamingLocked || !form.runtimeClusterId"
               :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
               @update:model-value="bindingActions.handleSourceDatasourceChange(row, $event)"
             >
@@ -57,7 +102,7 @@
               :model-value="String(row.modelId ?? '')"
               filterable
               remote
-              :disabled="!form.runtimeClusterId || !row.datasourceId"
+              :disabled="streamingLocked || !form.runtimeClusterId || !row.datasourceId"
               :placeholder="t('web.collectionTasks.modelPlaceholder')"
               :remote-method="sourceModelRemoteMethod(row)"
               @visible-change="sourceModelVisibleChange(row)"
@@ -75,7 +120,7 @@
 
         <el-table-column :label="t('fieldMapping.actions')" width="110" fixed="right">
           <template #default="{ $index }">
-            <el-button link type="danger" :disabled="form.sourceBindings.length === 1" @click="bindingActions.removeSourceBinding($index)">
+            <el-button link type="danger" :disabled="streamingLocked || form.sourceBindings.length === 1" @click="bindingActions.removeSourceBinding($index)">
               {{ t("common.remove") }}
             </el-button>
           </template>
@@ -110,6 +155,7 @@
               v-model="source.incremental.incrColumn"
               filterable
               clearable
+              :disabled="streamingLocked"
               :placeholder="t('web.collectionTasks.incrementalColumn')"
               @change="bindingActions.syncCurrentIncrementalCursor(source)"
             >
@@ -117,7 +163,7 @@
             </el-select>
           </el-form-item>
           <el-form-item :label="t('web.collectionTasks.incrementalModel')">
-            <el-select v-model="source.incremental.incrModel" @change="bindingActions.syncCurrentIncrementalCursor(source)">
+            <el-select v-model="source.incremental.incrModel" :disabled="streamingLocked" @change="bindingActions.syncCurrentIncrementalCursor(source)">
               <el-option label=">" value=">" />
               <el-option label=">=" value=">=" />
             </el-select>
@@ -140,7 +186,7 @@
                 plain
                 type="warning"
                 size="small"
-                :disabled="!taskId || !bindingActions.hasIncrementalCursor(source)"
+                :disabled="streamingLocked || !taskId || !bindingActions.hasIncrementalCursor(source)"
                 :loading="bindingActions.isIncrementalCursorResetting(source)"
                 @click="bindingActions.resetIncrementalCursor(source)"
               >
@@ -158,6 +204,7 @@
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
           :soap-contract="bindingActions.readerSoapContract(source)"
           :soap-field-names="bindingActions.readerSoapFieldNames(source)"
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
           @dirty-key="bindingActions.markSourceReaderOptionDirty(source, $event)"
         />
@@ -167,6 +214,7 @@
           :fields="bindingActions.readerAdvancedFields(source)"
           :model-value="source.readerOptions ?? {}"
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
           @dirty-key="bindingActions.markSourceReaderOptionDirty(source, $event)"
         />
@@ -175,6 +223,7 @@
           :fields="bindingActions.readerAdvancedFields(source)"
           :model-value="source.readerOptions ?? {}"
           :dynamic-function-fields="bindingActions.readerDynamicFunctionFields(source)"
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateSourceReaderOptions(source, $event)"
         />
         <el-alert
@@ -202,7 +251,7 @@
           <el-select
             :model-value="String(form.targetBinding.datasourceId ?? '')"
             filterable
-            :disabled="!form.runtimeClusterId"
+            :disabled="streamingLocked || !form.runtimeClusterId"
             :placeholder="t('web.collectionTasks.datasourcePlaceholder')"
             @update:model-value="bindingActions.handleTargetDatasourceChange"
           >
@@ -214,7 +263,7 @@
             :model-value="String(form.targetBinding.modelId ?? '')"
             filterable
             remote
-            :disabled="!form.runtimeClusterId || !form.targetBinding.datasourceId"
+            :disabled="streamingLocked || !form.runtimeClusterId || !form.targetBinding.datasourceId"
             :placeholder="t('web.collectionTasks.modelPlaceholder')"
             :remote-method="targetModelRemoteMethod"
             @visible-change="targetModelVisibleChange"
@@ -253,6 +302,7 @@
           :body-form-visible="false"
           envelope-readonly
           soap-template-mode
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateTargetWriterOptions($event)"
         />
         <HttpRequestOptionsEditor
@@ -261,6 +311,7 @@
           :fields="writerAdvancedFields"
           :model-value="form.targetBinding.writerOptions ?? {}"
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateTargetWriterOptions($event)"
         />
         <MetaFormRenderer
@@ -268,6 +319,7 @@
           :fields="writerAdvancedFields"
           :model-value="form.targetBinding.writerOptions ?? {}"
           :dynamic-function-fields="bindingActions.writerDynamicFunctionFields()"
+          :disabled="streamingLocked"
           @update:model-value="bindingActions.updateTargetWriterOptions($event)"
         />
         <el-alert
@@ -295,6 +347,8 @@ import { useI18n } from "vue-i18n";
 import type {
   CollectionTaskSourceBinding,
   CollectionTaskTargetBinding,
+  CollectionTaskExecutionMode,
+  CollectionTaskStreamingOptions,
   DataModelDatasourceOptionView,
   DataSourceOptionView,
   MetadataFieldDefinition,
@@ -313,6 +367,8 @@ interface BindingSectionForm {
   runtimeClusterId: unknown;
   sourceBindings: CollectionTaskSourceBinding[];
   targetBinding: CollectionTaskTargetBinding;
+  executionMode: CollectionTaskExecutionMode;
+  streamingOptions: CollectionTaskStreamingOptions;
 }
 
 interface CollectionTaskBindingActions {
@@ -369,6 +425,7 @@ const props = defineProps<{
   runtimeClusterOptionDisabled: (cluster: RuntimeClusterView) => boolean;
   onRuntimeClusterChange: () => void | Promise<void>;
   writerAdvancedFields: MetadataFieldDefinition[];
+  streamingLocked: boolean;
   bindingActions: CollectionTaskBindingActions;
 }>();
 
@@ -463,6 +520,20 @@ p {
 
 .incremental-grid {
   margin-top: 4px;
+}
+
+.streaming-options-panel {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.06);
+}
+
+.streaming-options-grid {
+  margin-top: 0;
 }
 
 .incremental-cursor {

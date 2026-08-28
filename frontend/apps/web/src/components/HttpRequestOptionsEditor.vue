@@ -3,6 +3,7 @@
     :fields="fields"
     :model-value="modelValue"
     :dynamic-function-fields="dynamicFunctionFields"
+    :disabled="disabled"
     @update:model-value="emit('update:modelValue', $event)"
     @dirty-key="emit('dirty-key', $event)"
   />
@@ -16,10 +17,12 @@ withDefaults(defineProps<{
   fields: MetadataFieldDefinition[];
   modelValue: Record<string, unknown>;
   dynamicFunctionFields?: string[];
+  disabled?: boolean;
 }>(), {
   fields: () => [],
   modelValue: () => ({}),
   dynamicFunctionFields: () => [],
+  disabled: false,
 });
 
 const emit = defineEmits<{

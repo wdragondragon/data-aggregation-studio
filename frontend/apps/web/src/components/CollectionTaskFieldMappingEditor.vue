@@ -2,7 +2,7 @@
   <div class="mapping-editor">
     <div class="mapping-editor__toolbar">
       <span>{{ t("fieldMapping.title") }}</span>
-      <el-button type="primary" plain @click="appendRow">{{ t("common.addMapping") }}</el-button>
+      <el-button type="primary" plain :disabled="disabled" @click="appendRow">{{ t("common.addMapping") }}</el-button>
     </div>
 
     <StudioTableShell min-width="1120px">
@@ -13,6 +13,7 @@
             :model-value="row.sourceAlias"
             clearable
             filterable
+            :disabled="disabled"
             :placeholder="t('fieldMapping.selectSourceAlias')"
             @update:model-value="updateRow($index, 'sourceAlias', $event)"
           >
@@ -27,6 +28,7 @@
             :model-value="row.sourceField"
             clearable
             filterable
+            :disabled="disabled"
             :placeholder="t('fieldMapping.selectSourceField')"
             @update:model-value="updateRow($index, 'sourceField', $event)"
           >
@@ -41,6 +43,7 @@
             :model-value="row.targetField"
             clearable
             filterable
+            :disabled="disabled"
             :placeholder="t('fieldMapping.selectTargetField')"
             @update:model-value="updateRow($index, 'targetField', $event)"
           >
@@ -53,6 +56,7 @@
         <template #default="{ row, $index }">
           <el-input
             :model-value="row.expression"
+            :disabled="disabled"
             :placeholder="t('fieldMapping.optionalExpression')"
             @update:model-value="updateRow($index, 'expression', $event)"
           />
@@ -63,14 +67,14 @@
         <template #default="{ row, $index }">
           <div class="mapping-editor__transformers">
             <span class="mapping-editor__transformer-summary">{{ transformerSummary(row.transformers) }}</span>
-            <el-button link type="primary" @click="openTransformerDialog($index)">{{ t("fieldMapping.configureTransformers") }}</el-button>
+            <el-button link type="primary" :disabled="disabled" @click="openTransformerDialog($index)">{{ t("fieldMapping.configureTransformers") }}</el-button>
           </div>
         </template>
       </el-table-column>
 
       <el-table-column :label="t('fieldMapping.actions')" width="110" fixed="right">
         <template #default="{ $index }">
-          <el-button type="danger" link @click="removeRow($index)">{{ t("common.remove") }}</el-button>
+          <el-button type="danger" link :disabled="disabled" @click="removeRow($index)">{{ t("common.remove") }}</el-button>
         </template>
       </el-table-column>
       </el-table>
@@ -110,6 +114,7 @@ const props = withDefaults(
     loadRuleDetail?: (id: EntityId) => Promise<FieldMappingRuleView>;
     showSourceAlias?: boolean;
     showExpression?: boolean;
+    disabled?: boolean;
   }>(),
   {
     modelValue: () => [],
@@ -120,6 +125,7 @@ const props = withDefaults(
     ruleOptions: () => [],
     showSourceAlias: true,
     showExpression: true,
+    disabled: false,
   },
 );
 

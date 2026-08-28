@@ -1,10 +1,11 @@
 <template>
-  <div class="http-webservice-options-editor">
+  <el-form class="http-webservice-options-editor" :disabled="disabled">
     <MetaFormRenderer
       v-if="baseFields.length"
       :fields="baseFields"
       :model-value="modelValue"
       :dynamic-function-fields="baseDynamicFunctionFields"
+      :disabled="disabled"
       @update:model-value="emitMergedValue($event)"
       @field-change="emit('dirty-key', $event)"
     />
@@ -14,6 +15,7 @@
       :fields="queryFields"
       :model-value="modelValue"
       :dynamic-function-fields="queryDynamicFunctionFields"
+      :disabled="disabled"
       @update:model-value="emitMergedValue($event)"
       @dirty-key="emit('dirty-key', $event)"
     />
@@ -47,7 +49,7 @@
       @update-header-value="setHttpHeaderValue"
       @update-field-value="setSoapFieldValue"
     />
-  </div>
+  </el-form>
 </template>
 
 <script setup lang="ts">
@@ -106,6 +108,7 @@ const props = withDefaults(
     bodyFormVisible?: boolean;
     envelopeReadonly?: boolean;
     soapContract?: HttpSoapContract;
+    disabled?: boolean;
   }>(),
   {
     fields: () => [],
@@ -121,6 +124,7 @@ const props = withDefaults(
     bodyFormVisible: true,
     envelopeReadonly: false,
     soapContract: () => ({}),
+    disabled: false,
   },
 );
 

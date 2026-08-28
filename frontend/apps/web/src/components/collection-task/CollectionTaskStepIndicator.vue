@@ -1,6 +1,6 @@
 <template>
   <SectionCard :title="t('web.collectionTasks.stepsTitle')" :description="t('web.collectionTasks.stepsDescription')">
-    <div class="collection-task-wizard">
+    <div class="collection-task-wizard" :class="{ 'collection-task-wizard--streaming': props.executionMode === 'STREAMING' }">
       <button
         v-for="step in steps"
         :key="step.value"
@@ -24,15 +24,16 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { SectionCard } from "@studio/ui";
 
-defineProps<{
-  activeStep: number;
-}>();
-
 const emit = defineEmits<{
   "update:activeStep": [value: number];
 }>();
 
 const { t } = useI18n();
+
+const props = defineProps<{
+  activeStep: number;
+  executionMode?: "BATCH" | "STREAMING";
+}>();
 
 const steps = computed(() => [
   {
@@ -45,13 +46,13 @@ const steps = computed(() => [
     title: t("web.collectionTasks.step2Title"),
     description: "配置字段映射和转换规则",
   },
-  {
+  ...(props.executionMode === "STREAMING" ? [] : [{
     value: 3,
     title: t("web.collectionTasks.step3Title"),
     description: "配置定时调度与时区",
-  },
+  }]),
   {
-    value: 4,
+    value: props.executionMode === "STREAMING" ? 3 : 4,
     title: t("web.collectionTasks.step4Title"),
     description: "预览配置并保存任务",
   },
@@ -63,6 +64,10 @@ const steps = computed(() => [
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
+}
+
+.collection-task-wizard--streaming {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .collection-task-wizard__step {

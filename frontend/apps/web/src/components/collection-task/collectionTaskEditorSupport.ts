@@ -1,18 +1,38 @@
 import type {
   CollectionIncrementalDefinition,
   CollectionTaskDefinitionView,
+  CollectionTaskExecutionMode,
   CollectionTaskSaveRequest,
   CollectionTaskSourceBinding,
   CollectionTaskTargetBinding,
+  CollectionTaskStreamingOptions,
   DataModelDefinition,
   MetadataFieldDefinition,
 } from "@studio/api-sdk";
 
 export interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest, "schedule"> {
   schedule: NonNullable<CollectionTaskSaveRequest["schedule"]>;
+  executionMode: CollectionTaskExecutionMode;
+  streamingOptions: CollectionTaskStreamingOptions;
+  desiredState?: "RUNNING" | "STOPPED";
+  observedState?: "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "RECOVERING" | "FAILED";
 }
 
 export type RuntimeOptionRole = "reader" | "writer";
+
+const STREAMING_ACTIVE_STATES = new Set(["STARTING", "RUNNING", "STOPPING", "RECOVERING"]);
+
+export function isStreamingTaskConfigurationLocked(
+  executionMode: unknown,
+  desiredState: unknown,
+  observedState: unknown,
+) {
+  if (String(executionMode ?? "").toUpperCase() !== "STREAMING") {
+    return false;
+  }
+  return String(desiredState ?? "").toUpperCase() === "RUNNING"
+    || STREAMING_ACTIVE_STATES.has(String(observedState ?? "").toUpperCase());
+}
 
 export const fileReaderDatasourceTypes = new Set(["ftp", "sftp", "minio"]);
 export const fileReaderDynamicFunctionFields = ["rootPath", "partition"];
@@ -47,6 +67,19 @@ export function createDefaultCollectionTaskForm(): CollectionTaskEditorForm {
       collectionMode: "FULL",
       joinKeys: [],
       joinType: "LEFT",
+    },
+    executionMode: "BATCH",
+    streamingOptions: {
+      offsetReset: "latest",
+      resetOffset: false,
+      pollTimeoutMs: 1000,
+      maxBatchRecords: 1000,
+      maxBatchBytes: 16 * 1024 * 1024,
+      batchRetryCount: 3,
+      stopTimeoutMs: 60000,
+      maxConsecutiveFailures: 10,
+      retryInitialDelayMs: 5000,
+      retryMaxDelayMs: 300000,
     },
     schedule: {
       enabled: false,

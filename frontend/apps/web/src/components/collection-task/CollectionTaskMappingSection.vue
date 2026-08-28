@@ -5,17 +5,17 @@
         <strong>{{ t("web.collectionTasks.mappingToolbarTitle") }}</strong>
         <p>{{ t("web.collectionTasks.mappingToolbarDescription") }}</p>
       </div>
-      <el-button type="primary" plain @click="mappingActions.initializeMappings">{{ t("web.collectionTasks.initializeMappings") }}</el-button>
+      <el-button type="primary" plain :disabled="streamingLocked" @click="mappingActions.initializeMappings">{{ t("web.collectionTasks.initializeMappings") }}</el-button>
     </div>
 
     <div v-if="isFusionTask" class="studio-form-grid fusion-options">
       <el-form-item :label="t('web.collectionTasks.joinKeys')">
-        <el-select v-model="joinKeysModel" multiple filterable :placeholder="t('web.collectionTasks.joinKeysPlaceholder')">
+        <el-select v-model="joinKeysModel" multiple filterable :disabled="streamingLocked" :placeholder="t('web.collectionTasks.joinKeysPlaceholder')">
           <el-option v-for="field in commonJoinKeyOptions" :key="field" :label="field" :value="field" />
         </el-select>
       </el-form-item>
       <el-form-item :label="t('web.collectionTasks.joinType')">
-        <el-select v-model="joinTypeModel">
+        <el-select v-model="joinTypeModel" :disabled="streamingLocked">
           <el-option label="LEFT" value="LEFT" />
           <el-option label="INNER" value="INNER" />
           <el-option label="RIGHT" value="RIGHT" />
@@ -37,6 +37,7 @@
         v-if="fusionReaderAdvancedFields.length"
         :fields="fusionReaderAdvancedFields"
         :model-value="fusionReaderOptions"
+        :disabled="streamingLocked"
         @update:model-value="mappingActions.updateFusionReaderOptions"
       />
       <el-alert
@@ -57,6 +58,7 @@
 
     <CollectionTaskFieldMappingEditor
       :model-value="form.fieldMappings"
+      :source-fields="singleSourceFields"
       :source-aliases="sourceAliasOptions"
       :source-field-options-by-alias="sourceFieldOptionsByAlias"
       :target-fields="targetFieldOptions"
@@ -64,6 +66,7 @@
       :load-rule-detail="loadFieldMappingRuleDetail"
       :show-source-alias="isFusionTask"
       :show-expression="isFusionTask"
+      :disabled="streamingLocked"
       @update:model-value="mappingActions.updateFieldMappings"
     />
 
@@ -83,6 +86,7 @@
         :body-form-visible="false"
         envelope-readonly
         soap-template-mode
+        :disabled="streamingLocked"
         @update:model-value="mappingActions.updateTargetWriterOptions($event)"
       />
     </div>
@@ -135,12 +139,14 @@ const props = defineProps<{
   fusionReaderAdvancedFields: MetadataFieldDefinition[];
   fusionReaderOptions: Record<string, unknown>;
   sourceAliasOptions: string[];
+  singleSourceFields: string[];
   sourceFieldOptionsByAlias: Record<string, string[]>;
   targetFieldOptions: string[];
   fieldMappingRules: FieldMappingRuleOptionView[];
   loadFieldMappingRuleDetail: (id: EntityId) => Promise<FieldMappingRuleView>;
   writerSoapBodyPreviewFields: MetadataFieldDefinition[];
   writerOptions: Record<string, unknown>;
+  streamingLocked: boolean;
   mappingActions: CollectionTaskMappingActions;
 }>();
 

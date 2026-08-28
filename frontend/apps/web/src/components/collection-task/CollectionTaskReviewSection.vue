@@ -4,6 +4,7 @@
       <div class="soft-panel">
         <strong>{{ form.name || t("common.none") }}</strong>
         <p>{{ taskTypeLabel }}</p>
+        <p>{{ t("web.collectionTasks.executionMode") }}: {{ form.executionMode === "STREAMING" ? t("web.collectionTasks.executionModeStreaming") : t("web.collectionTasks.executionModeBatch") }}</p>
         <p>{{ t("web.collectionTasks.sourceCount") }}: {{ form.sourceBindings.length }}</p>
       </div>
       <div class="soft-panel">
@@ -40,6 +41,7 @@ import { prettyJson } from "@/utils/studio";
 
 interface ReviewForm {
   name: string;
+  executionMode?: "BATCH" | "STREAMING";
   sourceBindings: unknown[];
   fieldMappings: unknown[];
   schedule: {

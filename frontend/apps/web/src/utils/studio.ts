@@ -87,6 +87,7 @@ export function formatStatusLabel(t: TranslateFn, status?: string | number | boo
   const mapping: Record<string, string> = {
     [STUDIO_RUN_STATUS.DRAFT]: "common.statusDraft",
     [STUDIO_RUN_STATUS.ONLINE]: "common.statusOnline",
+    [STUDIO_RUN_STATUS.OFFLINE]: "common.statusOffline",
     [STUDIO_RUN_STATUS.PUBLISHED]: "common.statusPublished",
     [STUDIO_RUN_STATUS.SUCCESS]: "common.statusSuccess",
     [STUDIO_RUN_STATUS.FAILED]: "common.statusFailed",

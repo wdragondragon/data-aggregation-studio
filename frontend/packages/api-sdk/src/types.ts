@@ -158,7 +158,10 @@ export type StatisticType = "COUNT_BY_VALUE" | "SUMMARY" | "COUNT_BY_BUCKET";
 export type StatisticsChartType = "TREND" | "BAR" | "PIE" | "TOPN";
 export type DataModelLineageLevel = "DATABASE" | "TABLE" | "FIELD";
 export type CollectionTaskType = "SINGLE_TABLE" | "FUSION";
-export type CollectionTaskStatus = "DRAFT" | "ONLINE";
+export type CollectionTaskStatus = "DRAFT" | "ONLINE" | "OFFLINE";
+export type CollectionTaskExecutionMode = "BATCH" | "STREAMING";
+export type StreamingDesiredState = "RUNNING" | "STOPPED";
+export type StreamingObservedState = "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "RECOVERING" | "FAILED";
 export type ScriptType = "SQL" | "FLINK_QUESTION_SQL" | "JAVA" | "PYTHON";
 export type DataServiceType = "MODEL_PUBLISH" | "SERVICE_PROXY";
 export type DataServiceStatus = "DRAFT" | "ONLINE" | "OFFLINE";
@@ -1837,12 +1840,33 @@ export interface CollectionTaskScheduleDefinition {
   timezone?: string;
 }
 
+export interface CollectionTaskStreamingOptions {
+  groupId?: string;
+  offsetReset?: "earliest" | "latest" | string;
+  resetOffset?: boolean;
+  pollTimeoutMs?: number;
+  maxBatchRecords?: number;
+  maxBatchBytes?: number;
+  batchRetryCount?: number;
+  stopTimeoutMs?: number;
+  maxConsecutiveFailures?: number;
+  retryInitialDelayMs?: number;
+  retryMaxDelayMs?: number;
+}
+
 export interface CollectionTaskDefinitionView extends BaseRecord {
   name: string;
   runtimeClusterId?: EntityId;
   runtimeClusterName?: string;
   taskType?: CollectionTaskType;
   status?: CollectionTaskStatus;
+  executionMode?: CollectionTaskExecutionMode;
+  streamingOptions?: CollectionTaskStreamingOptions;
+  desiredState?: StreamingDesiredState;
+  observedState?: StreamingObservedState;
+  streamingGeneration?: number;
+  currentStreamRunId?: EntityId;
+  currentStreamAttemptId?: EntityId;
   sourceCount?: number;
   sourceBindings: CollectionTaskSourceBinding[];
   targetBinding?: CollectionTaskTargetBinding;
@@ -1857,6 +1881,12 @@ export interface CollectionTaskListView extends BaseRecord {
   runtimeClusterName?: string;
   taskType?: CollectionTaskType;
   status?: CollectionTaskStatus;
+  executionMode?: CollectionTaskExecutionMode;
+  desiredState?: StreamingDesiredState;
+  observedState?: StreamingObservedState;
+  streamingGeneration?: number;
+  currentStreamRunId?: EntityId;
+  currentStreamAttemptId?: EntityId;
   sourceCount?: number;
   targetDatasourceName?: string;
   targetDatasourceTypeCode?: string;
@@ -1896,7 +1926,129 @@ export interface CollectionTaskSaveRequest {
   targetBinding: CollectionTaskTargetBinding;
   fieldMappings: FieldMappingDefinition[];
   executionOptions: Record<string, unknown>;
+  executionMode?: CollectionTaskExecutionMode;
+  streamingOptions?: CollectionTaskStreamingOptions;
   schedule?: CollectionTaskScheduleDefinition;
+}
+
+export interface StreamingTaskDeploymentView {
+  id?: EntityId;
+  collectionTaskId?: EntityId;
+  runtimeClusterId?: EntityId;
+  generation?: number;
+  desiredState?: StreamingDesiredState;
+  observedState?: StreamingObservedState;
+  currentRunId?: EntityId;
+  currentAttemptId?: EntityId;
+  consecutiveFailureCount?: number;
+  nextRetryAt?: string;
+  lastCheckpoint?: Record<string, unknown>;
+  lastCheckpointAt?: string;
+  lastErrorCode?: string;
+  lastErrorSummary?: string;
+  updatedAt?: string;
+}
+
+export interface StreamingTaskRunView {
+  id?: EntityId;
+  collectionTaskId?: EntityId;
+  generation?: number;
+  runtimeClusterId?: EntityId;
+  status?: string;
+  deliverySemantics?: string;
+  groupId?: string;
+  startedBy?: EntityId;
+  startedAt?: string;
+  stopRequestedAt?: string;
+  stoppedBy?: EntityId;
+  stoppedAt?: string;
+  stopReason?: string;
+  finalCheckpoint?: Record<string, unknown>;
+}
+
+export interface StreamingTaskAttemptView {
+  id?: EntityId;
+  runId?: EntityId;
+  collectionTaskId?: EntityId;
+  generation?: number;
+  attemptNo?: number;
+  dispatchTaskId?: EntityId;
+  runRecordId?: EntityId;
+  runtimeClusterId?: EntityId;
+  workerInstanceId?: string;
+  workerBootId?: string;
+  status?: string;
+  startedAt?: string;
+  endedAt?: string;
+  heartbeatAt?: string;
+  retryAfter?: string;
+  checkpoint?: Record<string, unknown>;
+  errorCode?: string;
+  errorSummary?: string;
+  committedBatchCount?: number;
+}
+
+export interface StreamingMetricBucketView {
+  id?: EntityId;
+  collectionTaskId?: EntityId;
+  runId?: EntityId;
+  attemptId?: EntityId;
+  bucketStart?: string;
+  recordsRead?: number;
+  writeSucceedRecords?: number;
+  writeFailedRecords?: number;
+  dirtyRecords?: number;
+  bytesRead?: number;
+  batchCount?: number;
+  retryCount?: number;
+  currentLag?: number;
+  maxLag?: number;
+  lastMessageAt?: string;
+  lastCheckpointAt?: string;
+  rebalanceCount?: number;
+}
+
+export interface StreamingTaskEventView {
+  id?: EntityId;
+  collectionTaskId?: EntityId;
+  deploymentId?: EntityId;
+  runId?: EntityId;
+  attemptId?: EntityId;
+  generation?: number;
+  eventType?: string;
+  fromState?: string;
+  toState?: string;
+  message?: string;
+  details?: Record<string, unknown>;
+  actorId?: EntityId;
+  occurredAt?: string;
+}
+
+export interface RunLogChunkView {
+  id?: EntityId;
+  collectionTaskId?: EntityId;
+  runRecordId?: EntityId;
+  streamAttemptId?: EntityId;
+  sequenceNo?: number;
+  status?: string;
+  localPath?: string;
+  storageType?: string;
+  objectBucket?: string;
+  objectKey?: string;
+  sizeBytes?: number;
+  checksumSha256?: string;
+  chunkStartedAt?: string;
+  chunkEndedAt?: string;
+  uploadedAt?: string;
+}
+
+export interface CollectionTaskStreamingRuntimeView {
+  collectionTaskId?: EntityId;
+  taskName?: string;
+  deployment?: StreamingTaskDeploymentView;
+  currentRun?: StreamingTaskRunView;
+  currentAttempt?: StreamingTaskAttemptView;
+  recentAttempts?: StreamingTaskAttemptView[];
 }
 
 export type FileTransferDirection = "LEFT_TO_RIGHT" | "RIGHT_TO_LEFT" | string;
