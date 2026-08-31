@@ -55,6 +55,7 @@ class StudioSchemaDriftRegressionTest {
             runtime("reader", "http"),
             runtime("reader", "http-soap"),
             runtime("reader", "odps"),
+            runtime("reader", "kafka"),
             runtime("writer", "mysql8"),
             runtime("writer", "dm"),
             runtime("writer", "postgresql"),
@@ -64,7 +65,8 @@ class StudioSchemaDriftRegressionTest {
             runtime("writer", "minio"),
             runtime("writer", "http"),
             runtime("writer", "http-soap"),
-            runtime("writer", "odps")
+            runtime("writer", "odps"),
+            runtime("writer", "kafka")
     );
 
     private static final List<String> TECHNICAL_META_MODEL_CODES = Arrays.asList("source", "table", "field");
@@ -175,6 +177,29 @@ class StudioSchemaDriftRegressionTest {
         assertThat(extractTechnicalSchemaCodes(mysqlBuiltin))
                 .as("MySQL builtin technical metadata schemas")
                 .containsExactlyInAnyOrderElementsOf(technicalSchemaCodes());
+    }
+
+    @Test
+    void kafkaModelMetadataShouldOnlyContainLocatorDescriptors() throws Exception {
+        String mysqlBuiltin = readBackendFile("studio-server/src/main/resources/data-mysql-builtin.sql");
+        String kafkaDelta = readBackendFile(
+                "studio-server/src/main/resources/update/20260831/20260831-kafka-runtime-options.sql");
+        Matcher matcher = Pattern.compile(
+                "(?m)^\\(\\d+, '[^']+', \\d+, '[^']+', '[^']+', 2047489209979133954, '([^']+)'"
+        ).matcher(mysqlBuiltin);
+        Set<String> kafkaTableFields = new LinkedHashSet<String>();
+        while (matcher.find()) {
+            kafkaTableFields.add(matcher.group(1));
+        }
+
+        assertThat(kafkaTableFields)
+                .containsExactly("sourceType", "discoveryMode", "physicalName")
+                .doesNotContain("queueName", "topic", "queue", "brokers", "consumerGroup", "tag");
+        assertThat(kafkaDelta)
+                .contains("schema_version_id = 2047489209979133954")
+                .contains("'queueName', 'topic', 'queue', 'brokers', 'consumerGroup', 'tag'")
+                .contains("json_remove(", "data_model.physical_locator", "data_model_attr_index")
+                .contains("lower(datasource.type_code) = 'kafka'");
     }
 
     @Test

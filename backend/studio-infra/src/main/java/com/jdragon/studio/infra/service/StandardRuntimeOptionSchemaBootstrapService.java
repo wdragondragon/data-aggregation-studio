@@ -47,6 +47,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("reader", "http", "HTTP Reader 参数", buildHttpReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "http-soap", "HTTP SOAP Reader 参数", buildHttpSoapReaderFields()));
         result.add(ensureRuntimeOptionSchema("reader", "odps", "ODPS Reader 参数", buildOdpsReaderFields()));
+        result.add(ensureRuntimeOptionSchema("reader", "kafka", "Kafka Reader 参数", buildKafkaReaderFields()));
 
         result.add(ensureRuntimeOptionSchema("writer", "mysql8", "MYSQL8 Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace", "update"))));
         result.add(ensureRuntimeOptionSchema("writer", "dm", "DM Writer 参数", buildRdbmsWriterFields(Arrays.asList("insert", "replace"))));
@@ -59,6 +60,7 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         result.add(ensureRuntimeOptionSchema("writer", "http", "HTTP Writer 参数", buildHttpWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "http-soap", "HTTP SOAP Writer 参数", buildHttpSoapWriterFields()));
         result.add(ensureRuntimeOptionSchema("writer", "odps", "ODPS Writer 参数", buildOdpsWriterFields()));
+        result.add(ensureRuntimeOptionSchema("writer", "kafka", "Kafka Writer 参数", buildKafkaWriterFields()));
         return result;
     }
 
@@ -218,6 +220,39 @@ public class StandardRuntimeOptionSchemaBootstrapService {
         fields.add(field("autoCreatePartition", "自动创建分区", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 60, "true"));
         fields.add(field("preSql", "写入前 SQL", FieldValueType.STRING, FieldComponentType.SQL_EDITOR, false, false, 70, null));
         fields.add(field("postSql", "写入后 SQL", FieldValueType.STRING, FieldComponentType.SQL_EDITOR, false, false, 80, null));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildKafkaReaderFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("groupId", "消费组 ID", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10, null));
+        fields.add(field("offsetReset", "无提交位点策略", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 20,
+                "latest", Arrays.asList("earliest", "latest")));
+        fields.add(field("resetOffset", "运行时重置消费位点", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 30, "false"));
+        fields.add(field("pollTimeoutMs", "Poll 超时(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 40, "1000"));
+        fields.add(field("batchSize", "单次 Poll 最大记录数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 50, "500"));
+        fields.add(field("keepReadTime", "最大读取时长(毫秒)", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 60, "3600000"));
+        fields.add(field("retryPoll", "连续空 Poll 次数", FieldValueType.LONG, FieldComponentType.NUMBER, false, false, 70, "0"));
+        fields.add(field("parsingRules", "消息解析方式", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 80,
+                "json", Arrays.asList("json", "split")));
+        fields.add(field("fieldDelimiter", "消息字段分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, "\\t"));
+        fields.add(field("otherProperties", "额外 Consumer 属性", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 100, "{}"));
+        return fields;
+    }
+
+    private List<MetadataFieldDefinition> buildKafkaWriterFields() {
+        List<MetadataFieldDefinition> fields = new ArrayList<MetadataFieldDefinition>();
+        fields.add(field("ack", "确认级别", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 10,
+                "0", Arrays.asList("0", "1", "all")));
+        fields.add(field("retries", "发送重试次数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 20, "0"));
+        fields.add(field("batchSize", "批量发送大小", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 30, "16384"));
+        fields.add(field("fieldDelimiter", "消息字段分隔符", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, "\\t"));
+        fields.add(field("autoCreateTopic", "自动创建 Topic", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 50, "true"));
+        fields.add(field("createTopicNumPartition", "新建 Topic 分区数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 60, "1"));
+        fields.add(field("createTopicReplicationFactor", "新建 Topic 副本数", FieldValueType.INTEGER, FieldComponentType.NUMBER, false, false, 70, "1"));
+        fields.add(field("writeType", "写入格式", FieldValueType.STRING, FieldComponentType.SELECT, false, false, 80,
+                "SPLIT", Arrays.asList("SPLIT", "RAWDATA", "JSON")));
+        fields.add(field("otherProperties", "额外 Producer 属性", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 90, "{}"));
         return fields;
     }
 

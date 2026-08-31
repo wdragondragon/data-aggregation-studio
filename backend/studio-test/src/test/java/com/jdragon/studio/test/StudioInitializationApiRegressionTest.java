@@ -399,19 +399,21 @@ class StudioInitializationApiRegressionTest extends StudioApiRegressionTestSuppo
                         .accept(MediaType.APPLICATION_JSON))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data", hasSize(22)))
+                .andExpect(jsonPath("$.data", hasSize(24)))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:minio")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:http-soap")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:odps")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("reader:kafka")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:ftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:sftp")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:minio")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http")))
                 .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:http-soap")))
-                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:odps")));
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:odps")))
+                .andExpect(jsonPath("$.data[*].typeCode", hasItem("writer:kafka")));
     }
 
     @Test
