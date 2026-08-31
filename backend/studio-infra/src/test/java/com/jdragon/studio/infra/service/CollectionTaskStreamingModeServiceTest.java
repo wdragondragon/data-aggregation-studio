@@ -41,6 +41,16 @@ import static org.mockito.Mockito.when;
 class CollectionTaskStreamingModeServiceTest {
 
     @Test
+    void batchSavePersistsTaskScopedKafkaReaderGroup() {
+        Fixture fixture = fixture("kafka", "batch-topic");
+
+        CollectionTaskDefinitionView saved = fixture.service.save(fixture.request());
+
+        assertEquals("studio.default." + saved.getId(),
+                saved.getSourceBindings().get(0).getReaderOptions().get("groupId"));
+    }
+
+    @Test
     void newTaskDefaultsToBatchWithoutCreatingDeployment() {
         Fixture fixture = fixture("mysql8", "source_table");
         CollectionTaskSaveRequest request = fixture.request();
@@ -81,9 +91,13 @@ class CollectionTaskStreamingModeServiceTest {
         assertEquals(CollectionTaskExecutionMode.STREAMING, saved.getExecutionMode());
         assertEquals("NativeStreaming-M3-topic", saved.getSourceBindings().get(0).getModelPhysicalLocator());
         assertNotNull(saved.getId());
-        assertEquals("studio.default." + saved.getId(), saved.getStreamingOptions().getGroupId());
+        assertEquals(null, saved.getStreamingOptions().getGroupId());
         assertEquals("studio.default." + saved.getId(),
-                fixture.saved.get().getStreamingOptionsJson().get("groupId"));
+                saved.getSourceBindings().get(0).getReaderOptions().get("groupId"));
+        java.util.Map<?, ?> persistedReaderOptions = (java.util.Map<?, ?>)
+                fixture.saved.get().getSourceBindingsJson().get(0).get("readerOptions");
+        assertEquals("studio.default." + saved.getId(), persistedReaderOptions.get("groupId"));
+        assertTrue(!fixture.saved.get().getStreamingOptionsJson().containsKey("groupId"));
         verify(fixture.streamingRuntime).ensureDeployment(fixture.saved.get());
     }
 
@@ -123,6 +137,48 @@ class CollectionTaskStreamingModeServiceTest {
 
         assertMessage(() -> fixture.service.save(request), "pollTimeoutMs must be greater than 0");
         verify(fixture.definitionMapper, never()).insert(any(CollectionTaskDefinitionEntity.class));
+    }
+
+    @Test
+    void streamingKafkaReaderOptionsAreTheValidationSource() {
+        Fixture fixture = fixture("kafka", "NativeStreaming-M3-topic");
+        CollectionTaskSaveRequest request = fixture.request();
+        request.setExecutionMode(CollectionTaskExecutionMode.STREAMING);
+        request.getSourceBindings().get(0).setReaderOptions(
+                new java.util.LinkedHashMap<String, Object>(java.util.Map.of("pollTimeoutMs", 0)));
+
+        assertMessage(() -> fixture.service.save(request), "pollTimeoutMs must be greater than 0");
+        verify(fixture.definitionMapper, never()).insert(any(CollectionTaskDefinitionEntity.class));
+    }
+
+    @Test
+    void legacyStreamingReaderOptionsAreMigratedToSourceBinding() {
+        Fixture fixture = fixture("kafka", "NativeStreaming-M3-topic");
+        CollectionTaskDefinitionEntity existing = fixture.existingStreaming(CollectionTaskStatus.OFFLINE);
+        java.util.Map<String, Object> legacy = new java.util.LinkedHashMap<String, Object>();
+        legacy.put("groupId", "legacy-group");
+        legacy.put("offsetReset", "earliest");
+        legacy.put("resetOffset", Boolean.TRUE);
+        legacy.put("pollTimeoutMs", 2500);
+        legacy.put("maxBatchRecords", 12);
+        existing.setStreamingOptionsJson(legacy);
+        when(fixture.definitionMapper.selectById(existing.getId())).thenReturn(existing);
+        fixture.saved.set(existing);
+
+        CollectionTaskSaveRequest request = fixture.request();
+        request.setId(existing.getId());
+        request.setExecutionMode(null);
+
+        fixture.service.save(request);
+
+        java.util.Map<String, Object> readerOptions = fixture.saved.get().getSourceBindingsJson().get(0).get("readerOptions") instanceof java.util.Map
+                ? (java.util.Map<String, Object>) fixture.saved.get().getSourceBindingsJson().get(0).get("readerOptions")
+                : java.util.Collections.emptyMap();
+        assertEquals("legacy-group", readerOptions.get("groupId"));
+        assertEquals("earliest", readerOptions.get("offsetReset"));
+        assertEquals(Boolean.TRUE, readerOptions.get("resetOffset"));
+        assertEquals(2500, readerOptions.get("pollTimeoutMs"));
+        assertTrue(!fixture.saved.get().getStreamingOptionsJson().containsKey("groupId"));
     }
 
     @Test

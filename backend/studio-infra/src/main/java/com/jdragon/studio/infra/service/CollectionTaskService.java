@@ -67,6 +67,8 @@ public class CollectionTaskService {
     };
     private static final String METRIC_BINDING_ROLE_SOURCE = "SOURCE";
     private static final String METRIC_BINDING_ROLE_TARGET = "TARGET";
+    private static final Set<String> LEGACY_STREAMING_READER_OPTION_KEYS = Set.of(
+            "groupId", "offsetReset", "resetOffset", "pollTimeoutMs");
 
     private final CollectionTaskDefinitionMapper definitionMapper;
     private final CollectionTaskMetricBindingMapper metricBindingMapper;
@@ -439,6 +441,8 @@ public class CollectionTaskService {
         Map<String, Object> executionOptions = copyExecutionOptions(request.getExecutionOptions());
         List<CollectionTaskSourceBinding> sourceBindings = enrichSourceBindings(
                 request.getSourceBindings(), storedSourceBindings(entity));
+        migrateLegacyStreamingReaderOptions(executionMode, sourceBindings, request.getStreamingOptions(), entity);
+        persistKafkaReaderDefaults(sourceBindings, entity.getId());
         incrementalCursorSupport.protectSystemIncrementalCursors(entity.getId() == null ? null : entity, sourceBindings);
         CollectionTaskTargetBinding targetBinding = enrichTargetBinding(request.getTargetBinding(), executionOptions);
         List<Long> datasourceIds = new ArrayList<Long>();
@@ -454,6 +458,7 @@ public class CollectionTaskService {
                 : request.getFieldMappings();
         CollectionTaskStreamingOptions streamingOptions = normalizeStreamingOptions(
                 executionMode, request.getStreamingOptions(), entity, creating);
+        persistStreamingReaderDefaults(executionMode, sourceBindings, streamingOptions);
         validateExecutionMode(executionMode, sourceBindings, request.getSchedule(), streamingOptions);
 
         ensureUniqueName(currentProjectId, request.getName(), entity.getId());
@@ -470,8 +475,7 @@ public class CollectionTaskService {
         entity.setTargetBindingJson(toMap(targetBinding));
         entity.setFieldMappingsJson(toListOfMaps(fieldMappings));
         entity.setExecutionOptionsJson(executionOptions);
-        entity.setStreamingOptionsJson(streamingOptions == null
-                ? new LinkedHashMap<String, Object>() : toMap(streamingOptions));
+        entity.setStreamingOptionsJson(stripLegacyStreamingOptions(streamingOptions));
         if (creating && entity.getCreatedBy() == null) {
             entity.setCreatedBy(securityService.currentUserId());
         }
@@ -756,12 +760,13 @@ public class CollectionTaskService {
         view.setTaskType(entity.getTaskType() == null ? null : CollectionTaskType.valueOf(entity.getTaskType()));
         view.setStatus(entity.getStatus() == null ? null : CollectionTaskStatus.valueOf(entity.getStatus()));
         view.setExecutionMode(executionMode(entity));
-        view.setStreamingOptions(toStreamingOptions(entity));
         view.setSourceCount(entity.getSourceCount());
         List<CollectionTaskSourceBinding> sourceBindings = convertList(entity.getSourceBindingsJson(), CollectionTaskSourceBinding.class);
         sanitizeSourceReaderOptions(sourceBindings, maskSensitiveOptions);
+        migrateLegacyStreamingReaderOptions(executionMode(entity), sourceBindings, null, entity);
         incrementalCursorSupport.normalizeSourceBindingsForView(sourceBindings);
         view.setSourceBindings(sourceBindings);
+        view.setStreamingOptions(toStreamingOptions(entity));
         CollectionTaskTargetBinding targetBinding = convertMap(entity.getTargetBindingJson(), CollectionTaskTargetBinding.class);
         if (maskSensitiveOptions && targetBinding != null) {
             targetBinding.setModelPhysicalLocator(collectionTaskAssemblerService.maskHttpPhysicalLocator(
@@ -1114,24 +1119,127 @@ public class CollectionTaskService {
         } else {
             result = new CollectionTaskStreamingOptions();
         }
-        if (!hasText(result.getGroupId()) && entity != null && entity.getId() != null) {
-            result.setGroupId("studio." + securityService.currentTenantId() + "." + entity.getId());
-        } else if (hasText(result.getGroupId())) {
+        if (hasText(result.getGroupId())) {
             result.setGroupId(result.getGroupId().trim());
         }
-        if (!hasText(result.getOffsetReset())) {
-            result.setOffsetReset("latest");
-        } else {
+        if (hasText(result.getOffsetReset())) {
             result.setOffsetReset(result.getOffsetReset().trim().toLowerCase(Locale.ROOT));
         }
         return result;
+    }
+
+    private void migrateLegacyStreamingReaderOptions(CollectionTaskExecutionMode mode,
+                                                      List<CollectionTaskSourceBinding> sourceBindings,
+                                                      CollectionTaskStreamingOptions requested,
+                                                      CollectionTaskDefinitionEntity entity) {
+        if (mode != CollectionTaskExecutionMode.STREAMING || sourceBindings == null || sourceBindings.isEmpty()) {
+            return;
+        }
+        Map<String, Object> legacy = new LinkedHashMap<String, Object>();
+        if (entity != null && entity.getStreamingOptionsJson() != null) {
+            legacy.putAll(entity.getStreamingOptionsJson());
+        }
+        if (requested != null) {
+            legacy.putAll(toMap(requested));
+        }
+        if (legacy.isEmpty()) {
+            return;
+        }
+        CollectionTaskSourceBinding source = sourceBindings.get(0);
+        if (source == null) {
+            return;
+        }
+        Map<String, Object> readerOptions = source.getReaderOptions() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(source.getReaderOptions());
+        for (String key : LEGACY_STREAMING_READER_OPTION_KEYS) {
+            Object value = legacy.get(key);
+            if (value == null || !hasText(String.valueOf(value))
+                    || (readerOptions.containsKey(key) && hasText(String.valueOf(readerOptions.get(key))))) {
+                continue;
+            }
+            readerOptions.put(key, value);
+        }
+        source.setReaderOptions(readerOptions);
+    }
+
+    private void persistStreamingReaderDefaults(CollectionTaskExecutionMode mode,
+                                                 List<CollectionTaskSourceBinding> sourceBindings,
+                                                 CollectionTaskStreamingOptions options) {
+        if (mode != CollectionTaskExecutionMode.STREAMING || sourceBindings == null || sourceBindings.isEmpty()
+                || options == null) {
+            return;
+        }
+        CollectionTaskSourceBinding source = sourceBindings.get(0);
+        if (source == null) {
+            return;
+        }
+        Map<String, Object> readerOptions = source.getReaderOptions() == null
+                ? new LinkedHashMap<String, Object>()
+                : new LinkedHashMap<String, Object>(source.getReaderOptions());
+        putIfMissing(readerOptions, "groupId", options.getGroupId());
+        putIfMissing(readerOptions, "offsetReset", "latest");
+        putIfMissing(readerOptions, "resetOffset", Boolean.FALSE);
+        putIfMissing(readerOptions, "pollTimeoutMs", Integer.valueOf(1000));
+        source.setReaderOptions(readerOptions);
+    }
+
+    private void persistKafkaReaderDefaults(List<CollectionTaskSourceBinding> sourceBindings, Long taskId) {
+        if (sourceBindings == null || sourceBindings.isEmpty() || taskId == null) {
+            return;
+        }
+        boolean multipleSources = sourceBindings.size() > 1;
+        for (CollectionTaskSourceBinding source : sourceBindings) {
+            if (source == null || !"kafka".equalsIgnoreCase(source.getDatasourceTypeCode())) {
+                continue;
+            }
+            Map<String, Object> readerOptions = source.getReaderOptions() == null
+                    ? new LinkedHashMap<String, Object>()
+                    : new LinkedHashMap<String, Object>(source.getReaderOptions());
+            String groupId = "studio." + securityService.currentTenantId() + "." + taskId;
+            if (multipleSources && hasText(source.getSourceAlias())) {
+                groupId += "." + source.getSourceAlias().trim().replaceAll("[^A-Za-z0-9._-]", "_");
+            }
+            putIfMissing(readerOptions, "groupId", groupId);
+            source.setReaderOptions(readerOptions);
+        }
+    }
+
+    private void putIfMissing(Map<String, Object> target, String key, Object value) {
+        Object current = target.get(key);
+        if ((!target.containsKey(key) || current == null || !hasText(String.valueOf(current))) && value != null) {
+            target.put(key, value);
+        }
+    }
+
+    private Map<String, Object> stripLegacyStreamingOptions(CollectionTaskStreamingOptions options) {
+        if (options == null) {
+            return new LinkedHashMap<String, Object>();
+        }
+        Map<String, Object> result = toMap(options);
+        for (String key : LEGACY_STREAMING_READER_OPTION_KEYS) {
+            result.remove(key);
+        }
+        return result;
+    }
+
+    private void clearLegacyStreamingOptions(CollectionTaskStreamingOptions options) {
+        if (options == null) {
+            return;
+        }
+        options.setGroupId(null);
+        options.setOffsetReset(null);
+        options.setResetOffset(null);
+        options.setPollTimeoutMs(null);
     }
 
     private CollectionTaskStreamingOptions toStreamingOptions(CollectionTaskDefinitionEntity entity) {
         if (executionMode(entity) != CollectionTaskExecutionMode.STREAMING) {
             return null;
         }
-        return normalizeStreamingOptions(CollectionTaskExecutionMode.STREAMING, null, entity, false);
+        CollectionTaskStreamingOptions result = normalizeStreamingOptions(CollectionTaskExecutionMode.STREAMING, null, entity, false);
+        clearLegacyStreamingOptions(result);
+        return result;
     }
 
     private void validateExecutionMode(CollectionTaskExecutionMode mode,
@@ -1161,11 +1269,14 @@ public class CollectionTaskService {
         if (options == null) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Streaming options are required");
         }
-        if (!"earliest".equals(options.getOffsetReset()) && !"latest".equals(options.getOffsetReset())) {
+        Map<String, Object> readerOptions = source.getReaderOptions() == null
+                ? Collections.<String, Object>emptyMap() : source.getReaderOptions();
+        String offsetReset = optionText(readerOptions.get("offsetReset"), "latest").toLowerCase(Locale.ROOT);
+        if (!"earliest".equals(offsetReset) && !"latest".equals(offsetReset)) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST,
-                    "Streaming offsetReset must be earliest or latest");
+                    "Kafka reader offsetReset must be earliest or latest");
         }
-        requirePositive(options.getPollTimeoutMs(), "pollTimeoutMs");
+        requirePositive(optionNumber(readerOptions.get("pollTimeoutMs"), 1000L, "pollTimeoutMs"), "pollTimeoutMs");
         requirePositive(options.getMaxBatchRecords(), "maxBatchRecords");
         requirePositive(options.getMaxBatchBytes(), "maxBatchBytes");
         requireNonNegative(options.getBatchRetryCount(), "batchRetryCount");
@@ -1188,6 +1299,25 @@ public class CollectionTaskService {
     private void requireNonNegative(Number value, String field) {
         if (value == null || value.longValue() < 0L) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, field + " must not be negative");
+        }
+    }
+
+    private String optionText(Object value, String defaultValue) {
+        return value == null || String.valueOf(value).trim().isEmpty()
+                ? defaultValue : String.valueOf(value).trim();
+    }
+
+    private Number optionNumber(Object value, long defaultValue, String field) {
+        if (value == null || String.valueOf(value).trim().isEmpty()) {
+            return Long.valueOf(defaultValue);
+        }
+        if (value instanceof Number) {
+            return (Number) value;
+        }
+        try {
+            return Long.valueOf(String.valueOf(value).trim());
+        } catch (NumberFormatException exception) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST, field + " must be a number");
         }
     }
 
@@ -1281,6 +1411,8 @@ public class CollectionTaskService {
                 existingEntity != null && existingEntity.getId() != null, datasourceIds);
         CollectionTaskStreamingOptions streamingOptions = normalizeStreamingOptions(
                 executionMode, request.getStreamingOptions(), existingEntity, creating);
+        migrateLegacyStreamingReaderOptions(executionMode, sourceBindings, request.getStreamingOptions(), existingEntity);
+        persistStreamingReaderDefaults(executionMode, sourceBindings, streamingOptions);
         validateExecutionMode(executionMode, sourceBindings, request.getSchedule(), streamingOptions);
         CollectionTaskDefinitionView definition = new CollectionTaskDefinitionView();
         definition.setId(request.getId());
@@ -1289,6 +1421,7 @@ public class CollectionTaskService {
         definition.setRuntimeClusterId(runtimeClusterId);
         definition.setName(request.getName());
         definition.setExecutionMode(executionMode);
+        clearLegacyStreamingOptions(streamingOptions);
         definition.setStreamingOptions(streamingOptions);
         definition.setTaskType(sourceBindings.size() > 1 ? CollectionTaskType.FUSION : CollectionTaskType.SINGLE_TABLE);
         definition.setSourceCount(sourceBindings.size());
@@ -1469,6 +1602,9 @@ public class CollectionTaskService {
             enriched.setModelName(model.getName());
             enriched.setModelPhysicalLocator(model.getPhysicalLocator());
             Map<String, Object> readerOptions = sanitizeFileReaderOptions(datasource.getTypeCode(), binding.getReaderOptions());
+            if ("kafka".equalsIgnoreCase(datasource.getTypeCode())) {
+                readerOptions = KafkaConfigurationSupport.normalizeTaskRuntimeOptions(readerOptions);
+            }
             CollectionTaskSourceBinding existingBinding = findExistingSourceBinding(
                     binding, existingBindings, datasource.getTypeCode());
             enriched.setReaderOptions(collectionTaskAssemblerService.prepareReaderOptionOverrides(
@@ -1492,7 +1628,12 @@ public class CollectionTaskService {
         enriched.setModelId(model.getId());
         enriched.setModelName(model.getName());
         enriched.setModelPhysicalLocator(model.getPhysicalLocator());
-        enriched.setWriterOptions(sanitizeFileWriterOptions(datasource.getTypeCode(), binding.getWriterOptions()));
+        Map<String, Object> writerOptions = sanitizeFileWriterOptions(
+                datasource.getTypeCode(), binding.getWriterOptions());
+        if ("kafka".equalsIgnoreCase(datasource.getTypeCode())) {
+            writerOptions = KafkaConfigurationSupport.normalizeTaskRuntimeOptions(writerOptions);
+        }
+        enriched.setWriterOptions(writerOptions);
         migrateLegacyWriteMode(enriched, executionOptions);
         return enriched;
     }

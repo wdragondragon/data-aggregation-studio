@@ -556,7 +556,12 @@ public class CollectionTaskAssemblerService {
         reader.put("type", pluginType);
         Map<String, Object> readerConfig = buildReaderConfig(binding, datasource, model, sourceFields, pluginType);
         mergeModelReaderOptions(readerConfig, model, datasource.getTypeCode(), pluginType);
-        mergeRuntimeOptions(readerConfig, readerOptionOverrides(binding, model, datasource.getTypeCode(), pluginType),
+        Map<String, Object> readerOptions = readerOptionOverrides(
+                binding, model, datasource.getTypeCode(), pluginType);
+        if ("kafka".equalsIgnoreCase(pluginType)) {
+            readerOptions = KafkaConfigurationSupport.normalizeTaskRuntimeOptions(readerOptions);
+        }
+        mergeRuntimeOptions(readerConfig, readerOptions,
                 "reader", runtimeStringKeys(datasource.getTypeCode(), pluginType));
         normalizeReaderRuntimeConfig(readerConfig, datasource.getTypeCode(), pluginType);
         if (!isFileReader(datasource.getTypeCode(), pluginType) && !isHttpReader(datasource.getTypeCode(), pluginType)) {
@@ -574,7 +579,11 @@ public class CollectionTaskAssemblerService {
         String pluginType = resolvePluginType(datasource.getTypeCode(), "writer");
         writer.put("type", pluginType);
         Map<String, Object> writerConfig = buildWriterConfig(datasource, model, targetFields, pluginType);
-        mergeRuntimeOptions(writerConfig, binding.getWriterOptions(), "writer", runtimeStringKeys(datasource.getTypeCode(), pluginType));
+        Map<String, Object> writerOptions = binding.getWriterOptions();
+        if ("kafka".equalsIgnoreCase(pluginType)) {
+            writerOptions = KafkaConfigurationSupport.normalizeTaskRuntimeOptions(writerOptions);
+        }
+        mergeRuntimeOptions(writerConfig, writerOptions, "writer", runtimeStringKeys(datasource.getTypeCode(), pluginType));
         normalizeWriterRuntimeConfig(writerConfig, datasource.getTypeCode(), pluginType);
         applyDefaultWriteMode(writerConfig, pluginType);
         writer.put("config", writerConfig);
@@ -949,11 +958,7 @@ public class CollectionTaskAssemblerService {
                 && !String.valueOf(model.getPhysicalLocator()).trim().isEmpty()) {
             return String.valueOf(model.getPhysicalLocator()).trim();
         }
-        Object topic = config.get("topic");
-        if (topic != null && !String.valueOf(topic).trim().isEmpty()) {
-            return String.valueOf(topic);
-        }
-        return model == null ? null : model.getPhysicalLocator();
+        throw new IllegalArgumentException("Kafka model physicalLocator must contain the Topic name");
     }
 
     /**
@@ -968,25 +973,7 @@ public class CollectionTaskAssemblerService {
     }
 
     static Map<String, Object> normalizeKafkaJobConfig(Map<String, Object> raw) {
-        Map<String, Object> normalized = new LinkedHashMap<String, Object>();
-        if (raw == null) {
-            return normalized;
-        }
-        for (Map.Entry<String, Object> entry : raw.entrySet()) {
-            String key = entry.getKey();
-            if (!"bootstrap.servers".equals(key)
-                    && !"group.id".equals(key)
-                    && !"groupId".equals(key)) {
-                normalized.put(key, entry.getValue());
-            }
-        }
-        if (!normalized.containsKey("bootstrapServers")) {
-            Object bootstrapServers = raw.get("bootstrap.servers");
-            if (bootstrapServers != null) {
-                normalized.put("bootstrapServers", bootstrapServers);
-            }
-        }
-        return normalized;
+        return KafkaConfigurationSupport.toJobPluginConnectionConfig(raw);
     }
 
     private void ensureKafkaGroupId(Map<String, Object> config,

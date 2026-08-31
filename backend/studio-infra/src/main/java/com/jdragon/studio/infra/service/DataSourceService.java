@@ -903,6 +903,7 @@ public class DataSourceService {
         MetadataSchemaDefinition schema = findDatasourceSchema(request.getSchemaVersionId(), request.getTypeCode());
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity == null ? null : entity.getTechnicalMetadata(), technicalMetadata);
+        technicalMetadata = normalizeDatasourceConnectionMetadata(request.getTypeCode(), technicalMetadata);
 
         DataSourceDefinition definition = new DataSourceDefinition();
         definition.setId(request.getId());
@@ -1308,18 +1309,14 @@ public class DataSourceService {
      * broker connection. Drop legacy datasource-level values when a datasource
      * is saved while retaining read-time compatibility for old records.
      */
-    private Map<String, Object> normalizeDatasourceConnectionMetadata(String typeCode,
-                                                                       Map<String, Object> metadata) {
-        Map<String, Object> normalized = metadata == null
+    static Map<String, Object> normalizeDatasourceConnectionMetadata(String typeCode,
+                                                                      Map<String, Object> metadata) {
+        if ("kafka".equalsIgnoreCase(typeCode)) {
+            return KafkaConfigurationSupport.normalizeDatasourceMetadata(metadata);
+        }
+        return metadata == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(metadata);
-        if ("kafka".equalsIgnoreCase(typeCode)) {
-            normalized.remove("topic");
-            normalized.remove("group.id");
-            normalized.remove("groupId");
-            normalized.remove("consumerGroup");
-        }
-        return normalized;
     }
 
     private Object parseDefaultValue(MetadataFieldDefinition field) {

@@ -18,6 +18,7 @@ import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
+import com.jdragon.studio.infra.service.KafkaConfigurationSupport;
 import com.jdragon.aggregation.commons.pagination.Table;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.AbstractDataSourcePlugin;
@@ -1223,10 +1224,7 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             return normalized;
         }
         if ("kafka".equals(type)) {
-            copyIfMissing(normalized, "bootstrap.servers", "brokers");
-            copyIfMissing(normalized, "group.id", "consumerGroup");
-            copyIfMissing(normalized, "username", "userName");
-            return normalized;
+            return KafkaConfigurationSupport.normalizeDatasourceMetadata(normalized);
         }
         if ("rabbitmq".equals(type)) {
             copyIfMissing(normalized, "username", "userName");

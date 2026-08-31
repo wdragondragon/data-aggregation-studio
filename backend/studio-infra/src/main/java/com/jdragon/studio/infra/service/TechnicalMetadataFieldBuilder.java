@@ -261,6 +261,12 @@ final class TechnicalMetadataFieldBuilder {
             return fields;
         }
         if (isQueueType(datasourceType)) {
+            if ("kafka".equalsIgnoreCase(datasourceType)) {
+                // Kafka topics are model physical locators. Consumer group,
+                // brokers and tags are task/connection concerns and must not
+                // be duplicated in the model metadata.
+                return fields;
+            }
             fields.add(field("queueName", "队列名称", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
             fields.add(field("topic", "主题", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
             fields.add(field("queue", "队列", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));

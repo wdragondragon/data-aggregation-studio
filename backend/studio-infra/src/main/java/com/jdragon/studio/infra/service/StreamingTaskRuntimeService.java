@@ -593,12 +593,41 @@ public class StreamingTaskRuntimeService {
     }
 
     private String groupId(CollectionTaskDefinitionEntity task) {
+        String readerGroupId = sourceReaderOption(task, "groupId");
+        if (readerGroupId != null) {
+            return readerGroupId;
+        }
         Object configured = task.getStreamingOptionsJson() == null
                 ? null : task.getStreamingOptionsJson().get("groupId");
         if (configured != null && !String.valueOf(configured).trim().isEmpty()) {
             return String.valueOf(configured).trim();
         }
         return "studio." + task.getTenantId() + "." + task.getId();
+    }
+
+    @SuppressWarnings("unchecked")
+    private String sourceReaderOption(CollectionTaskDefinitionEntity task, String key) {
+        if (task == null || task.getSourceBindingsJson() == null) {
+            return null;
+        }
+        Object raw = task.getSourceBindingsJson();
+        if (!(raw instanceof List<?>)) {
+            return null;
+        }
+        for (Object item : (List<?>) raw) {
+            if (!(item instanceof Map<?, ?>)) {
+                continue;
+            }
+            Object options = ((Map<?, ?>) item).get("readerOptions");
+            if (!(options instanceof Map<?, ?>)) {
+                continue;
+            }
+            Object value = ((Map<String, Object>) options).get(key);
+            if (value != null && !String.valueOf(value).trim().isEmpty()) {
+                return String.valueOf(value).trim();
+            }
+        }
+        return null;
     }
 
     private StudioException stateConflict() {

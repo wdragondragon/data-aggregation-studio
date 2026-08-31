@@ -71,6 +71,9 @@ final class AggregationModelMetadataSupport {
         metadata.put("sourceType", definition.getTypeCode());
         metadata.put("discoveryMode", "AUTO");
         putIfPresent(metadata, "physicalName", queueName);
+        if ("kafka".equalsIgnoreCase(definition.getTypeCode())) {
+            return metadata;
+        }
         putIfPresent(metadata, "queueName", queueName);
         // Queue/topic is the model locator. Do not copy a datasource-level
         // topic into every model, otherwise one legacy topic can override the

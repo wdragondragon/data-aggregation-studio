@@ -6,10 +6,19 @@ import lombok.Data;
 @Data
 @Schema(description = "Native streaming collection task options")
 public class CollectionTaskStreamingOptions {
+    /**
+     * Deprecated compatibility fields. Kafka reader options are persisted in
+     * sourceBindings[].readerOptions; these fields remain deserializable for
+     * historical task payloads and are stripped before persistence.
+     */
+    @Deprecated
     private String groupId;
-    private String offsetReset = "latest";
-    private Boolean resetOffset = Boolean.FALSE;
-    private Integer pollTimeoutMs = 1000;
+    @Deprecated
+    private String offsetReset;
+    @Deprecated
+    private Boolean resetOffset;
+    @Deprecated
+    private Integer pollTimeoutMs;
     private Integer maxBatchRecords = 1000;
     private Long maxBatchBytes = 16L * 1024L * 1024L;
     private Integer batchRetryCount = 3;
