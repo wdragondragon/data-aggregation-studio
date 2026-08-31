@@ -58,7 +58,7 @@
               v-else
               :is="resolveComponent(field)"
               v-bind="resolveProps(field)"
-              :model-value="fieldValue(field.fieldKey)"
+              :model-value="componentFieldValue(field)"
               @update:model-value="updateField(field.fieldKey, $event)"
             />
             <p v-if="isSavedSensitiveField(field.fieldKey)" class="meta-form__saved-sensitive-hint">
@@ -153,6 +153,7 @@ import { ElInput, ElInputNumber, ElMessage, ElSelect, ElSwitch } from "element-p
 import { useI18n } from "vue-i18n";
 import type { MetadataFieldDefinition } from "@studio/api-sdk";
 import { dynamicFunctionCatalog, type DynamicFunctionParamSchema, type DynamicFunctionSchema } from "./dynamicFunctions";
+import { formatJsonEditorValue } from "./jsonEditorValue";
 
 interface DynamicInputRef {
   input?: HTMLInputElement;
@@ -227,6 +228,11 @@ function fieldValue(fieldKey: string) {
     return normalizeArrayValue(value);
   }
   return value as string | number | boolean | Record<string, unknown> | string[] | undefined;
+}
+
+function componentFieldValue(field: MetadataFieldDefinition) {
+  const value = fieldValue(field.fieldKey);
+  return field.componentType === "JSON_EDITOR" ? formatJsonEditorValue(value) : value;
 }
 
 function isSavedSensitiveField(fieldKey: string) {
@@ -336,6 +342,10 @@ function resolveNativeInput(fieldKey: string) {
 
 function resolveFieldTextValue(fieldKey: string) {
   const value = localValue.value[fieldKey];
+  const field = props.fields.find((item) => item.fieldKey === fieldKey);
+  if (field?.componentType === "JSON_EDITOR") {
+    return formatJsonEditorValue(value);
+  }
   return value === undefined || value === null ? "" : String(value);
 }
 
