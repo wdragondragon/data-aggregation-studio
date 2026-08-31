@@ -1841,9 +1841,13 @@ export interface CollectionTaskScheduleDefinition {
 }
 
 export interface CollectionTaskStreamingOptions {
+  /** @deprecated Use sourceBindings[].readerOptions.groupId. Kept for legacy responses. */
   groupId?: string;
+  /** @deprecated Use sourceBindings[].readerOptions.offsetReset. Kept for legacy responses. */
   offsetReset?: "earliest" | "latest" | string;
+  /** @deprecated Use sourceBindings[].readerOptions.resetOffset. Kept for legacy responses. */
   resetOffset?: boolean;
+  /** @deprecated Use sourceBindings[].readerOptions.pollTimeoutMs. Kept for legacy responses. */
   pollTimeoutMs?: number;
   maxBatchRecords?: number;
   maxBatchBytes?: number;

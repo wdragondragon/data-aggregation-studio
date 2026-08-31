@@ -35,21 +35,6 @@
         <el-tag type="warning">{{ t("web.collectionTasks.atLeastOnce") }}</el-tag>
       </div>
       <div class="studio-form-grid streaming-options-grid">
-        <el-form-item :label="t('web.collectionTasks.groupId')">
-          <el-input v-model="form.streamingOptions.groupId" :disabled="streamingLocked" :placeholder="t('web.collectionTasks.groupIdPlaceholder')" />
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.offsetReset')">
-          <el-select v-model="form.streamingOptions.offsetReset" :disabled="streamingLocked">
-            <el-option label="earliest" value="earliest" />
-            <el-option label="latest" value="latest" />
-          </el-select>
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.resetOffset')">
-          <el-switch v-model="form.streamingOptions.resetOffset" :disabled="streamingLocked" />
-        </el-form-item>
-        <el-form-item :label="t('web.collectionTasks.pollTimeoutMs')">
-          <el-input-number v-model="form.streamingOptions.pollTimeoutMs" :disabled="streamingLocked" :min="100" :max="60000" :step="100" controls-position="right" />
-        </el-form-item>
         <el-form-item :label="t('web.collectionTasks.maxBatchRecords')">
           <el-input-number v-model="form.streamingOptions.maxBatchRecords" :disabled="streamingLocked" :min="1" :max="100000" controls-position="right" />
         </el-form-item>

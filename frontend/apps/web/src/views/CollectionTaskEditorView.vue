@@ -156,6 +156,7 @@ import {
   incrementalCursorResetKey,
   inferCollectionMode,
   isPlainRecord,
+  migrateLegacyStreamingReaderOptions,
   mergeRuntimeDefaults,
   migrateLegacyWriteMode,
   isStreamingTaskConfigurationLocked,
@@ -164,6 +165,7 @@ import {
   normalizeTargetBinding,
   resolveFieldsByModel,
   resolvePrimaryKeyFieldsByModel,
+  stripLegacyStreamingOptions,
   stripSystemIncrementalCursor,
   type RuntimeOptionRole,
 } from "@/components/collection-task/collectionTaskEditorSupport";
@@ -480,12 +482,14 @@ function applyTask(task: CollectionTaskDefinitionView) {
   form.executionMode = task.executionMode ?? "BATCH";
   form.desiredState = task.desiredState;
   form.observedState = task.observedState;
-  form.streamingOptions = {
-    ...createDefaultCollectionTaskForm().streamingOptions,
-    ...(task.streamingOptions ?? {}),
-  };
   form.sourceBindings = cloneDeep(task.sourceBindings ?? []).map((item, index) =>
     normalizeSourceBinding(item, collectionMode.value, `src${index + 1}`));
+  const legacyStreamingOptions = cloneDeep(task.streamingOptions ?? {});
+  migrateLegacyStreamingReaderOptions(form.sourceBindings, legacyStreamingOptions);
+  form.streamingOptions = {
+    ...createDefaultCollectionTaskForm().streamingOptions,
+    ...stripLegacyStreamingOptions(legacyStreamingOptions),
+  };
   form.targetBinding = targetBinding;
   form.fieldMappings = cloneDeep(task.fieldMappings ?? []);
   form.schedule = cloneDeep(task.schedule ?? { enabled: false, cronExpression: "0 */30 * * * ?", timezone: "Asia/Shanghai" });
@@ -686,6 +690,9 @@ function buildRequestPayload(): CollectionTaskSaveRequest {
     );
     return normalized;
   });
+  if (form.executionMode === "STREAMING") {
+    migrateLegacyStreamingReaderOptions(payload.sourceBindings, payload.streamingOptions);
+  }
   payload.sourceBindings.forEach((source) => {
     if (source.incremental) {
       stripSystemIncrementalCursor(source.incremental);
@@ -694,7 +701,7 @@ function buildRequestPayload(): CollectionTaskSaveRequest {
   payload.targetBinding = normalizeTargetBinding(payload.targetBinding);
   payload.executionMode = form.executionMode;
   payload.streamingOptions = form.executionMode === "STREAMING"
-    ? cloneDeep(form.streamingOptions)
+    ? stripLegacyStreamingOptions(cloneDeep(form.streamingOptions))
     : undefined;
   if (form.executionMode === "STREAMING") {
     payload.schedule = undefined;

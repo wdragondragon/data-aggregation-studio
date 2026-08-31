@@ -20,6 +20,13 @@ export interface CollectionTaskEditorForm extends Omit<CollectionTaskSaveRequest
 
 export type RuntimeOptionRole = "reader" | "writer";
 
+export const legacyStreamingReaderOptionKeys = [
+  "groupId",
+  "offsetReset",
+  "resetOffset",
+  "pollTimeoutMs",
+] as const;
+
 const STREAMING_ACTIVE_STATES = new Set(["STARTING", "RUNNING", "STOPPING", "RECOVERING"]);
 
 export function isStreamingTaskConfigurationLocked(
@@ -70,9 +77,6 @@ export function createDefaultCollectionTaskForm(): CollectionTaskEditorForm {
     },
     executionMode: "BATCH",
     streamingOptions: {
-      offsetReset: "latest",
-      resetOffset: false,
-      pollTimeoutMs: 1000,
       maxBatchRecords: 1000,
       maxBatchBytes: 16 * 1024 * 1024,
       batchRetryCount: 3,
@@ -87,6 +91,33 @@ export function createDefaultCollectionTaskForm(): CollectionTaskEditorForm {
       timezone: "Asia/Shanghai",
     },
   };
+}
+
+export function stripLegacyStreamingOptions(
+  options: CollectionTaskStreamingOptions | undefined,
+): CollectionTaskStreamingOptions {
+  const result = { ...(options ?? {}) } as CollectionTaskStreamingOptions & Record<string, unknown>;
+  legacyStreamingReaderOptionKeys.forEach((key) => delete result[key]);
+  return result;
+}
+
+export function migrateLegacyStreamingReaderOptions(
+  sourceBindings: CollectionTaskSourceBinding[],
+  options: CollectionTaskStreamingOptions | undefined,
+) {
+  if (!sourceBindings.length || !options) {
+    return;
+  }
+  const source = sourceBindings[0];
+  const readerOptions = { ...(source.readerOptions ?? {}) };
+  legacyStreamingReaderOptionKeys.forEach((key) => {
+    const value = (options as Record<string, unknown>)[key];
+    if (value !== undefined && value !== null && String(value).trim() !== ""
+      && (readerOptions[key] === undefined || String(readerOptions[key]).trim() === "")) {
+      readerOptions[key] = value;
+    }
+  });
+  source.readerOptions = readerOptions;
 }
 
 export function resolveFieldsByModel(model: DataModelDefinition | undefined) {

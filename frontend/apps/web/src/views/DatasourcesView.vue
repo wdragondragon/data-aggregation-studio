@@ -950,7 +950,7 @@ const technicalFields = computed(() => {
   // Topic and consumer group identify a model/task, not the shared Kafka
   // connection. Hide legacy schema fields while older server metadata is
   // still present; saveDatasource also strips their values from the payload.
-  return fields.filter((field) => !["topic", "group.id", "groupId", "consumerGroup"].includes(field.fieldKey));
+  return fields.filter((field) => !["topic", "queue", "queueName", "tag", "group.id", "groupId", "consumerGroup"].includes(field.fieldKey));
 });
 
 function resetForm() {
@@ -1378,6 +1378,9 @@ async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
       delete payload.technicalMetadata["group.id"];
       delete payload.technicalMetadata.groupId;
       delete payload.technicalMetadata.consumerGroup;
+      delete payload.technicalMetadata.queue;
+      delete payload.technicalMetadata.queueName;
+      delete payload.technicalMetadata.tag;
     }
     const saved = await studioApi.datasources.save(payload);
     Object.assign(form, saved);
