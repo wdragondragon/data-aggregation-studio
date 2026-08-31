@@ -41,8 +41,10 @@
 ### 模式、状态与保存字段
 
 - `executionMode` 为 `BATCH | STREAMING`，省略时按 `BATCH` 处理，历史任务升级后统一回填为 `BATCH` 且不会自动启动。
-- `streamingOptions` 只对 `STREAMING` 有效，包含 `groupId`、`offsetReset`、`resetOffset`、`pollTimeoutMs`、`maxBatchRecords`、`maxBatchBytes`、`batchRetryCount`、`stopTimeoutMs`、`maxConsecutiveFailures`、`retryInitialDelayMs` 和 `retryMaxDelayMs`。
-- 未填写 `groupId` 时，服务端按 `studio.<tenantId>.<taskId>` 生成。Kafka Topic 不保存在数据源连接中，来自源/目标模型的 `physicalLocator`。
+- `streamingOptions` 只对 `STREAMING` 有效，仅包含流式容器的微批、重试和停止参数：`maxBatchRecords`、`maxBatchBytes`、`batchRetryCount`、`stopTimeoutMs`、`maxConsecutiveFailures`、`retryInitialDelayMs` 和 `retryMaxDelayMs`。
+- Kafka 批处理和流式任务共用的消费参数统一放在 `sourceBindings[].readerOptions`：`groupId`、`offsetReset`、`resetOffset`、`pollTimeoutMs`、`batchSize`、`keepReadTime`、`retryPoll`、`parsingRules`、`fieldDelimiter` 和 `otherProperties`。未填写 `groupId` 时，服务端生成稳定的任务级默认值。
+- Kafka Writer 参数统一放在 `targetBinding.writerOptions`：`ack`、`retries`、`batchSize`、`fieldDelimiter`、Topic 创建参数、`writeType` 和 `otherProperties`。
+- Kafka 数据源只保存 Broker、认证和安全连接属性；Topic 只来自 Kafka 模型的 `physicalLocator`，不会再使用数据源的旧 `topic`、`queue`、`queueName` 或消费组字段。
 - 任务业务状态为 `DRAFT | ONLINE | OFFLINE`；流式部署期望状态为 `RUNNING | STOPPED`，观测状态为 `STARTING | RUNNING | STOPPING | STOPPED | RECOVERING | FAILED`。
 - STREAMING 的交付语义固定为 `AT_LEAST_ONCE`。目标微批成功后才提交 Kafka offset；提交失败允许同一批次重放。
 
@@ -54,10 +56,6 @@ STREAMING 保存示例：
   "runtimeClusterId": "<runtimeClusterId>",
   "executionMode": "STREAMING",
   "streamingOptions": {
-    "groupId": "studio.<tenantId>.<taskId>",
-    "offsetReset": "earliest",
-    "resetOffset": false,
-    "pollTimeoutMs": 1000,
     "maxBatchRecords": 1000,
     "maxBatchBytes": 16777216,
     "batchRetryCount": 3,
@@ -66,14 +64,45 @@ STREAMING 保存示例：
     "retryInitialDelayMs": 5000,
     "retryMaxDelayMs": 300000
   },
-  "sourceBindings": [],
-  "targetBinding": {},
+  "sourceBindings": [
+    {
+      "sourceAlias": "src1",
+      "datasourceId": "<kafkaDatasourceId>",
+      "modelId": "<kafkaModelId>",
+      "readerOptions": {
+        "groupId": "studio.<tenantId>.<taskId>",
+        "offsetReset": "earliest",
+        "resetOffset": false,
+        "pollTimeoutMs": 1000,
+        "batchSize": 500
+      }
+    }
+  ],
+  "targetBinding": {
+    "datasourceId": "<targetDatasourceId>",
+    "modelId": "<targetModelId>",
+    "writerOptions": {}
+  },
   "fieldMappings": [],
   "executionOptions": {}
 }
 ```
 
 示例中的数据源、模型、字段映射和 ID 必须使用选项接口返回的真实值，不应直接提交空数组或占位符。
+
+### Kafka 参数来源
+
+Kafka 的配置分为三层，保存和运行时均按此优先级装配：
+
+| 层级 | 配置内容 | 来源 |
+|---|---|---|
+| 数据源连接 | `bootstrap.servers`、用户名/密码、Kerberos、`security.*`、`sasl.*`、`ssl.*` 等安全属性 | Kafka 数据源技术元数据 |
+| Kafka 模型 | Topic | 模型 `physicalLocator`，必须非空 |
+| 任务运行参数 | 消费组、位点策略、Poll、批量和解析参数 | `sourceBindings[].readerOptions` |
+| 任务目标参数 | 确认级别、发送重试、批量、Topic 创建和写入格式 | `targetBinding.writerOptions` |
+| 流式容器 | 微批大小、容器重试和停止参数 | `streamingOptions` |
+
+`sourceBindings[].readerOptions.batchSize` 是 Kafka Consumer 的 `max.poll.records`；`streamingOptions.maxBatchRecords` 是流式容器处理批次大小，两者语义不同，不能互相替代。`readerOptions.pollTimeoutMs` 在批处理和流式读取中均控制 Kafka Consumer 的 Poll 超时；流式容器等待一个批次的超时使用框架默认值，不再作为重复的 Kafka 配置入口。数据源拥有的 Broker、认证和 `security.*`/`sasl.*`/`ssl.*` 等连接属性不能由 Reader/Writer 专用参数覆盖，但 `otherProperties` 仍可填写 Consumer/Producer 的任务级扩展属性。历史任务中仍存在于 `streamingOptions` 的四个旧公共字段会在编辑或保存时迁移到 Reader 配置，返回结果不再把它们作为新任务的权威来源。Flink Query 使用稳定的内部消费组，不读取数据源消费组字段。
 
 ### 流式生命周期和监控接口
 
@@ -414,7 +443,7 @@ interface CollectionTaskDefinitionView extends BaseRecord
 | taskType | 否 | `CollectionTaskType` | |
 | status | 否 | `CollectionTaskStatus` | `DRAFT | ONLINE | OFFLINE`。 |
 | executionMode | 否 | `CollectionTaskExecutionMode` | `BATCH | STREAMING`。 |
-| streamingOptions | 否 | `CollectionTaskStreamingOptions` | STREAMING 微批、offset、重试和停止配置。 |
+| streamingOptions | 否 | `CollectionTaskStreamingOptions` | STREAMING 容器微批、重试和停止配置；Kafka 消费参数请放在源绑定的 `readerOptions`。 |
 | desiredState | 否 | `StreamingDesiredState` | `RUNNING | STOPPED`。 |
 | observedState | 否 | `StreamingObservedState` | `STARTING | RUNNING | STOPPING | STOPPED | RECOVERING | FAILED`。 |
 | streamingGeneration | 否 | `number` | 部署代次，用于并发控制。 |
@@ -487,7 +516,7 @@ interface CollectionTaskSaveRequest
 | fieldMappings | 是 | `FieldMappingDefinition[]` | |
 | executionOptions | 是 | `Record<string, unknown>` | |
 | executionMode | 否 | `CollectionTaskExecutionMode` | 默认 `BATCH`。 |
-| streamingOptions | 否 | `CollectionTaskStreamingOptions` | `STREAMING` 时有效。 |
+| streamingOptions | 否 | `CollectionTaskStreamingOptions` | `STREAMING` 时有效，仅填写流式容器参数。 |
 | schedule | 否 | `CollectionTaskScheduleDefinition` | |
 
 ### CollectionTaskStreamingOptions
@@ -496,10 +525,6 @@ interface CollectionTaskSaveRequest
 
 | 字段 | 必填 | 类型 | 默认值/说明 |
 |---|---:|---|---|
-| groupId | 否 | `string` | 服务端默认 `studio.<tenantId>.<taskId>`。 |
-| offsetReset | 否 | `string` | `latest`；可选 `earliest/latest`。 |
-| resetOffset | 否 | `boolean` | `false`；只允许逻辑 run 首个 attempt 重置。 |
-| pollTimeoutMs | 否 | `number` | `1000`。 |
 | maxBatchRecords | 否 | `number` | `1000`。 |
 | maxBatchBytes | 否 | `number` | `16777216`（16MB）。 |
 | batchRetryCount | 否 | `number` | `3` 次重试，不含首次执行。 |
@@ -507,6 +532,8 @@ interface CollectionTaskSaveRequest
 | maxConsecutiveFailures | 否 | `number` | `10`。 |
 | retryInitialDelayMs | 否 | `number` | `5000`。 |
 | retryMaxDelayMs | 否 | `number` | `300000`。 |
+
+`groupId`、`offsetReset`、`resetOffset`、`pollTimeoutMs` 虽仍保留在 SDK 类型中以反序列化历史任务，但已废弃，不应再写入 `streamingOptions`。新任务应将它们与 `batchSize` 等 Kafka Reader 参数放入 `sourceBindings[].readerOptions`。
 
 ### CollectionTaskStreamingRuntimeView
 
