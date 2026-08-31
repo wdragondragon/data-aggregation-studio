@@ -18,6 +18,7 @@ const {
   buildModelFieldImportTemplate,
   MODEL_FIELD_IMPORT_MAX_VISIBLE_ISSUES,
   MODEL_FIELD_TABLE_PAGE_SIZE,
+  mergeModelFieldRows,
   modelFieldPageCount,
   modelFieldRowsForPage,
   normalizeModelFieldPage,
@@ -111,6 +112,118 @@ assertIssue(validate([{ name: "id", type: "DECIMAL" }]), "INVALID_OPTION", "$[0]
 }
 
 {
+  const existingRows = [
+    { name: "id", type: "STRING", description: "old id", legacyOnly: true },
+    { name: "name", type: "STRING", description: "old name" },
+  ];
+  const importedRows = [
+    { name: "id", type: "LONG", description: "new id" },
+    { name: "email", type: "STRING", description: "new email" },
+  ];
+  const existingSnapshot = JSON.stringify(existingRows);
+  const importedSnapshot = JSON.stringify(importedRows);
+
+  const inPlace = mergeModelFieldRows(existingRows, importedRows, "MERGE_IN_PLACE");
+  assert.equal(inPlace.blocked, false);
+  assert.deepEqual(inPlace.duplicateExistingNames, []);
+  assert.deepEqual(inPlace.rows.map((row) => row.name), ["id", "name", "email"]);
+  assert.deepEqual(inPlace.rows[0], importedRows[0]);
+  assert.equal(Object.prototype.hasOwnProperty.call(inPlace.rows[0], "legacyOnly"), false);
+  assert.deepEqual(inPlace.rows[1], existingRows[1]);
+  assert.deepEqual(inPlace.rows[2], importedRows[1]);
+  assert.deepEqual(inPlace.stats, {
+    overwriteCount: 1,
+    addedCount: 1,
+    retainedCount: 1,
+    removedCount: 0,
+    finalCount: 3,
+  });
+
+  const importFirst = mergeModelFieldRows(existingRows, importedRows, "MERGE_IMPORT_FIRST");
+  assert.equal(importFirst.blocked, false);
+  assert.deepEqual(importFirst.rows.map((row) => row.name), ["id", "email", "name"]);
+  assert.deepEqual(importFirst.stats, inPlace.stats);
+
+  const replaceAll = mergeModelFieldRows(existingRows, importedRows, "REPLACE_ALL");
+  assert.equal(replaceAll.blocked, false);
+  assert.deepEqual(replaceAll.rows, importedRows);
+  assert.deepEqual(replaceAll.stats, {
+    overwriteCount: 1,
+    addedCount: 1,
+    retainedCount: 0,
+    removedCount: 1,
+    finalCount: 2,
+  });
+
+  assert.notEqual(inPlace.rows[0], importedRows[0]);
+  assert.notEqual(inPlace.rows[1], existingRows[1]);
+  assert.equal(JSON.stringify(existingRows), existingSnapshot);
+  assert.equal(JSON.stringify(importedRows), importedSnapshot);
+}
+
+{
+  const result = mergeModelFieldRows(
+    [{ name: "id", type: "STRING" }],
+    [{ name: " id ", type: "LONG" }, { name: "ID", type: "STRING" }],
+    "MERGE_IN_PLACE",
+  );
+  assert.equal(result.blocked, false);
+  assert.deepEqual(result.rows.map((row) => row.name), [" id ", "ID"]);
+  assert.deepEqual(result.stats, {
+    overwriteCount: 1,
+    addedCount: 1,
+    retainedCount: 0,
+    removedCount: 0,
+    finalCount: 2,
+  });
+}
+
+{
+  const existingRows = [
+    { name: "id", type: "STRING" },
+    { name: " id ", type: "LONG" },
+  ];
+  const importedRows = [{ name: "id", type: "LONG" }];
+  for (const mode of ["MERGE_IN_PLACE", "MERGE_IMPORT_FIRST"]) {
+    const result = mergeModelFieldRows(existingRows, importedRows, mode);
+    assert.equal(result.blocked, true);
+    assert.deepEqual(result.duplicateExistingNames, ["id"]);
+    assert.deepEqual(result.rows, []);
+  }
+  const replaceAll = mergeModelFieldRows(existingRows, importedRows, "REPLACE_ALL");
+  assert.equal(replaceAll.blocked, false);
+  assert.deepEqual(replaceAll.rows, importedRows);
+  assert.deepEqual(replaceAll.stats, {
+    overwriteCount: 1,
+    addedCount: 0,
+    retainedCount: 0,
+    removedCount: 1,
+    finalCount: 1,
+  });
+}
+
+{
+  const existingRows = [
+    { name: "", type: "STRING", marker: "blank" },
+    { type: "STRING", marker: "missing" },
+  ];
+  const importedRows = [{ name: "id", type: "LONG" }];
+  const merged = mergeModelFieldRows(existingRows, importedRows, "MERGE_IN_PLACE");
+  assert.equal(merged.blocked, false);
+  assert.deepEqual(merged.rows.map((row) => row.marker ?? row.name), ["blank", "missing", "id"]);
+  assert.deepEqual(merged.stats, {
+    overwriteCount: 0,
+    addedCount: 1,
+    retainedCount: 2,
+    removedCount: 0,
+    finalCount: 3,
+  });
+  const replaced = mergeModelFieldRows(existingRows, importedRows, "REPLACE_ALL");
+  assert.deepEqual(replaced.rows, importedRows);
+  assert.equal(replaced.stats.removedCount, 2);
+}
+
+{
   const rows = Array.from({ length: 300 }, (_, index) => ({
     name: `field_${String(index).padStart(3, "0")}`,
     type: index % 2 === 0 ? "STRING" : "LONG",
@@ -130,6 +243,33 @@ assertIssue(validate([{ name: "id", type: "DECIMAL" }]), "INVALID_OPTION", "$[0]
   const savePayload = { technicalMetadata: { columns: result.rows } };
   assert.equal(savePayload.technicalMetadata.columns.length, 300);
   assert.equal(savePayload.technicalMetadata.columns[173].name, "field_173");
+}
+
+{
+  const existingRows = Array.from({ length: 300 }, (_, index) => ({
+    name: `field_${String(index).padStart(3, "0")}`,
+    type: "STRING",
+  }));
+  const importedRows = [
+    ...Array.from({ length: 50 }, (_, index) => ({
+      name: `field_${String(index).padStart(3, "0")}`,
+      type: "LONG",
+    })),
+    ...Array.from({ length: 25 }, (_, index) => ({
+      name: `new_field_${String(index).padStart(3, "0")}`,
+      type: "STRING",
+    })),
+  ];
+  const result = mergeModelFieldRows(existingRows, importedRows, "MERGE_IN_PLACE");
+  assert.equal(result.blocked, false);
+  assert.equal(result.rows.length, 325);
+  assert.equal(result.rows[0].type, "LONG");
+  assert.equal(result.rows[49].type, "LONG");
+  assert.equal(result.rows[50].type, "STRING");
+  assert.equal(result.rows[324].name, "new_field_024");
+  assert.equal(modelFieldPageCount(result.rows.length), 7);
+  const savePayload = { technicalMetadata: { columns: result.rows } };
+  assert.equal(savePayload.technicalMetadata.columns.length, 325);
 }
 
 {
