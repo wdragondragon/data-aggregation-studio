@@ -403,23 +403,23 @@ public class StreamingTaskWorkerExecutor {
                 : new com.fasterxml.jackson.databind.ObjectMapper().convertValue(
                         task.getStreamingOptions(), Map.class);
         String groupId = payloadText(dispatch, "groupId");
-        if (groupId != null) {
+        if (groupId != null && !hasSourceReaderOption(task, "groupId")) {
             readerConfig.put("groupId", groupId);
         }
-        copyOption(options, readerConfig, "offsetReset");
-        if (Boolean.TRUE.equals(options.get("resetOffset"))) {
+        copyOptionIfAbsent(options, readerConfig, "offsetReset");
+        copyOptionIfAbsent(options, readerConfig, "resetOffset");
+        copyOptionIfAbsent(options, readerConfig, "pollTimeoutMs");
+        if (Boolean.TRUE.equals(asBoolean(readerConfig.get("resetOffset")))) {
             readerConfig.put("resetOffset", Long.valueOf(1L).equals(
                     payloadLong(dispatch, "streamAttemptNo")));
-        }
-        Object maxBatchRecords = options.get("maxBatchRecords");
-        if (maxBatchRecords != null) {
-            readerConfig.put("batchSize", maxBatchRecords);
         }
         reader.put("config", readerConfig);
         result.put("reader", reader);
 
         Map<String, Object> streaming = new LinkedHashMap<String, Object>();
-        copyOption(options, streaming, "pollTimeoutMs");
+        // Kafka consumer options belong to reader.config. Keep streaming only
+        // for container-level limits and retry controls so the two execution
+        // modes cannot observe conflicting values.
         copyOption(options, streaming, "maxBatchRecords");
         copyOption(options, streaming, "maxBatchBytes");
         copyOption(options, streaming, "batchRetryCount");
@@ -431,6 +431,32 @@ public class StreamingTaskWorkerExecutor {
         if (source.containsKey(key) && source.get(key) != null) {
             target.put(key, source.get(key));
         }
+    }
+
+    private void copyOptionIfAbsent(Map<String, Object> source, Map<String, Object> target, String key) {
+        if (!target.containsKey(key)) {
+            copyOption(source, target, key);
+        }
+    }
+
+    private boolean hasSourceReaderOption(CollectionTaskDefinitionView task, String key) {
+        if (task == null || task.getSourceBindings() == null || task.getSourceBindings().isEmpty()
+                || task.getSourceBindings().get(0) == null
+                || task.getSourceBindings().get(0).getReaderOptions() == null) {
+            return false;
+        }
+        Object value = task.getSourceBindings().get(0).getReaderOptions().get(key);
+        return value != null && !(value instanceof String && ((String) value).trim().isEmpty());
+    }
+
+    private Boolean asBoolean(Object value) {
+        if (value instanceof Boolean) {
+            return (Boolean) value;
+        }
+        if (value instanceof Number) {
+            return ((Number) value).intValue() != 0;
+        }
+        return value == null ? Boolean.FALSE : Boolean.valueOf(String.valueOf(value));
     }
 
     private String readerType(Map<String, Object> jobConfig) {

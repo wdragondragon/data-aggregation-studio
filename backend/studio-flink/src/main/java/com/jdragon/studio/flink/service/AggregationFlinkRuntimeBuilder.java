@@ -8,6 +8,7 @@ import com.jdragon.studio.dto.model.DataSourceDefinition;
 import com.jdragon.studio.flink.connector.AggregationFlinkTableRuntime;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
+import com.jdragon.studio.infra.service.KafkaConfigurationSupport;
 import org.apache.flink.table.types.DataType;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Component;
@@ -59,9 +60,13 @@ class AggregationFlinkRuntimeBuilder {
         Map<String, Object> modelMetadata = model.getTechnicalMetadata() == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(model.getTechnicalMetadata());
-        String physicalLocator = "http".equalsIgnoreCase(datasource.getTypeCode())
+        String datasourceType = datasource.getTypeCode() == null ? "" : datasource.getTypeCode().trim();
+        String physicalLocator = "http".equalsIgnoreCase(datasourceType)
                 ? resolveHttpRequestPath(model, modelMetadata)
-                : resolvePhysicalLocator(model);
+                : resolvePhysicalLocator(datasourceType, model);
+        if ("kafka".equalsIgnoreCase(datasourceType) && !hasText(physicalLocator)) {
+            throw new IllegalArgumentException("Kafka model physicalLocator must contain the Topic name");
+        }
         DataType rowType = AggregationFlinkDataTypeMapper.rowType(
                 modelMetadata, datasource.getTypeCode(), physicalLocator);
 
@@ -77,7 +82,8 @@ class AggregationFlinkRuntimeBuilder {
         runtime.setProducedDataType(rowType);
         runtime.setFieldNames(DataType.getFieldNames(rowType));
         runtime.setModelMetadata(modelMetadata);
-        runtime.setConnectionConfig(Configuration.from(datasourceMetadata));
+        runtime.setConnectionConfig(Configuration.from(buildConnectionMetadata(
+                datasource, model, datasourceMetadata, physicalLocator)));
         runtime.setExtConfig(Configuration.from(modelMetadata));
         BaseDataSourceDTO dataSourceDTO = toBaseDataSource(datasource, datasourceMetadata);
         if ("http".equalsIgnoreCase(datasource.getTypeCode())) {
@@ -187,9 +193,7 @@ class AggregationFlinkRuntimeBuilder {
             copyIfMissing(normalized, "host", "endpoint");
             copyIfMissing(normalized, "username", "userName");
         } else if ("kafka".equals(type)) {
-            copyIfMissing(normalized, "bootstrap.servers", "brokers");
-            copyIfMissing(normalized, "group.id", "consumerGroup");
-            copyIfMissing(normalized, "username", "userName");
+            return KafkaConfigurationSupport.normalizeDatasourceMetadata(normalized);
         } else if ("rabbitmq".equals(type)) {
             copyIfMissing(normalized, "username", "userName");
             copyIfMissing(normalized, "queueName", "queue");
@@ -206,15 +210,48 @@ class AggregationFlinkRuntimeBuilder {
         return normalized;
     }
 
-    private String resolvePhysicalLocator(DataModelDefinition model) {
+    private String resolvePhysicalLocator(String datasourceType, DataModelDefinition model) {
         if (model.getPhysicalLocator() != null && !model.getPhysicalLocator().trim().isEmpty()) {
             return model.getPhysicalLocator().trim();
+        }
+        if ("kafka".equalsIgnoreCase(datasourceType)) {
+            return null;
         }
         Object physicalName = model.getTechnicalMetadata() == null ? null : model.getTechnicalMetadata().get("physicalName");
         if (physicalName != null && !String.valueOf(physicalName).trim().isEmpty()) {
             return String.valueOf(physicalName).trim();
         }
         return model.getName();
+    }
+
+    private Map<String, Object> buildConnectionMetadata(DataSourceDefinition datasource,
+                                                         DataModelDefinition model,
+                                                         Map<String, Object> datasourceMetadata,
+                                                         String physicalLocator) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        if (datasourceMetadata != null) {
+            result.putAll(datasourceMetadata);
+        }
+        if (!"kafka".equalsIgnoreCase(datasource == null ? null : datasource.getTypeCode())) {
+            return result;
+        }
+        // Kafka topic and consumer options are task/model concerns. Keep only
+        // broker/authentication properties from the datasource and inject the
+        // model topic plus a stable query consumer group.
+        result.remove("topic");
+        result.remove("queue");
+        result.remove("queueName");
+        result.remove("group.id");
+        result.remove("groupId");
+        result.remove("consumerGroup");
+        result.put("topic", physicalLocator);
+        String datasourcePart = datasource == null || datasource.getId() == null
+                ? "unknown-datasource" : String.valueOf(datasource.getId());
+        String modelPart = model == null || model.getId() == null
+                ? "unknown-model" : String.valueOf(model.getId());
+        result.put("group.id", ("studio.flink." + datasourcePart + "." + modelPart)
+                .replaceAll("[^A-Za-z0-9._-]", "_"));
+        return result;
     }
 
     private String resolveHttpRequestPath(DataModelDefinition model, Map<String, Object> modelMetadata) {

@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AggregationFlinkRuntimeBuilderTest {
@@ -101,6 +102,53 @@ class AggregationFlinkRuntimeBuilderTest {
 
         assertEquals(null, runtime.getPhysicalLocator());
         assertEquals("http://127.0.0.1:19090", config.get("url"));
+    }
+
+    @Test
+    void kafkaRuntimeUsesModelPhysicalLocatorAndStableQueryGroup() {
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(7L);
+        datasource.setTypeCode("kafka");
+        Map<String, Object> datasourceMetadata = new LinkedHashMap<String, Object>();
+        datasourceMetadata.put("bootstrap.servers", "broker:9092");
+        datasourceMetadata.put("brokers", "legacy-broker:9092");
+        datasourceMetadata.put("userName", "legacy-user");
+        datasourceMetadata.put("topic", "legacy-topic");
+        datasourceMetadata.put("consumerGroup", "legacy-group");
+        datasource.setTechnicalMetadata(datasourceMetadata);
+
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(8L);
+        model.setName("events");
+        model.setPhysicalLocator("model-topic");
+        model.setTechnicalMetadata(new LinkedHashMap<String, Object>(Collections.singletonMap(
+                "columns", Collections.singletonList(Collections.singletonMap("name", "payload")))));
+
+        AggregationFlinkTableRuntime runtime = newBuilder().build(datasource, model, null);
+
+        assertEquals("model-topic", runtime.getPhysicalLocator());
+        assertEquals("model-topic", runtime.getConnectionConfig().getString("topic"));
+        assertEquals("broker:9092", runtime.getConnectionConfig().getMapValue("", "bootstrap.servers"));
+        assertNull(runtime.getConnectionConfig().getMapValue("", "brokers"));
+        assertNull(runtime.getConnectionConfig().getMapValue("", "userName"));
+        assertEquals("studio.flink.7.8", runtime.getConnectionConfig().getMapValue("", "group.id"));
+        assertNull(runtime.getConnectionConfig().getMapValue("", "consumerGroup"));
+    }
+
+    @Test
+    void kafkaRuntimeRequiresModelPhysicalLocator() {
+        DataSourceDefinition datasource = new DataSourceDefinition();
+        datasource.setId(7L);
+        datasource.setTypeCode("kafka");
+        datasource.setTechnicalMetadata(new LinkedHashMap<String, Object>(Collections.singletonMap(
+                "bootstrap.servers", "broker:9092")));
+        DataModelDefinition model = new DataModelDefinition();
+        model.setId(8L);
+        model.setName("events");
+        model.setTechnicalMetadata(new LinkedHashMap<String, Object>(Collections.singletonMap(
+                "columns", Collections.singletonList(Collections.singletonMap("name", "payload")))));
+
+        assertThrows(IllegalArgumentException.class, () -> newBuilder().build(datasource, model, null));
     }
 
     private AggregationFlinkRuntimeBuilder newBuilder() {

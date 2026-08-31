@@ -9,6 +9,7 @@ import com.jdragon.aggregation.core.streaming.job.StreamingJobContainer;
 import com.jdragon.aggregation.core.streaming.job.StreamingJobListener;
 import com.jdragon.aggregation.core.streaming.job.StreamingMetricsSnapshot;
 import com.jdragon.studio.dto.model.CollectionTaskDefinitionView;
+import com.jdragon.studio.dto.model.CollectionTaskSourceBinding;
 import com.jdragon.studio.dto.model.CollectionTaskStreamingOptions;
 import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.entity.DispatchTaskEntity;
@@ -85,6 +86,107 @@ class StreamingTaskWorkerExecutorTest {
             Map<String, Object> recoveredConfig = (Map<String, Object>)
                     ((Map<String, Object>) recovered.get("reader")).get("config");
             assertEquals(Boolean.FALSE, recoveredConfig.get("resetOffset"));
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void streamingContainerBatchLimitDoesNotPopulateKafkaReaderBatchSize() {
+        CollectionTaskAssemblerService assembler = mock(CollectionTaskAssemblerService.class);
+        StreamingTaskWorkerExecutor executor = executor(assembler);
+        CollectionTaskDefinitionView task = new CollectionTaskDefinitionView();
+        CollectionTaskStreamingOptions options = new CollectionTaskStreamingOptions();
+        options.setMaxBatchRecords(42);
+        task.setStreamingOptions(options);
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        Map<String, Object> reader = new LinkedHashMap<String, Object>();
+        reader.put("type", "kafka");
+        reader.put("config", readerConfig);
+        Map<String, Object> assembled = new LinkedHashMap<String, Object>();
+        assembled.put("reader", reader);
+        when(assembler.assemble(task)).thenReturn(assembled);
+
+        try {
+            Map<String, Object> configured = ReflectionTestUtils.invokeMethod(
+                    executor, "configureStreamingJob", task, dispatch(1));
+            Map<String, Object> configuredReader = (Map<String, Object>)
+                    ((Map<String, Object>) configured.get("reader")).get("config");
+            Map<String, Object> streaming = (Map<String, Object>) configured.get("streaming");
+
+            assertTrue(!configuredReader.containsKey("batchSize"));
+            assertEquals(42, streaming.get("maxBatchRecords"));
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void explicitlyConfiguredReaderBatchSizeIsPreserved() {
+        CollectionTaskAssemblerService assembler = mock(CollectionTaskAssemblerService.class);
+        StreamingTaskWorkerExecutor executor = executor(assembler);
+        CollectionTaskDefinitionView task = new CollectionTaskDefinitionView();
+        CollectionTaskStreamingOptions options = new CollectionTaskStreamingOptions();
+        options.setMaxBatchRecords(42);
+        task.setStreamingOptions(options);
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("batchSize", 7);
+        Map<String, Object> reader = new LinkedHashMap<String, Object>();
+        reader.put("type", "kafka");
+        reader.put("config", readerConfig);
+        Map<String, Object> assembled = new LinkedHashMap<String, Object>();
+        assembled.put("reader", reader);
+        when(assembler.assemble(task)).thenReturn(assembled);
+
+        try {
+            Map<String, Object> configured = ReflectionTestUtils.invokeMethod(
+                    executor, "configureStreamingJob", task, dispatch(1));
+            Map<String, Object> configuredReader = (Map<String, Object>)
+                    ((Map<String, Object>) configured.get("reader")).get("config");
+            assertEquals(7, configuredReader.get("batchSize"));
+        } finally {
+            executor.shutdown();
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void kafkaConsumerPollTimeoutRemainsInReaderOnly() {
+        CollectionTaskAssemblerService assembler = mock(CollectionTaskAssemblerService.class);
+        StreamingTaskWorkerExecutor executor = executor(assembler);
+        CollectionTaskDefinitionView task = new CollectionTaskDefinitionView();
+        CollectionTaskSourceBinding source = new CollectionTaskSourceBinding();
+        Map<String, Object> readerOptions = new LinkedHashMap<String, Object>();
+        readerOptions.put("pollTimeoutMs", 2500);
+        source.setReaderOptions(readerOptions);
+        task.setSourceBindings(Collections.singletonList(source));
+        CollectionTaskStreamingOptions options = new CollectionTaskStreamingOptions();
+        // Simulate a legacy snapshot that still contains the Kafka option.
+        options.setPollTimeoutMs(1000);
+        options.setMaxBatchRecords(42);
+        task.setStreamingOptions(options);
+
+        Map<String, Object> readerConfig = new LinkedHashMap<String, Object>();
+        readerConfig.put("pollTimeoutMs", 2500);
+        Map<String, Object> reader = new LinkedHashMap<String, Object>();
+        reader.put("type", "kafka");
+        reader.put("config", readerConfig);
+        Map<String, Object> assembled = new LinkedHashMap<String, Object>();
+        assembled.put("reader", reader);
+        when(assembler.assemble(task)).thenReturn(assembled);
+
+        try {
+            Map<String, Object> configured = ReflectionTestUtils.invokeMethod(
+                    executor, "configureStreamingJob", task, dispatch(1));
+            Map<String, Object> configuredReader = (Map<String, Object>)
+                    ((Map<String, Object>) configured.get("reader")).get("config");
+            Map<String, Object> streaming = (Map<String, Object>) configured.get("streaming");
+
+            assertEquals(2500, configuredReader.get("pollTimeoutMs"));
+            assertTrue(!streaming.containsKey("pollTimeoutMs"));
+            assertEquals(42, streaming.get("maxBatchRecords"));
         } finally {
             executor.shutdown();
         }
