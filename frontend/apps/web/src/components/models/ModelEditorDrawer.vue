@@ -188,7 +188,8 @@
       v-if="fieldImportSection"
       v-model="fieldImportOpen"
       :fields="fieldImportSection.fields"
-      :current-count="actions.editorSectionRows(fieldImportSection).length"
+      :current-rows="actions.editorSectionRows(fieldImportSection)"
+      :is-editing-model="isEditingModel"
       @imported="replaceImportedFieldRows"
     />
 
@@ -386,7 +387,7 @@ function isFieldSection(section: ModelMetaSection) {
 }
 
 function canImportFieldJson(section: ModelMetaSection) {
-  return !props.isEditingModel && isFieldSection(section);
+  return isFieldSection(section);
 }
 
 function sectionPage(section: ModelMetaSection) {

@@ -4,6 +4,10 @@ export const MODEL_FIELD_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 export const MODEL_FIELD_IMPORT_MAX_VISIBLE_ISSUES = 100;
 export const MODEL_FIELD_TABLE_PAGE_SIZE = 50;
 
+export const MODEL_FIELD_IMPORT_MODES = ["MERGE_IN_PLACE", "MERGE_IMPORT_FIRST", "REPLACE_ALL"] as const;
+
+export type ModelFieldImportMode = (typeof MODEL_FIELD_IMPORT_MODES)[number];
+
 export type ModelFieldImportIssueCode =
   | "TEXT_TOO_LARGE"
   | "INVALID_JSON"
@@ -32,6 +36,100 @@ export interface ModelFieldImportIssue {
 export interface ModelFieldImportResult {
   rows: Record<string, unknown>[];
   issues: ModelFieldImportIssue[];
+}
+
+export interface ModelFieldMergeStats {
+  overwriteCount: number;
+  addedCount: number;
+  retainedCount: number;
+  removedCount: number;
+  finalCount: number;
+}
+
+export interface ModelFieldMergeResult {
+  rows: Record<string, unknown>[];
+  stats: ModelFieldMergeStats;
+  duplicateExistingNames: string[];
+  blocked: boolean;
+}
+
+export function mergeModelFieldRows(
+  existingRows: Record<string, unknown>[],
+  importedRows: Record<string, unknown>[],
+  mode: ModelFieldImportMode,
+): ModelFieldMergeResult {
+  const existing = existingRows.map(cloneModelFieldRow);
+  const imported = importedRows.map(cloneModelFieldRow);
+  const existingNameCounts = new Map<string, number>();
+  const existingNames = new Set<string>();
+
+  existing.forEach((row) => {
+    const name = normalizeModelFieldName(row.name);
+    if (!name) {
+      return;
+    }
+    existingNames.add(name);
+    existingNameCounts.set(name, (existingNameCounts.get(name) ?? 0) + 1);
+  });
+
+  const duplicateExistingNames = Array.from(existingNameCounts.entries())
+    .filter(([, count]) => count > 1)
+    .map(([name]) => name);
+  const overwriteCount = imported.filter((row) => {
+    const name = normalizeModelFieldName(row.name);
+    return Boolean(name) && existingNames.has(name);
+  }).length;
+  const addedCount = imported.length - overwriteCount;
+  const replacingAll = mode === "REPLACE_ALL";
+  const stats: ModelFieldMergeStats = {
+    overwriteCount,
+    addedCount,
+    retainedCount: replacingAll ? 0 : Math.max(0, existing.length - overwriteCount),
+    removedCount: replacingAll ? Math.max(0, existing.length - overwriteCount) : 0,
+    finalCount: replacingAll ? imported.length : existing.length + addedCount,
+  };
+  const blocked = !replacingAll && duplicateExistingNames.length > 0;
+  if (blocked) {
+    return { rows: [], stats, duplicateExistingNames, blocked };
+  }
+
+  if (replacingAll) {
+    return { rows: imported, stats, duplicateExistingNames, blocked: false };
+  }
+
+  const importedByName = new Map<string, Record<string, unknown>>();
+  imported.forEach((row) => {
+    const name = normalizeModelFieldName(row.name);
+    if (name) {
+      importedByName.set(name, row);
+    }
+  });
+
+  if (mode === "MERGE_IMPORT_FIRST") {
+    const unmatchedExisting = existing.filter((row) => {
+      const name = normalizeModelFieldName(row.name);
+      return !name || !importedByName.has(name);
+    });
+    return {
+      rows: [...imported.map(cloneModelFieldRow), ...unmatchedExisting.map(cloneModelFieldRow)],
+      stats,
+      duplicateExistingNames,
+      blocked: false,
+    };
+  }
+
+  const mergedRows = existing.map((row) => {
+    const name = normalizeModelFieldName(row.name);
+    const importedRow = name ? importedByName.get(name) : undefined;
+    return cloneModelFieldRow(importedRow ?? row);
+  });
+  imported.forEach((row) => {
+    const name = normalizeModelFieldName(row.name);
+    if (!name || !existingNames.has(name)) {
+      mergedRows.push(cloneModelFieldRow(row));
+    }
+  });
+  return { rows: mergedRows, stats, duplicateExistingNames, blocked: false };
 }
 
 export function parseAndValidateModelFieldJson(
@@ -210,6 +308,14 @@ function resolveSourceRows(parsed: unknown, issues: ModelFieldImportIssue[]) {
 
 function issueResult(issue: ModelFieldImportIssue): ModelFieldImportResult {
   return { rows: [], issues: [issue] };
+}
+
+function normalizeModelFieldName(value: unknown) {
+  return value === null || value === undefined ? "" : String(value).trim();
+}
+
+function cloneModelFieldRow(row: Record<string, unknown>) {
+  return { ...row };
 }
 
 function stripBom(source: string) {

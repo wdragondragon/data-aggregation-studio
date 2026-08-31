@@ -9,6 +9,16 @@
     @update:model-value="emit('update:modelValue', $event)"
   >
     <div class="field-import-dialog">
+      <div v-if="isEditingModel" class="field-import-mode">
+        <div class="field-import-mode__header">{{ t("web.models.fieldImportModeLabel") }}</div>
+        <el-radio-group v-model="importMode" class="field-import-mode__options">
+          <el-radio-button v-for="option in importModeOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </el-radio-button>
+        </el-radio-group>
+        <div class="field-import-mode__description">{{ currentImportModeDescription }}</div>
+      </div>
+
       <div
         class="field-import-dropzone"
         :class="{ 'is-dragging': dragging }"
@@ -54,11 +64,29 @@
         <el-icon :size="18">
           <Loading v-if="validating" class="is-loading" />
           <CircleCheck v-else-if="canImport" />
-          <WarningFilled v-else-if="hasValidated && issues.length > 0" />
+          <WarningFilled v-else-if="hasValidated && (issues.length > 0 || mergeBlocked)" />
           <InfoFilled v-else />
         </el-icon>
         <span>{{ validationStatusText }}</span>
       </div>
+
+      <div v-if="showMergeStats" class="field-import-summary">
+        <div class="field-import-summary__title">{{ t("web.models.fieldImportMergeSummary") }}</div>
+        <div class="field-import-summary__metrics">
+          <div v-for="item in mergeStatItems" :key="item.label" class="field-import-summary__metric">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <el-alert
+        v-if="showMergeStats && mergeBlocked"
+        :title="mergeBlockedMessage"
+        type="error"
+        :closable="false"
+        show-icon
+      />
 
       <div v-if="hasValidated && issues.length > 0" class="field-import-errors">
         <div class="field-import-errors__header">
@@ -101,7 +129,9 @@ import JsonEditor from "@/components/JsonEditor.vue";
 import {
   buildModelFieldImportTemplate,
   MODEL_FIELD_IMPORT_MAX_BYTES,
+  type ModelFieldImportMode,
   type ModelFieldImportIssue,
+  mergeModelFieldRows,
   parseAndValidateModelFieldJson,
   visibleModelFieldImportIssues,
 } from "./modelFieldJsonImport";
@@ -109,7 +139,8 @@ import {
 const props = defineProps<{
   modelValue: boolean;
   fields: MetadataFieldDefinition[];
-  currentCount: number;
+  currentRows: Record<string, unknown>[];
+  isEditingModel: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -127,6 +158,7 @@ const validating = ref(false);
 const hasValidated = ref(false);
 const validatedRows = ref<Record<string, unknown>[]>([]);
 const issues = ref<ModelFieldImportIssue[]>([]);
+const importMode = ref<ModelFieldImportMode>("MERGE_IN_PLACE");
 let validationTimer: ReturnType<typeof setTimeout> | undefined;
 
 const fieldImportPlaceholder = `[
@@ -135,13 +167,58 @@ const fieldImportPlaceholder = `[
   }
 ]`;
 
+const currentCount = computed(() => props.currentRows.length);
+const importModeOptions = computed(() => [
+  {
+    value: "MERGE_IN_PLACE" as const,
+    label: t("web.models.fieldImportModeMergeInPlace"),
+    description: t("web.models.fieldImportModeMergeInPlaceDescription"),
+  },
+  {
+    value: "MERGE_IMPORT_FIRST" as const,
+    label: t("web.models.fieldImportModeMergeImportFirst"),
+    description: t("web.models.fieldImportModeMergeImportFirstDescription"),
+  },
+  {
+    value: "REPLACE_ALL" as const,
+    label: t("web.models.fieldImportModeReplaceAll"),
+    description: t("web.models.fieldImportModeReplaceAllDescription"),
+  },
+]);
+const currentImportModeDescription = computed(
+  () => importModeOptions.value.find((option) => option.value === importMode.value)?.description ?? "",
+);
+const activeImportMode = computed<ModelFieldImportMode>(() => (props.isEditingModel ? importMode.value : "REPLACE_ALL"));
+const mergeResult = computed(() => mergeModelFieldRows(props.currentRows, validatedRows.value, activeImportMode.value));
+const mergeBlocked = computed(() => props.isEditingModel && mergeResult.value.blocked);
+const mergeBlockedMessage = computed(() => t("web.models.fieldImportExistingDuplicates", {
+  names: mergeResult.value.duplicateExistingNames.join(", "),
+}));
+const showMergeStats = computed(
+  () => props.isEditingModel && hasValidated.value && issues.value.length === 0 && validatedRows.value.length > 0,
+);
+const mergeStatItems = computed(() => {
+  const stats = mergeResult.value.stats;
+  return [
+    { label: t("web.models.fieldImportStatOverwrite"), value: stats.overwriteCount },
+    { label: t("web.models.fieldImportStatAdded"), value: stats.addedCount },
+    { label: t("web.models.fieldImportStatRetained"), value: stats.retainedCount },
+    { label: t("web.models.fieldImportStatRemoved"), value: stats.removedCount },
+    { label: t("web.models.fieldImportStatFinal"), value: stats.finalCount },
+  ];
+});
 const visibleIssues = computed(() => visibleModelFieldImportIssues(issues.value));
 const canImport = computed(
-  () => hasValidated.value && !validating.value && !fileError.value && issues.value.length === 0 && validatedRows.value.length > 0,
+  () => hasValidated.value
+    && !validating.value
+    && !fileError.value
+    && issues.value.length === 0
+    && validatedRows.value.length > 0
+    && !mergeBlocked.value,
 );
 const validationStatusTone = computed(() => ({
   "is-success": canImport.value,
-  "is-error": hasValidated.value && issues.value.length > 0,
+  "is-error": hasValidated.value && (issues.value.length > 0 || mergeBlocked.value),
 }));
 const validationStatusText = computed(() => {
   if (validating.value) {
@@ -149,6 +226,9 @@ const validationStatusText = computed(() => {
   }
   if (!sourceText.value.trim()) {
     return t("web.models.fieldImportWaiting");
+  }
+  if (mergeBlocked.value) {
+    return t("web.models.fieldImportMergeBlocked");
   }
   if (canImport.value) {
     return t("web.models.fieldImportValid", { count: validatedRows.value.length });
@@ -169,6 +249,7 @@ function resetDialog() {
   hasValidated.value = false;
   validatedRows.value = [];
   issues.value = [];
+  importMode.value = "MERGE_IN_PLACE";
   if (fileInputRef.value) {
     fileInputRef.value.value = "";
   }
@@ -265,11 +346,11 @@ async function confirmImport() {
   if (!canImport.value) {
     return;
   }
-  if (props.currentCount > 0) {
+  if (!props.isEditingModel && currentCount.value > 0) {
     try {
       await ElMessageBox.confirm(
         t("web.models.fieldImportReplaceConfirm", {
-          currentCount: props.currentCount,
+          currentCount: currentCount.value,
           importCount: validatedRows.value.length,
         }),
         t("web.models.fieldImportReplaceTitle"),
@@ -282,7 +363,24 @@ async function confirmImport() {
       return;
     }
   }
-  emit("imported", validatedRows.value.map((row) => ({ ...row })));
+  if (props.isEditingModel && importMode.value === "REPLACE_ALL" && currentCount.value > 0) {
+    try {
+      await ElMessageBox.confirm(
+        t("web.models.fieldImportReplaceAllConfirm", {
+          currentCount: currentCount.value,
+          importCount: validatedRows.value.length,
+        }),
+        t("web.models.fieldImportReplaceAllTitle"),
+        { type: "warning" },
+      );
+    } catch (error) {
+      if (error !== "cancel" && error !== "close") {
+        ElMessage.error(error instanceof Error ? error.message : t("web.models.fieldImportFailed"));
+      }
+      return;
+    }
+  }
+  emit("imported", mergeResult.value.rows.map((row) => ({ ...row })));
   emit("update:modelValue", false);
 }
 
@@ -356,6 +454,41 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 
+.field-import-mode {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.field-import-mode__header,
+.field-import-summary__title {
+  color: var(--studio-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field-import-mode__options {
+  display: flex;
+  min-width: 0;
+}
+
+.field-import-mode__options :deep(.el-radio-button) {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.field-import-mode__options :deep(.el-radio-button__inner) {
+  width: 100%;
+  padding-inline: 12px;
+  white-space: normal;
+}
+
+.field-import-mode__description {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .field-import-dropzone {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -427,6 +560,44 @@ onBeforeUnmount(() => {
   background: #fef2f2;
 }
 
+.field-import-summary {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px 0;
+  border-top: 1px solid var(--studio-border);
+  border-bottom: 1px solid var(--studio-border);
+}
+
+.field-import-summary__metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.field-import-summary__metric {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 2px 12px;
+  border-left: 1px solid var(--studio-border);
+}
+
+.field-import-summary__metric:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+
+.field-import-summary__metric span {
+  color: var(--studio-text-soft);
+  font-size: 12px;
+}
+
+.field-import-summary__metric strong {
+  color: var(--studio-text);
+  font-size: 18px;
+  font-weight: 600;
+}
+
 .field-import-errors {
   display: grid;
   gap: 8px;
@@ -477,6 +648,26 @@ onBeforeUnmount(() => {
 }
 
 @media (max-width: 640px) {
+  .field-import-mode__options {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .field-import-mode__options :deep(.el-radio-button__inner) {
+    border: 1px solid var(--el-border-color);
+    border-radius: 0;
+  }
+
+  .field-import-summary__metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 0;
+  }
+
+  .field-import-summary__metric:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+
   .field-import-dropzone {
     grid-template-columns: auto minmax(0, 1fr);
   }
