@@ -4,6 +4,9 @@ import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
+import com.jdragon.studio.dto.enums.FieldComponentType;
+import com.jdragon.studio.dto.enums.FieldValueType;
+import com.jdragon.studio.dto.enums.ManagedFilePolicyCode;
 import com.jdragon.studio.dto.enums.SchemaStatus;
 import com.jdragon.studio.dto.model.MetadataFieldDefinition;
 import com.jdragon.studio.dto.model.MetadataSchemaDefinition;
@@ -29,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Locale;
 
 @Service
 public class MetadataSchemaService implements MetadataSchemaRegistry {
@@ -102,6 +106,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
     @Override
     @Transactional
     public MetadataSchemaDefinition saveDraft(MetadataSchemaSaveRequest request) {
+        validateManagedFileFields(request.getFields());
         MetaSchemaEntity schema = request.getSchemaId() == null ? new MetaSchemaEntity() : schemaMapper.selectById(request.getSchemaId());
         MetadataSchemaDefinition previousDefinition = schema == null || schema.getId() == null ? null : toDefinition(schema);
         if (schema == null) {
@@ -136,6 +141,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
             entity.setScope(field.getScope() == null ? null : field.getScope().name());
             entity.setValueType(field.getValueType() == null ? null : field.getValueType().name());
             entity.setComponentType(field.getComponentType() == null ? null : field.getComponentType().name());
+            entity.setFilePolicyCode(field.getFilePolicyCode());
             entity.setRequiredFlag(Boolean.TRUE.equals(field.getRequired()) ? 1 : 0);
             entity.setSensitiveFlag(Boolean.TRUE.equals(field.getSensitive()) ? 1 : 0);
             entity.setSortOrder(field.getSortOrder());
@@ -155,6 +161,40 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
         MetadataSchemaDefinition currentDefinition = toDefinition(schema);
         dataModelScopedIndexRefreshService.scheduleScopedRebuild(previousDefinition, currentDefinition);
         return currentDefinition;
+    }
+
+    static void validateManagedFileFields(List<MetadataFieldDefinition> fields) {
+        if (fields == null) {
+            return;
+        }
+        for (MetadataFieldDefinition field : fields) {
+            if (field == null) {
+                continue;
+            }
+            String policyCode = field.getFilePolicyCode() == null ? "" : field.getFilePolicyCode().trim();
+            if (field.getComponentType() != FieldComponentType.MANAGED_FILE) {
+                if (!policyCode.isEmpty()) {
+                    throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                            "filePolicyCode is only allowed for MANAGED_FILE field: " + field.getFieldKey());
+                }
+                continue;
+            }
+            if (policyCode.isEmpty()) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Managed file policy is required for field: " + field.getFieldKey());
+            }
+            try {
+                field.setFilePolicyCode(ManagedFilePolicyCode.valueOf(
+                        policyCode.toUpperCase(Locale.ROOT)).name());
+            } catch (IllegalArgumentException e) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Unknown managed file policy for field " + field.getFieldKey() + ": " + policyCode);
+            }
+            if (field.getValueType() != FieldValueType.STRING && field.getValueType() != FieldValueType.ARRAY) {
+                throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                        "Managed file field must use STRING or ARRAY value type: " + field.getFieldKey());
+            }
+        }
     }
 
     @Override
@@ -475,6 +515,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 && Objects.equals(actual.getScope(), expected.getScope())
                 && Objects.equals(actual.getValueType(), expected.getValueType())
                 && Objects.equals(actual.getComponentType(), expected.getComponentType())
+                && Objects.equals(actual.getFilePolicyCode(), expected.getFilePolicyCode())
                 && Objects.equals(actual.getRequired(), expected.getRequired())
                 && Objects.equals(actual.getSensitive(), expected.getSensitive())
                 && Objects.equals(actual.getSortOrder(), expected.getSortOrder())
@@ -721,6 +762,7 @@ public class MetadataSchemaService implements MetadataSchemaRegistry {
                 if (field.getComponentType() != null) {
                     fieldDefinition.setComponentType(com.jdragon.studio.dto.enums.FieldComponentType.valueOf(field.getComponentType()));
                 }
+                fieldDefinition.setFilePolicyCode(field.getFilePolicyCode());
                 fieldDefinitions.add(fieldDefinition);
             }
             definition.setFields(fieldDefinitions);

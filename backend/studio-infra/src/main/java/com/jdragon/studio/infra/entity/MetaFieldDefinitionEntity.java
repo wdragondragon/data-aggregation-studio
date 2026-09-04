@@ -20,6 +20,7 @@ public class MetaFieldDefinitionEntity extends BaseTenantEntity {
     private String scope;
     private String valueType;
     private String componentType;
+    private String filePolicyCode;
     private Integer requiredFlag;
     private Integer sensitiveFlag;
     private Integer sortOrder;

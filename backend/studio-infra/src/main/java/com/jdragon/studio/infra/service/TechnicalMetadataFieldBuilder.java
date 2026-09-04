@@ -60,12 +60,12 @@ final class TechnicalMetadataFieldBuilder {
             return fields;
         }
         if ("tbds-hdfs".equals(normalized) || "tbds-hdfs3".equals(normalized)) {
-            fields.add(field("hdfsSiteFilePath", "hdfs-site.xml 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 10, null));
-            fields.add(field("coreSiteFilePath", "core-site.xml 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 20, null));
+            fields.add(managedFileField("hdfsSiteFilePath", "hdfs-site.xml 文件", false, 10, "HADOOP_SITE_XML"));
+            fields.add(managedFileField("coreSiteFilePath", "core-site.xml 文件", false, 20, "HADOOP_SITE_XML"));
             fields.add(field("hadoopConfig", "Hadoop 配置", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 30, "{}"));
             fields.add(field("kerberosPrincipal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 40, null));
-            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
+            fields.add(managedFileField("kerberosKeytabFilePath", "Keytab 文件", false, 50, "KERBEROS_KEYTAB"));
+            fields.add(managedFileField("krb5Conf", "krb5.conf 文件", false, 60, "KERBEROS_KRB5_CONF"));
             appendFileDiscoveryFields(fields, 70);
             return fields;
         }
@@ -75,8 +75,8 @@ final class TechnicalMetadataFieldBuilder {
             fields.add(field("password", "密码", FieldValueType.STRING, FieldComponentType.PASSWORD, false, true, 30, null));
             fields.add(field("kerberos", "启用 Kerberos", FieldValueType.BOOLEAN, FieldComponentType.SWITCH, false, false, 40, "false"));
             fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 50, null));
-            fields.add(field("kerberosKeytabFilePath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 60, null));
-            fields.add(field("krb5Conf", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 70, null));
+            fields.add(managedFileField("kerberosKeytabFilePath", "Keytab 文件", false, 60, "KERBEROS_KEYTAB"));
+            fields.add(managedFileField("krb5Conf", "krb5.conf 文件", false, 70, "KERBEROS_KRB5_CONF"));
             fields.add(field("kerberosDomain", "Kerberos 域", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
             return fields;
         }
@@ -127,8 +127,8 @@ final class TechnicalMetadataFieldBuilder {
             fields.add(field("port", "端口", FieldValueType.INTEGER, FieldComponentType.NUMBER, true, false, 20, null));
             fields.add(field("database", "数据库名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 30, null));
             fields.add(field("principal", "Kerberos Principal", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 40, null));
-            fields.add(field("keytabPath", "Keytab 路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 50, null));
-            fields.add(field("krb5File", "krb5.conf 路径", FieldValueType.STRING, FieldComponentType.INPUT, true, false, 60, null));
+            fields.add(managedFileField("keytabPath", "Keytab 文件", true, 50, "KERBEROS_KEYTAB"));
+            fields.add(managedFileField("krb5File", "krb5.conf 文件", true, 60, "KERBEROS_KRB5_CONF"));
             fields.add(field("other", "附加连接参数", FieldValueType.JSON, FieldComponentType.JSON_EDITOR, false, false, 70, "{}"));
             fields.add(field("jdbcUrl", "JDBC 地址", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 80, null));
             fields.add(field("driverClassName", "驱动类名", FieldValueType.STRING, FieldComponentType.INPUT, false, false, 90, null));
@@ -360,6 +360,15 @@ final class TechnicalMetadataFieldBuilder {
         field.setDefaultValue(defaultValue);
         field.setOptions(options == null ? new ArrayList<String>() : new ArrayList<String>(options));
         applyQueryCapabilities(field);
+        return field;
+    }
+
+    private MetadataFieldDefinition managedFileField(String fieldKey, String fieldName,
+                                                      boolean required, int sortOrder,
+                                                      String policyCode) {
+        MetadataFieldDefinition field = field(fieldKey, fieldName, FieldValueType.STRING,
+                FieldComponentType.MANAGED_FILE, required, false, sortOrder, null);
+        field.setFilePolicyCode(policyCode);
         return field;
     }
 

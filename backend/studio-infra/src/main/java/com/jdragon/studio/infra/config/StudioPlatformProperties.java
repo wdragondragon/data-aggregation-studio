@@ -51,6 +51,7 @@ public class StudioPlatformProperties {
     private FlinkProperties flink = new FlinkProperties();
     private PluginRuntimeProperties pluginRuntime = new PluginRuntimeProperties();
     private FileTransferProperties fileTransfer = new FileTransferProperties();
+    private ManagedFileProperties managedFile = new ManagedFileProperties();
 
     public String getWorkerGroupCode() {
         return firstText(workerGroupCode, workerCode, "worker-local");
@@ -311,6 +312,21 @@ public class StudioPlatformProperties {
         private String region;
         private String prefix;
         private boolean createBucket = true;
+    }
+
+    @Data
+    public static class ManagedFileProperties {
+        private boolean enabled = true;
+        private String objectPrefix = "studio/managed-files";
+        private String cacheDir = "./runtime/managed-files";
+        private Long cacheMaxBytes = 1024L * 1024L * 1024L;
+        private Integer cacheIdleHours = 24;
+        private Integer unboundRetentionHours = 24;
+        private Integer leaseTtlSeconds = 300;
+        private Integer leaseHeartbeatSeconds = 60;
+        private Integer auditRetentionDays = 30;
+        private Integer gcIntervalMillis = 300000;
+        private Integer gcBatchSize = 100;
     }
 
     @Data

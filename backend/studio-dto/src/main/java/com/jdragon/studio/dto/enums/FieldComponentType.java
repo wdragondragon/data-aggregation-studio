@@ -10,6 +10,7 @@ public enum FieldComponentType {
     JSON_EDITOR,
     SQL_EDITOR,
     CODE_EDITOR,
-    CRON
+    CRON,
+    MANAGED_FILE
 }
 

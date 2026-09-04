@@ -759,3 +759,32 @@ insert into meta_field_definition (id, tenant_id, deleted, created_at, updated_a
 (2047489300000010036, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'responseRootName', '响应根节点', '响应根节点', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 110, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]'),
 (2047489300000010037, 'default', 0, '2026-06-09 10:00:00', '2026-06-09 10:00:00', 2047489300000000012, 'wsdlUrl', 'WSDL 地址', 'WSDL 地址', 'TECHNICAL', 'STRING', 'INPUT', 0, 0, 120, null, null, null, 1, 1, '["EQ", "LIKE", "IN"]', 'LIKE', '[]');
 
+-- Managed authentication/config files keep only immutable managed-file references in datasource metadata.
+update meta_field_definition
+set component_type = 'MANAGED_FILE', file_policy_code = 'KERBEROS_KEYTAB',
+    field_name = 'Kerberos Keytab', description = '上传或选择托管的 Kerberos Keytab 文件'
+where field_key in ('kerberosKeytabFilePath', 'keytabPath')
+  and schema_version_id in (
+      select current_version_id from meta_schema
+      where object_type = 'datasource' and type_code in ('kafka', 'tbds-hdfs', 'tbds-hdfs3', 'tbds-hive3')
+  );
+
+update meta_field_definition
+set component_type = 'MANAGED_FILE', file_policy_code = 'KERBEROS_KRB5_CONF',
+    field_name = 'Kerberos krb5.conf', description = '上传或选择托管的自包含 krb5.conf 文件'
+where field_key in ('krb5Conf', 'krb5File')
+  and schema_version_id in (
+      select current_version_id from meta_schema
+      where object_type = 'datasource' and type_code in ('kafka', 'tbds-hdfs', 'tbds-hdfs3', 'tbds-hive3')
+  );
+
+update meta_field_definition
+set component_type = 'MANAGED_FILE', file_policy_code = 'HADOOP_SITE_XML',
+    field_name = case field_key when 'hdfsSiteFilePath' then 'hdfs-site.xml' else 'core-site.xml' end,
+    description = '上传或选择托管的 Hadoop site XML 文件'
+where field_key in ('hdfsSiteFilePath', 'coreSiteFilePath')
+  and schema_version_id in (
+      select current_version_id from meta_schema
+      where object_type = 'datasource' and type_code in ('tbds-hdfs', 'tbds-hdfs3')
+  );
+

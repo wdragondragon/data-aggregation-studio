@@ -16,6 +16,7 @@ public class MetadataFieldDefinition {
     private MetadataScope scope;
     private FieldValueType valueType;
     private FieldComponentType componentType;
+    private String filePolicyCode;
     private Boolean required;
     private Boolean sensitive;
     private Integer sortOrder;

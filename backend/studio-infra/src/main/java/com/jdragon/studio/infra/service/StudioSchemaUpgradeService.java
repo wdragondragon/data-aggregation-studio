@@ -51,6 +51,7 @@ public class StudioSchemaUpgradeService {
         streamingSchemaUpgradeSupport.ensureMysql();
         ensureFileTransferTablesMysql();
         ensureUnstructuredManagementTablesMysql();
+        ensureManagedFileTablesMysql();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "alter table studio_external_user_binding add unique key " +
                         "uk_studio_external_user_binding_provider_user (provider_code, studio_user_id)");
@@ -59,6 +60,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("meta_field_definition", "sortable_flag", "alter table meta_field_definition add column sortable_flag int default 0");
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators json");
         ensureColumn("meta_field_definition", "query_default_operator", "alter table meta_field_definition add column query_default_operator varchar(64)");
+        ensureColumn("meta_field_definition", "file_policy_code", "alter table meta_field_definition add column file_policy_code varchar(64)");
+        ensureManagedFileMetadataDefinitions();
         ensureColumn("datasource_definition", "project_id", "alter table datasource_definition add column project_id bigint");
         ensureColumn("datasource_definition", "created_by", "alter table datasource_definition add column created_by bigint");
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id bigint");
@@ -721,6 +724,7 @@ public class StudioSchemaUpgradeService {
         streamingSchemaUpgradeSupport.ensureSqlite();
         ensureFileTransferTablesSqlite();
         ensureUnstructuredManagementTablesSqlite();
+        ensureManagedFileTablesSqlite();
         ensureIndex("studio_external_user_binding", "uk_studio_external_user_binding_provider_user",
                 "create unique index if not exists uk_studio_external_user_binding_provider_user " +
                         "on studio_external_user_binding(provider_code, studio_user_id)");
@@ -730,6 +734,8 @@ public class StudioSchemaUpgradeService {
         ensureColumn("meta_field_definition", "sortable_flag", "alter table meta_field_definition add column sortable_flag integer default 0");
         ensureColumn("meta_field_definition", "query_operators", "alter table meta_field_definition add column query_operators text");
         ensureColumn("meta_field_definition", "query_default_operator", "alter table meta_field_definition add column query_default_operator text");
+        ensureColumn("meta_field_definition", "file_policy_code", "alter table meta_field_definition add column file_policy_code text");
+        ensureManagedFileMetadataDefinitions();
         ensureColumn("datasource_definition", "project_id", "alter table datasource_definition add column project_id integer");
         ensureColumn("datasource_definition", "created_by", "alter table datasource_definition add column created_by integer");
         ensureColumn("data_model", "project_id", "alter table data_model add column project_id integer");
@@ -4717,6 +4723,91 @@ public class StudioSchemaUpgradeService {
         if (tableExists(tableName)) {
             ensureColumn(tableName, columnName, ddl);
         }
+    }
+
+    private void ensureManagedFileTablesMysql() {
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file (" +
+                "id bigint primary key,tenant_id varchar(64) not null default 'default',project_id bigint not null," +
+                "deleted int not null default 0,created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                "original_file_name varchar(255) not null,policy_code varchar(64) not null,content_type varchar(255)," +
+                "plaintext_size bigint,ciphertext_size bigint,sha256 varchar(64),object_bucket varchar(255),object_key varchar(1000)," +
+                "encryption_algorithm varchar(64),encryption_version int,encryption_iv varchar(128),status varchar(32) not null," +
+                "expires_at datetime,bound_at datetime,last_referenced_at datetime,uploaded_by bigint,error_message varchar(1000)," +
+                "delete_retry_count int not null default 0,next_delete_attempt_at datetime,deleted_at datetime," +
+                "key idx_mfile_project_status (tenant_id,project_id,status,created_at)," +
+                "key idx_mfile_gc (status,expires_at,next_delete_attempt_at),key idx_mfile_sha (tenant_id,project_id,sha256))");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_ref (" +
+                "id bigint primary key,tenant_id varchar(64) not null default 'default',project_id bigint not null," +
+                "deleted int not null default 0,created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                "file_id bigint not null,owner_type varchar(64) not null,owner_id bigint not null,field_key varchar(255) not null,ordinal int not null default 0," +
+                "unique key uk_mfile_ref_owner (tenant_id,project_id,owner_type,owner_id,field_key,ordinal)," +
+                "key idx_mfile_ref_file (file_id),key idx_mfile_ref_owner (tenant_id,project_id,owner_type,owner_id))");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_lease (" +
+                "id bigint primary key,tenant_id varchar(64) not null default 'default',project_id bigint not null," +
+                "deleted int not null default 0,created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                "file_id bigint not null,lease_token varchar(64) not null,consumer_type varchar(64),consumer_id varchar(255)," +
+                "worker_instance_id varchar(255),heartbeat_at datetime,expires_at datetime not null,released_at datetime," +
+                "unique key uk_mfile_lease_token (lease_token),key idx_mfile_lease_active (file_id,released_at,expires_at))");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_audit (" +
+                "id bigint primary key,tenant_id varchar(64) not null default 'default',project_id bigint not null," +
+                "deleted int not null default 0,created_at datetime default current_timestamp,updated_at datetime default current_timestamp," +
+                "file_id bigint,action varchar(64) not null,outcome varchar(32) not null,actor_user_id bigint,actor_name varchar(255)," +
+                "owner_type varchar(64),owner_id bigint,field_key varchar(255),detail varchar(1000)," +
+                "key idx_mfile_audit_file (tenant_id,project_id,file_id,created_at),key idx_mfile_audit_time (created_at))");
+    }
+
+    private void ensureManagedFileTablesSqlite() {
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file (" +
+                "id integer primary key,tenant_id text not null default 'default',project_id integer not null,deleted integer not null default 0," +
+                "created_at text,updated_at text,original_file_name text not null,policy_code text not null,content_type text," +
+                "plaintext_size integer,ciphertext_size integer,sha256 text,object_bucket text,object_key text," +
+                "encryption_algorithm text,encryption_version integer,encryption_iv text,status text not null,expires_at text,bound_at text," +
+                "last_referenced_at text,uploaded_by integer,error_message text,delete_retry_count integer not null default 0," +
+                "next_delete_attempt_at text,deleted_at text)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_project_status on so_pf_managed_file(tenant_id,project_id,status,created_at)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_gc on so_pf_managed_file(status,expires_at,next_delete_attempt_at)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_sha on so_pf_managed_file(tenant_id,project_id,sha256)");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_ref (" +
+                "id integer primary key,tenant_id text not null default 'default',project_id integer not null,deleted integer not null default 0," +
+                "created_at text,updated_at text,file_id integer not null,owner_type text not null,owner_id integer not null," +
+                "field_key text not null,ordinal integer not null default 0)");
+        jdbcTemplate.execute("create unique index if not exists uk_mfile_ref_owner on so_pf_managed_file_ref" +
+                "(tenant_id,project_id,owner_type,owner_id,field_key,ordinal)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_ref_file on so_pf_managed_file_ref(file_id)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_ref_owner on so_pf_managed_file_ref(tenant_id,project_id,owner_type,owner_id)");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_lease (" +
+                "id integer primary key,tenant_id text not null default 'default',project_id integer not null,deleted integer not null default 0," +
+                "created_at text,updated_at text,file_id integer not null,lease_token text not null,consumer_type text,consumer_id text," +
+                "worker_instance_id text,heartbeat_at text,expires_at text not null,released_at text)");
+        jdbcTemplate.execute("create unique index if not exists uk_mfile_lease_token on so_pf_managed_file_lease(lease_token)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_lease_active on so_pf_managed_file_lease(file_id,released_at,expires_at)");
+        jdbcTemplate.execute("create table if not exists so_pf_managed_file_audit (" +
+                "id integer primary key,tenant_id text not null default 'default',project_id integer not null,deleted integer not null default 0," +
+                "created_at text,updated_at text,file_id integer,action text not null,outcome text not null,actor_user_id integer," +
+                "actor_name text,owner_type text,owner_id integer,field_key text,detail text)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_audit_file on so_pf_managed_file_audit(tenant_id,project_id,file_id,created_at)");
+        jdbcTemplate.execute("create index if not exists idx_mfile_audit_time on so_pf_managed_file_audit(created_at)");
+    }
+
+    private void ensureManagedFileMetadataDefinitions() {
+        if (!tableExists("meta_field_definition") || !tableExists("meta_schema")
+                || !columnExists("meta_field_definition", "file_policy_code")) {
+            return;
+        }
+        jdbcTemplate.update("update meta_field_definition set component_type='MANAGED_FILE'," +
+                "file_policy_code='KERBEROS_KEYTAB',field_name='Kerberos Keytab'," +
+                "description='上传或选择托管的 Kerberos Keytab 文件' where field_key in ('kerberosKeytabFilePath','keytabPath') " +
+                "and schema_version_id in (select current_version_id from meta_schema where object_type='datasource' " +
+                "and type_code in ('kafka','tbds-hdfs','tbds-hdfs3','tbds-hive3'))");
+        jdbcTemplate.update("update meta_field_definition set component_type='MANAGED_FILE'," +
+                "file_policy_code='KERBEROS_KRB5_CONF',field_name='Kerberos krb5.conf'," +
+                "description='上传或选择托管的自包含 krb5.conf 文件' where field_key in ('krb5Conf','krb5File') " +
+                "and schema_version_id in (select current_version_id from meta_schema where object_type='datasource' " +
+                "and type_code in ('kafka','tbds-hdfs','tbds-hdfs3','tbds-hive3'))");
+        jdbcTemplate.update("update meta_field_definition set component_type='MANAGED_FILE'," +
+                "file_policy_code='HADOOP_SITE_XML',description='上传或选择托管的 Hadoop site XML 文件' " +
+                "where field_key in ('hdfsSiteFilePath','coreSiteFilePath') and schema_version_id in " +
+                "(select current_version_id from meta_schema where object_type='datasource' and type_code in ('tbds-hdfs','tbds-hdfs3'))");
     }
 
     private void prepareFileTransferEventTableForRepair(String tableName, String... requiredColumns) {
