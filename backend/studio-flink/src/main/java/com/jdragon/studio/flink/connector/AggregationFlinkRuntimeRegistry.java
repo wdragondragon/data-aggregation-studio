@@ -6,6 +6,10 @@ import com.jdragon.aggregation.pluginloader.runtime.ResolvedPlugin;
 import com.jdragon.aggregation.pluginloader.type.IPluginType;
 
 import java.time.Instant;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -32,7 +36,12 @@ public final class AggregationFlinkRuntimeRegistry {
     }
 
     public static String register(AggregationFlinkTableRuntime runtime, int ttlSeconds) {
-        return register(runtime, ttlSeconds, null);
+        return register(runtime, ttlSeconds, null, Collections.emptyMap(), null);
+    }
+
+    public static String register(AggregationFlinkTableRuntime runtime, int ttlSeconds,
+                                  Map<Long, Path> managedFiles, AutoCloseable lifecycle) {
+        return register(runtime, ttlSeconds, null, managedFiles, lifecycle);
     }
 
     /**
@@ -44,7 +53,8 @@ public final class AggregationFlinkRuntimeRegistry {
         try {
             String pluginName = requirePluginName(runtime);
             ResolvedPlugin plugin = session.resolve(SourcePluginType.SOURCE, pluginName);
-            return register(runtime, ttlSeconds, new PluginPin(session, plugin));
+            return register(runtime, ttlSeconds, new PluginPin(session, plugin),
+                    Collections.emptyMap(), null);
         } catch (RuntimeException ex) {
             session.close();
             throw ex;
@@ -58,6 +68,12 @@ public final class AggregationFlinkRuntimeRegistry {
      */
     public static String registerCapability(AggregationFlinkTableRuntime runtime, int ttlSeconds,
                                             ResolvedPlugin selectedPlugin) {
+        return registerCapability(runtime, ttlSeconds, selectedPlugin, Collections.emptyMap(), null);
+    }
+
+    public static String registerCapability(AggregationFlinkTableRuntime runtime, int ttlSeconds,
+                                            ResolvedPlugin selectedPlugin,
+                                            Map<Long, Path> managedFiles, AutoCloseable lifecycle) {
         String pluginName = requirePluginName(runtime);
         String expectedCoordinate = SourcePluginType.SOURCE.getName() + "/" + pluginName;
         if (selectedPlugin == null
@@ -69,18 +85,20 @@ public final class AggregationFlinkRuntimeRegistry {
         PluginRuntimeSession capabilitySession = PluginRuntimeSession.createDetached();
         try {
             capabilitySession.acquire(selectedPlugin);
-            return register(runtime, ttlSeconds, new PluginPin(capabilitySession, selectedPlugin));
+            return register(runtime, ttlSeconds, new PluginPin(capabilitySession, selectedPlugin),
+                    managedFiles, lifecycle);
         } catch (RuntimeException ex) {
             capabilitySession.close();
             throw ex;
         }
     }
 
-    private static String register(AggregationFlinkTableRuntime runtime, int ttlSeconds, PluginPin pin) {
+    private static String register(AggregationFlinkTableRuntime runtime, int ttlSeconds, PluginPin pin,
+                                   Map<Long, Path> managedFiles, AutoCloseable lifecycle) {
         String ref = UUID.randomUUID().toString();
         runtime.setRuntimeRef(ref);
         long expiresAt = Instant.now().toEpochMilli() + Math.max(30, ttlSeconds) * 1000L;
-        Entry entry = new Entry(runtime, expiresAt, pin);
+        Entry entry = new Entry(runtime, expiresAt, pin, managedFiles, lifecycle);
         ENTRIES.put(ref, entry);
         EXPIRY_REAPER.schedule(() -> remove(ref, entry), Math.max(1L, expiresAt - Instant.now().toEpochMilli()),
                 TimeUnit.MILLISECONDS);
@@ -135,6 +153,17 @@ public final class AggregationFlinkRuntimeRegistry {
         return entry.acquirePinnedPlugin(pluginType, pluginName);
     }
 
+    public static Path requiredManagedFile(String ref, Long fileId) {
+        if (fileId == null) {
+            throw new IllegalArgumentException("Managed file id is required");
+        }
+        Path path = requiredEntry(ref).managedFiles.get(fileId);
+        if (path == null || !Files.isRegularFile(path)) {
+            throw new IllegalStateException("Managed file is not available to this Flink runtime capability");
+        }
+        return path;
+    }
+
     private static Entry requiredEntry(String ref) {
         Entry entry = ENTRIES.get(ref);
         if (entry == null || entry.expiresAt < Instant.now().toEpochMilli()) {
@@ -163,12 +192,19 @@ public final class AggregationFlinkRuntimeRegistry {
         private final AggregationFlinkTableRuntime runtime;
         private final long expiresAt;
         private final PluginPin pin;
+        private final Map<Long, Path> managedFiles;
+        private final AutoCloseable lifecycle;
         private final AtomicBoolean closed = new AtomicBoolean(false);
 
-        private Entry(AggregationFlinkTableRuntime runtime, long expiresAt, PluginPin pin) {
+        private Entry(AggregationFlinkTableRuntime runtime, long expiresAt, PluginPin pin,
+                      Map<Long, Path> managedFiles, AutoCloseable lifecycle) {
             this.runtime = runtime;
             this.expiresAt = expiresAt;
             this.pin = pin;
+            this.managedFiles = managedFiles == null
+                    ? Collections.emptyMap()
+                    : Collections.unmodifiableMap(new LinkedHashMap<Long, Path>(managedFiles));
+            this.lifecycle = lifecycle;
         }
 
         private synchronized PluginArtifactLease acquirePinnedPlugin(IPluginType pluginType, String pluginName) {
@@ -195,8 +231,18 @@ public final class AggregationFlinkRuntimeRegistry {
         }
 
         private void close() {
-            if (closed.compareAndSet(false, true) && pin != null) {
-                pin.close();
+            if (closed.compareAndSet(false, true)) {
+                try {
+                    if (pin != null) pin.close();
+                } finally {
+                    if (lifecycle != null) {
+                        try {
+                            lifecycle.close();
+                        } catch (Exception ignored) {
+                            // Runtime cleanup is best effort after the capability is no longer usable.
+                        }
+                    }
+                }
             }
         }
     }

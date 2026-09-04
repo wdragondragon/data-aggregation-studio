@@ -26,12 +26,14 @@ import com.jdragon.studio.infra.service.ClusterInstanceIdentity;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
 import com.jdragon.studio.infra.service.CollectionTaskService;
 import com.jdragon.studio.infra.service.RunLogStorageService;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import com.jdragon.studio.infra.service.RuntimeResourceRevisionService;
 import com.jdragon.studio.infra.service.StreamingTaskCoordinatorService;
 import com.jdragon.studio.worker.runtime.log.RunLogFileService;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
@@ -67,6 +69,7 @@ public class StreamingTaskWorkerExecutor {
             new ConcurrentHashMap<Long, ActiveStreamingAttempt>();
     private final ScheduledExecutorService forcedStopExecutor;
     private final ScheduledExecutorService metricsExecutor;
+    private ManagedRuntimeFileResolver managedRuntimeFileResolver;
 
     public StreamingTaskWorkerExecutor(DispatchTaskMapper dispatchTaskMapper,
                                        RunRecordMapper runRecordMapper,
@@ -104,6 +107,11 @@ public class StreamingTaskWorkerExecutor {
         this.metricsExecutor = Executors.newSingleThreadScheduledExecutor(metricsFactory);
     }
 
+    @Autowired(required = false)
+    public void setManagedRuntimeFileResolver(ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
+    }
+
     public void execute(DispatchTaskEntity claimedTask, Consumer<Runnable> gracefulCancellationRegistrar) {
         Long attemptId = payloadLong(claimedTask, "streamAttemptId");
         Long runId = payloadLong(claimedTask, "streamRunId");
@@ -119,6 +127,7 @@ public class StreamingTaskWorkerExecutor {
         ActiveStreamingAttempt active = new ActiveStreamingAttempt(attemptId);
         StreamingMetricsAccumulator metrics = new StreamingMetricsAccumulator();
         ScheduledFuture<?> metricsFuture = null;
+        ManagedRuntimeFileResolver.Resolution<Map<String, Object>> managedFiles = null;
         activeAttempts.put(attemptId, active);
         StudioRequestContext previousContext = StudioRequestContextHolder.getContext();
         try {
@@ -138,6 +147,13 @@ public class StreamingTaskWorkerExecutor {
             }
             assertResourceRevision(claimedTask);
             Map<String, Object> jobConfig = configureStreamingJob(task, claimedTask);
+            if (managedRuntimeFileResolver != null
+                    && managedRuntimeFileResolver.containsManagedFiles(jobConfig)) {
+                managedFiles = managedRuntimeFileResolver.resolveMap(jobConfig,
+                        claimedTask.getTenantId(), claimedTask.getProjectId(),
+                        "STREAMING_JOB", String.valueOf(attemptId));
+                jobConfig = managedFiles.getValue();
+            }
             String readerType = readerType(jobConfig);
             String pluginName = readerType.endsWith("reader") ? readerType : readerType + "reader";
 
@@ -198,6 +214,9 @@ public class StreamingTaskWorkerExecutor {
         } finally {
             if (metricsFuture != null) {
                 metricsFuture.cancel(false);
+            }
+            if (managedFiles != null) {
+                managedFiles.close();
             }
             deactivateAttempt(attemptId, active);
             try {

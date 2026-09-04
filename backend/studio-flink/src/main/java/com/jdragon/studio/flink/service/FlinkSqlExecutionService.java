@@ -22,8 +22,11 @@ import com.jdragon.studio.infra.config.StudioPlatformProperties;
 import com.jdragon.studio.infra.service.DataModelService;
 import com.jdragon.studio.infra.service.DataSourceService;
 import com.jdragon.studio.infra.service.HttpReaderOptionSecurityService;
+import com.jdragon.studio.infra.service.ManagedFileService;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import com.jdragon.studio.infra.service.ProjectResourceAccessService;
 import com.jdragon.studio.infra.service.RuntimeClusterSelectionService;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.stereotype.Service;
 
@@ -31,6 +34,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.nio.file.Path;
+import java.net.URI;
 
 @Service
 @ConditionalOnClass(name = "com.jdragon.studio.worker.bootstrap.StudioWorkerApplication")
@@ -44,6 +49,7 @@ public class FlinkSqlExecutionService {
     private final FlinkExecutionClientRouter executionClientRouter;
     private final ProjectResourceAccessService projectResourceAccessService;
     private final RuntimeClusterSelectionService runtimeClusterSelectionService;
+    private ManagedRuntimeFileResolver managedRuntimeFileResolver;
 
     public FlinkSqlExecutionService(DataModelService dataModelService,
                                     DataSourceService dataSourceService,
@@ -65,6 +71,11 @@ public class FlinkSqlExecutionService {
         this.runtimeClusterSelectionService = runtimeClusterSelectionService;
     }
 
+    @Autowired(required = false)
+    public void setManagedRuntimeFileResolver(ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
+    }
+
     public FlinkQuestionResultView execute(FlinkSqlExecuteRequest request) {
         if (!properties.getFlink().isEnabled()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "Flink SQL execution is disabled");
@@ -79,6 +90,9 @@ public class FlinkSqlExecutionService {
         List<String> runtimeRefs = new ArrayList<String>();
         List<String> createTableDdls = new ArrayList<String>();
         List<FlinkModelRefView> modelRefs = new ArrayList<FlinkModelRefView>();
+        List<ManagedRuntimeFileResolver.Resolution<DataSourceDefinition>> managedFileResolutions =
+                new ArrayList<ManagedRuntimeFileResolver.Resolution<DataSourceDefinition>>();
+        List<Map<Long, Path>> managedFileScopes = new ArrayList<Map<Long, Path>>();
         PluginRuntimeSession capabilityPluginSelection = null;
         try {
             List<DataModelDefinition> models = new ArrayList<DataModelDefinition>();
@@ -98,11 +112,27 @@ public class FlinkSqlExecutionService {
             List<AggregationFlinkTableRuntime> runtimes = new ArrayList<AggregationFlinkTableRuntime>();
             List<String> flinkTableNames = new ArrayList<String>();
             String executionMode = normalizedExecutionMode();
+            boolean remoteConnector = "gateway".equals(executionMode);
+            String runtimeEndpoint = remoteConnector ? requiredRuntimeEndpoint() : null;
             FlinkExecutionClient executionClient = executionClientRouter.select(executionMode);
             for (int i = 0; i < models.size(); i++) {
                 DataModelDefinition model = models.get(i);
                 DataSourceDefinition datasource = datasources.get(i);
-                AggregationFlinkTableRuntime runtime = runtimeBuilder.build(datasource, model, scanMaxRows);
+                ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> managedFiles =
+                        resolveManagedDatasource(datasource, request, i);
+                managedFileResolutions.add(managedFiles);
+                DataSourceDefinition resolvedDatasource = managedFiles == null
+                        ? datasource : managedFiles.getValue();
+                Map<Long, Path> managedFileScope = managedFiles == null
+                        ? new LinkedHashMap<Long, Path>()
+                        : collectManagedFileScope(datasource.getTechnicalMetadata(),
+                        resolvedDatasource.getTechnicalMetadata());
+                managedFileScopes.add(managedFileScope);
+                if (remoteConnector && !managedFileScope.isEmpty()) {
+                    assertSecureManagedFileEndpoint(runtimeEndpoint);
+                }
+                AggregationFlinkTableRuntime runtime = runtimeBuilder.build(
+                        remoteConnector ? datasource : resolvedDatasource, model, scanMaxRows);
                 runtimes.add(runtime);
                 String flinkTableName = tableNameFor(model);
                 flinkTableNames.add(flinkTableName);
@@ -110,7 +140,6 @@ public class FlinkSqlExecutionService {
             }
             boolean streamingMode = runtimes.stream()
                     .anyMatch(runtime -> "unbounded".equalsIgnoreCase(runtime.getScanMode()));
-            boolean remoteConnector = "gateway".equals(executionMode);
             List<ResolvedPlugin> selectedCapabilityPlugins = new ArrayList<ResolvedPlugin>();
             if (remoteConnector) {
                 capabilityPluginSelection = PluginRuntimeSession.createDetached();
@@ -120,13 +149,15 @@ public class FlinkSqlExecutionService {
                 AggregationFlinkTableRuntime runtime = runtimes.get(i);
                 String runtimeRef = remoteConnector
                         ? AggregationFlinkRuntimeRegistry.registerCapability(runtime,
-                        properties.getFlink().getRuntimeRegistryTtlSeconds(), selectedCapabilityPlugins.get(i))
+                        properties.getFlink().getRuntimeRegistryTtlSeconds(), selectedCapabilityPlugins.get(i),
+                        managedFileScopes.get(i), managedFileResolutions.get(i))
                         : AggregationFlinkRuntimeRegistry.register(runtime,
-                        properties.getFlink().getRuntimeRegistryTtlSeconds());
+                        properties.getFlink().getRuntimeRegistryTtlSeconds(),
+                        managedFileScopes.get(i), managedFileResolutions.get(i));
                 runtimeRefs.add(runtimeRef);
                 String flinkTableName = flinkTableNames.get(i);
                 FlinkRuntimeConnectorAccess access = remoteConnector
-                        ? FlinkRuntimeConnectorAccess.remote(requiredRuntimeEndpoint(), runtimeRef)
+                        ? FlinkRuntimeConnectorAccess.remote(runtimeEndpoint, runtimeRef)
                         : FlinkRuntimeConnectorAccess.local(runtimeRef);
                 createTableDdls.add(FlinkTableDdlBuilder.buildCreateTemporaryTableDdl(flinkTableName, runtime, access));
             }
@@ -167,6 +198,63 @@ public class FlinkSqlExecutionService {
             if (capabilityPluginSelection != null) {
                 capabilityPluginSelection.close();
             }
+            for (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution : managedFileResolutions) {
+                if (resolution != null) resolution.close();
+            }
+        }
+    }
+
+    private ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolveManagedDatasource(
+            DataSourceDefinition datasource, FlinkSqlExecuteRequest request, int index) {
+        if (managedRuntimeFileResolver == null) return null;
+        String datasourceId = datasource.getId() == null ? "unknown" : String.valueOf(datasource.getId());
+        return managedRuntimeFileResolver.resolveDatasource(datasource, "FLINK_SQL",
+                datasourceId + ":" + index + ":" + Long.toUnsignedString(System.nanoTime()));
+    }
+
+    private Map<Long, Path> collectManagedFileScope(Object original, Object resolved) {
+        Map<Long, Path> scope = new LinkedHashMap<Long, Path>();
+        collectManagedFileScope(original, resolved, scope);
+        return scope;
+    }
+
+    private void collectManagedFileScope(Object original, Object resolved, Map<Long, Path> scope) {
+        if (ManagedFileService.isManagedFileUri(original) && resolved != null) {
+            Long fileId = ManagedFileService.parseManagedFileId(original, "Flink runtime configuration");
+            scope.putIfAbsent(fileId, Path.of(String.valueOf(resolved)).toAbsolutePath().normalize());
+            return;
+        }
+        if (original instanceof Map<?, ?> && resolved instanceof Map<?, ?>) {
+            Map<?, ?> resolvedMap = (Map<?, ?>) resolved;
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) original).entrySet()) {
+                collectManagedFileScope(entry.getValue(), resolvedMap.get(entry.getKey()), scope);
+            }
+            return;
+        }
+        if (original instanceof List<?> && resolved instanceof List<?>) {
+            List<?> originals = (List<?>) original;
+            List<?> resolvedValues = (List<?>) resolved;
+            int size = Math.min(originals.size(), resolvedValues.size());
+            for (int index = 0; index < size; index++) {
+                collectManagedFileScope(originals.get(index), resolvedValues.get(index), scope);
+            }
+        }
+    }
+
+    private void assertSecureManagedFileEndpoint(String endpoint) {
+        URI uri;
+        try {
+            uri = URI.create(endpoint);
+        } catch (Exception ex) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "Invalid studio.flink.runtime-endpoint for managed file transfer");
+        }
+        if ("https".equalsIgnoreCase(uri.getScheme())) return;
+        String host = uri.getHost() == null ? "" : uri.getHost().trim().toLowerCase();
+        boolean loopback = "localhost".equals(host) || "::1".equals(host) || host.startsWith("127.");
+        if (!loopback) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    "HTTPS is required to transfer managed authentication files to a remote Flink runtime");
         }
     }
 

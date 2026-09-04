@@ -16,6 +16,7 @@ import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.EnvironmentDependencyService;
 import com.jdragon.studio.infra.service.JavaDataDevelopmentExecutor;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import com.jdragon.studio.infra.service.PythonDataDevelopmentExecutor;
 import com.jdragon.studio.infra.service.QualityTaskExecutionPlanService;
 import com.jdragon.studio.infra.service.QualityTaskExecutionService;
@@ -64,6 +65,8 @@ class WorkerDatasourceExecutionConfigurationTest {
                     () -> mock(DatasourceClusterBindingService.class))
             .withBean(CollectionTaskAssemblerService.class,
                     () -> mock(CollectionTaskAssemblerService.class))
+            .withBean(ManagedRuntimeFileResolver.class,
+                    () -> mock(ManagedRuntimeFileResolver.class))
             .withBean(DataModelService.class, () -> mock(DataModelService.class))
             .withBean(RuntimeDatasourceProbeRouter.class,
                     () -> mock(RuntimeDatasourceProbeRouter.class))

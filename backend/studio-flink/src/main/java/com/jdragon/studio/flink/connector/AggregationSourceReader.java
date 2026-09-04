@@ -135,6 +135,8 @@ public class AggregationSourceReader implements SourceReader<RowData, Aggregatio
                     AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
                 } catch (Throwable ignored) {
                     // query results should not be discarded only because audit write-back failed
+                } finally {
+                    runtime.closeRuntimeResource();
                 }
             }
             finished = true;

@@ -19,6 +19,7 @@ import com.jdragon.studio.infra.service.BusinessMetaModelMetadataService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.HttpReaderOptionNormalizer;
 import com.jdragon.studio.infra.service.KafkaConfigurationSupport;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import com.jdragon.aggregation.commons.pagination.Table;
 import com.jdragon.aggregation.commons.util.Configuration;
 import com.jdragon.aggregation.datasource.AbstractDataSourcePlugin;
@@ -54,6 +55,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Comparator;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Optional;
+import com.jdragon.aggregation.datasource.file.transfer.StorageCapabilities;
+import com.jdragon.aggregation.datasource.file.transfer.TransferFileEntry;
+import com.jdragon.aggregation.datasource.file.transfer.TransferFilePage;
+import com.jdragon.aggregation.datasource.file.transfer.TransferWriteSession;
 
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildFileMetadata;
 import static com.jdragon.studio.infra.service.execution.AggregationModelMetadataSupport.buildLightweightRelationalMetadata;
@@ -96,12 +105,21 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     private final EncryptionService encryptionService;
     private final BusinessMetaModelMetadataService businessMetaModelMetadataService;
+    private final ManagedRuntimeFileResolver managedRuntimeFileResolver;
 
     public AggregationSourceCapabilityProvider(StudioPlatformProperties properties,
                                                EncryptionService encryptionService,
                                                BusinessMetaModelMetadataService businessMetaModelMetadataService) {
+        this(properties, encryptionService, businessMetaModelMetadataService, null);
+    }
+
+    public AggregationSourceCapabilityProvider(StudioPlatformProperties properties,
+                                               EncryptionService encryptionService,
+                                               BusinessMetaModelMetadataService businessMetaModelMetadataService,
+                                               ManagedRuntimeFileResolver managedRuntimeFileResolver) {
         this.encryptionService = encryptionService;
         this.businessMetaModelMetadataService = businessMetaModelMetadataService;
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
         configureAggregationHome(properties.getAggregationHome());
     }
 
@@ -127,6 +145,17 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     /** Opens a binary file session using Worker-only decrypted datasource metadata. */
     public TransferFileSystem openTransferFileSystem(DataSourceDefinition definition) throws Exception {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "FILE_TRANSFER", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try {
+                TransferFileSystem delegate = openTransferFileSystem(resolution.getValue());
+                return new LeaseBoundTransferFileSystem(delegate, resolution);
+            } catch (Exception | Error failure) {
+                resolution.close();
+                throw failure;
+            }
+        }
         if (definition == null || definition.getTypeCode() == null) {
             throw new IllegalArgumentException("File datasource definition is required");
         }
@@ -169,6 +198,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     @Override
     public ConnectionTestResult testConnection(DataSourceDefinition definition) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "CONNECTION_TEST", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return testConnection(resolution.getValue());
+            }
+        }
         long startedAt = System.nanoTime();
         if (isHttpDatasource(definition)) {
             return testHttpConnection(definition);
@@ -270,6 +306,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                                                            String keyword,
                                                            Integer pageNo,
                                                            Integer pageSize) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "MODEL_DISCOVERY", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return discoverModelOptions(resolution.getValue(), keyword, pageNo, pageSize);
+            }
+        }
         ModelDiscoveryOptionResult result = new ModelDiscoveryOptionResult();
         if (isHttpDatasource(definition)) {
             result.setPageNo(resolvePageNo(pageNo));
@@ -352,6 +395,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
                                                String keyword,
                                                Integer pageNo,
                                                Integer pageSize) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "MODEL_DISCOVERY", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return discoverModels(resolution.getValue(), keyword, pageNo, pageSize);
+            }
+        }
         ModelDiscoveryResult result = new ModelDiscoveryResult();
         if (isHttpDatasource(definition)) {
             result.setPageNo(resolvePageNo(pageNo));
@@ -581,6 +631,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
     }
 
     public DataModelDefinition hydrateDiscoveredModel(DataSourceDefinition definition, DataModelDefinition definitionModel) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "MODEL_DISCOVERY", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return hydrateDiscoveredModel(resolution.getValue(), definitionModel);
+            }
+        }
         if (definition == null || definitionModel == null) {
             return definitionModel;
         }
@@ -611,6 +668,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     public List<HydrationResult> hydrateDiscoveredModels(DataSourceDefinition definition,
                                                          List<DataModelDefinition> definitionModels) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                definition, "MODEL_DISCOVERY", datasourceConsumerId(definition));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return hydrateDiscoveredModels(resolution.getValue(), definitionModels);
+            }
+        }
         List<HydrationResult> results = new ArrayList<HydrationResult>();
         if (definition == null || definitionModels == null || definitionModels.isEmpty()) {
             return results;
@@ -678,6 +742,13 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
 
     @Override
     public List<Map<String, Object>> preview(DataSourceDefinition datasource, DataModelDefinition model, int limit) {
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution = resolveManagedDatasource(
+                datasource, "MODEL_PREVIEW", datasourceConsumerId(datasource));
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = resolution) {
+                return preview(resolution.getValue(), model, limit);
+            }
+        }
         List<Map<String, Object>> rows = new ArrayList<Map<String, Object>>();
         if (isHttpDatasource(datasource)) {
             return previewHttp(datasource, model, limit);
@@ -1352,6 +1423,63 @@ public class AggregationSourceCapabilityProvider implements SourceCapabilityProv
             }
         }
         return result;
+    }
+
+    private ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolveManagedDatasource(
+            DataSourceDefinition definition, String consumerType, String consumerId) {
+        if (managedRuntimeFileResolver == null || definition == null
+                || !managedRuntimeFileResolver.containsManagedFiles(definition.getTechnicalMetadata())) {
+            return null;
+        }
+        return managedRuntimeFileResolver.resolveDatasource(definition, consumerType, consumerId);
+    }
+
+    private String datasourceConsumerId(DataSourceDefinition definition) {
+        return definition == null || definition.getId() == null ? "UNSAVED" : String.valueOf(definition.getId());
+    }
+
+    private static final class LeaseBoundTransferFileSystem implements TransferFileSystem {
+        private final TransferFileSystem delegate;
+        private final ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution;
+        private boolean closed;
+
+        private LeaseBoundTransferFileSystem(TransferFileSystem delegate,
+                                             ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolution) {
+            this.delegate = delegate;
+            this.resolution = resolution;
+        }
+
+        @Override public String initialPath() { return delegate.initialPath(); }
+        @Override public TransferFileEntry stat(String path) throws IOException { return delegate.stat(path); }
+        @Override public TransferFilePage listPage(String directory, String cursor, int pageSize) throws IOException { return delegate.listPage(directory, cursor, pageSize); }
+        @Override public InputStream openRead(String path, long offset, long length) throws IOException { return delegate.openRead(path, offset, length); }
+        @Override public TransferWriteSession prepareWrite(String temporaryPath, String sessionId) throws IOException { return delegate.prepareWrite(temporaryPath, sessionId); }
+        @Override public Optional<TransferWriteSession> recoverWriteSession(TransferWriteSession session, long confirmedOffset) throws IOException { return delegate.recoverWriteSession(session, confirmedOffset); }
+        @Override public long append(TransferWriteSession session, long offset, InputStream source, long length) throws IOException { return delegate.append(session, offset, source, length); }
+        @Override public void commit(TransferWriteSession session, String targetPath, boolean replaceExisting) throws IOException { delegate.commit(session, targetPath, replaceExisting); }
+        @Override public void abort(TransferWriteSession session) throws IOException { delegate.abort(session); }
+        @Override public void move(String sourcePath, String targetPath, boolean replaceExisting) throws IOException { delegate.move(sourcePath, targetPath, replaceExisting); }
+        @Override public void delete(String path) throws IOException { delegate.delete(path); }
+        @Override public StorageCapabilities capabilities() { return delegate.capabilities(); }
+        @Override public boolean exists(String path, String name) throws IOException { return delegate.exists(path, name); }
+        @Override public Set<String> listFile(String dir, String regex) throws IOException { return delegate.listFile(dir, regex); }
+        @Override public boolean isFile(String dir, String fileName) throws IOException { return delegate.isFile(dir, fileName); }
+        @Override public void mkdir(String filePath) throws IOException { delegate.mkdir(filePath); }
+        @Override public void rm(String path) throws IOException { delegate.rm(path); }
+        @Override public boolean connect(Configuration configuration) { return delegate.connect(configuration); }
+        @Override public boolean isConnected() { return delegate.isConnected(); }
+        @Override public boolean mv(String from, String to) throws Exception { return delegate.mv(from, to); }
+        @Override public InputStream getInputStream(String path, String name) throws IOException { return delegate.getInputStream(path, name); }
+        @Override public OutputStream getOutputStream(String path, String name) throws IOException { return delegate.getOutputStream(path, name); }
+        @Override public void fresh() { delegate.fresh(); }
+
+        @Override
+        public synchronized void close() throws Exception {
+            if (closed) return;
+            closed = true;
+            try { delegate.close(); }
+            finally { resolution.close(); }
+        }
     }
 
     private String asString(Object value) {

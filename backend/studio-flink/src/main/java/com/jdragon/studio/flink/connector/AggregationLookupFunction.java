@@ -37,25 +37,29 @@ public class AggregationLookupFunction extends TableFunction<RowData> {
 
     public void eval(Object... values) throws Exception {
         AggregationFlinkTableRuntime runtime = AggregationRuntimeResolver.resolve(runtimeHandle);
-        List<String> keyNames = resolveLookupKeyNames(producedDataType, lookupKeys);
-        List<DataType> keyTypes = resolveLookupKeyDataTypes(producedDataType, lookupKeys);
-        if (isHttp(runtime) && containsNull(values)) {
-            return;
+        try {
+            List<String> keyNames = resolveLookupKeyNames(producedDataType, lookupKeys);
+            List<DataType> keyTypes = resolveLookupKeyDataTypes(producedDataType, lookupKeys);
+            if (isHttp(runtime) && containsNull(values)) {
+                return;
+            }
+            HttpLookupPlan httpLookupPlan = buildHttpLookupPlan(runtime, keyNames, keyTypes, values);
+            if (httpLookupPlan.isNoMatch()) {
+                return;
+            }
+            AggregationFlinkTableRuntime lookupRuntime = copyForLookup(runtime,
+                    AggregationSourceUtil.buildLookupQuery(runtime, producedDataType, keyNames, values));
+            lookupRuntime.setHttpPushdownFilters(httpLookupPlan.getPushdownFilters());
+            AggregationRowDataConverter converter = new AggregationRowDataConverter(producedDataType);
+            new StructuredPluginSourceStrategy().readRows(lookupRuntime, row -> emitLookupMatch(
+                    row,
+                    httpLookupPlan.getResidualValues(),
+                    httpLookupPlan.getResidualTypes(),
+                    matched -> collect(converter.convert(matched))));
+            AggregationRuntimeResolver.updateAudit(runtimeHandle, lookupRuntime);
+        } finally {
+            runtime.closeRuntimeResource();
         }
-        HttpLookupPlan httpLookupPlan = buildHttpLookupPlan(runtime, keyNames, keyTypes, values);
-        if (httpLookupPlan.isNoMatch()) {
-            return;
-        }
-        AggregationFlinkTableRuntime lookupRuntime = copyForLookup(runtime,
-                AggregationSourceUtil.buildLookupQuery(runtime, producedDataType, keyNames, values));
-        lookupRuntime.setHttpPushdownFilters(httpLookupPlan.getPushdownFilters());
-        AggregationRowDataConverter converter = new AggregationRowDataConverter(producedDataType);
-        new StructuredPluginSourceStrategy().readRows(lookupRuntime, row -> emitLookupMatch(
-                row,
-                httpLookupPlan.getResidualValues(),
-                httpLookupPlan.getResidualTypes(),
-                matched -> collect(converter.convert(matched))));
-        AggregationRuntimeResolver.updateAudit(runtimeHandle, lookupRuntime);
     }
 
     static HttpLookupPlan buildHttpLookupPlan(AggregationFlinkTableRuntime runtime,

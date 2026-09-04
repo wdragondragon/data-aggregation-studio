@@ -3,6 +3,8 @@ package com.jdragon.studio.infra.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jdragon.studio.commons.constant.StudioConstants;
 import com.jdragon.studio.commons.exception.StudioErrorCode;
 import com.jdragon.studio.commons.exception.StudioException;
@@ -48,6 +50,7 @@ import java.util.concurrent.Callable;
 @Service
 public class DataSourceService {
     private static final Logger log = LoggerFactory.getLogger(DataSourceService.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final int MAX_CONNECTION_TEST_MESSAGE_LENGTH = 1000;
     private static final int DEFAULT_PAGE_NO = 1;
     private static final int DEFAULT_PAGE_SIZE = 20;
@@ -67,6 +70,7 @@ public class DataSourceService {
     private DatasourceClusterBindingService datasourceClusterBindingService;
     private RuntimeValidationService runtimeValidationService;
     private RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter;
+    private ManagedFileService managedFileService;
 
     public DataSourceService(DatasourceMapper datasourceMapper,
                              DataModelMapper dataModelMapper,
@@ -106,6 +110,11 @@ public class DataSourceService {
     @Autowired
     public void setRuntimeDatasourceProbeRouter(RuntimeDatasourceProbeRouter runtimeDatasourceProbeRouter) {
         this.runtimeDatasourceProbeRouter = runtimeDatasourceProbeRouter;
+    }
+
+    @Autowired(required = false)
+    public void setManagedFileService(ManagedFileService managedFileService) {
+        this.managedFileService = managedFileService;
     }
 
     public List<DataSourceDefinition> list() {
@@ -407,6 +416,10 @@ public class DataSourceService {
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity.getTechnicalMetadata(), technicalMetadata);
         technicalMetadata = normalizeDatasourceConnectionMetadata(request.getTypeCode(), technicalMetadata);
+        validateManagedAuthenticationConfiguration(request.getTypeCode(), technicalMetadata);
+        if (managedFileService != null) {
+            managedFileService.validateReferences(schema, technicalMetadata);
+        }
         Long resolvedSchemaVersionId = resolveSchemaVersionId(request, schema);
         Map<String, Object> encryptedTechnicalMetadata = encryptSensitive(technicalMetadata);
         String connectionFingerprint = datasourceConnectionFingerprintService.fingerprint(currentTenantId,
@@ -443,6 +456,10 @@ public class DataSourceService {
         datasourceConnectionHealthService.ensureHealthRow(currentTenantId, connectionFingerprint);
         if (datasourceClusterBindingService != null) {
             datasourceClusterBindingService.replaceBindings(currentTenantId, entity.getId(), applicableClusterIds);
+        }
+        if (managedFileService != null) {
+            managedFileService.synchronizeReferences(ManagedFileService.OWNER_DATASOURCE,
+                    entity.getId(), schema, technicalMetadata);
         }
         if (runtimeValidationService != null) {
             bindingImpact.setDatasourceId(entity.getId());
@@ -666,6 +683,10 @@ public class DataSourceService {
                 .eq(DataModelEntity::getDatasourceId, id));
         if (datasourceClusterBindingService != null) {
             datasourceClusterBindingService.deleteBindings(entity.getTenantId(), id);
+        }
+        if (managedFileService != null) {
+            managedFileService.removeOwnerReferences(ManagedFileService.OWNER_DATASOURCE,
+                    id, entity.getTenantId(), entity.getProjectId());
         }
         datasourceMapper.deleteById(id);
         dataModelIndexRebuildQueueService.enqueueDatasourceDelete(id);
@@ -904,6 +925,10 @@ public class DataSourceService {
         Map<String, Object> technicalMetadata = applyDefaults(request.getTechnicalMetadata(), schema, MetadataScope.TECHNICAL);
         technicalMetadata = preserveSensitiveValues(entity == null ? null : entity.getTechnicalMetadata(), technicalMetadata);
         technicalMetadata = normalizeDatasourceConnectionMetadata(request.getTypeCode(), technicalMetadata);
+        validateManagedAuthenticationConfiguration(request.getTypeCode(), technicalMetadata);
+        if (managedFileService != null) {
+            managedFileService.validateReferences(schema, technicalMetadata);
+        }
 
         DataSourceDefinition definition = new DataSourceDefinition();
         definition.setId(request.getId());
@@ -1317,6 +1342,75 @@ public class DataSourceService {
         return metadata == null
                 ? new LinkedHashMap<String, Object>()
                 : new LinkedHashMap<String, Object>(metadata);
+    }
+
+    private void validateManagedAuthenticationConfiguration(String typeCode, Map<String, Object> metadata) {
+        if (managedFileService == null || !managedFileService.isEnabled()) {
+            return;
+        }
+        String normalizedType = typeCode == null ? "" : typeCode.trim().toLowerCase(Locale.ENGLISH);
+        Map<String, Object> values = metadata == null
+                ? new LinkedHashMap<String, Object>() : metadata;
+        if ("kafka".equals(normalizedType) && booleanValue(values.get("kerberos"))) {
+            requireKerberosFields(values, "principal", "kerberosKeytabFilePath", "krb5Conf", "Kafka");
+            return;
+        }
+        if (("tbds-hdfs".equals(normalizedType) || "tbds-hdfs3".equals(normalizedType))
+                && hadoopKerberosEnabled(values.get("hadoopConfig"))) {
+            requireKerberosFields(values, "kerberosPrincipal", "kerberosKeytabFilePath", "krb5Conf", "HDFS");
+            return;
+        }
+        if ("tbds-hive3".equals(normalizedType)) {
+            requireKerberosFields(values, "principal", "keytabPath", "krb5File", "Hive3");
+        }
+    }
+
+    private void requireKerberosFields(Map<String, Object> values, String principalKey,
+                                       String keytabKey, String krb5Key, String datasourceName) {
+        String principal = requiredMetadataText(values, principalKey, datasourceName);
+        requiredMetadataText(values, keytabKey, datasourceName);
+        requiredMetadataText(values, krb5Key, datasourceName);
+        int separator = principal.lastIndexOf('@');
+        if (separator <= 0 || separator == principal.length() - 1) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    datasourceName + " Kerberos Principal must include an explicit @REALM");
+        }
+    }
+
+    private String requiredMetadataText(Map<String, Object> values, String key, String datasourceName) {
+        Object value = values.get(key);
+        String text = value == null ? "" : String.valueOf(value).trim();
+        if (text.isEmpty()) {
+            throw new StudioException(StudioErrorCode.BAD_REQUEST,
+                    datasourceName + " Kerberos field is required: " + key);
+        }
+        return text;
+    }
+
+    private boolean hadoopKerberosEnabled(Object configured) {
+        Map<String, Object> values = new LinkedHashMap<String, Object>();
+        if (configured instanceof Map<?, ?>) {
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) configured).entrySet()) {
+                values.put(String.valueOf(entry.getKey()), entry.getValue());
+            }
+        } else if (configured instanceof String && !((String) configured).trim().isEmpty()) {
+            try {
+                values.putAll(OBJECT_MAPPER.readValue((String) configured,
+                        new TypeReference<Map<String, Object>>() { }));
+            } catch (Exception ignored) {
+                return false;
+            }
+        }
+        return "kerberos".equalsIgnoreCase(String.valueOf(
+                values.getOrDefault("hadoop.security.authentication", "")).trim());
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean) return ((Boolean) value).booleanValue();
+        if (value instanceof Number) return ((Number) value).intValue() != 0;
+        String normalized = value == null ? "" : String.valueOf(value).trim().toLowerCase(Locale.ENGLISH);
+        return "true".equals(normalized) || "1".equals(normalized)
+                || "yes".equals(normalized) || "on".equals(normalized);
     }
 
     private Object parseDefaultValue(MetadataFieldDefinition field) {

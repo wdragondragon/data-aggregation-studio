@@ -60,11 +60,19 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
 
     private final EncryptionService encryptionService;
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
+    private final ManagedRuntimeFileResolver managedRuntimeFileResolver;
 
     public DataDevelopmentSqlExecutor(EncryptionService encryptionService,
                                       DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
+        this(encryptionService, datasourceTypeCapabilityService, null);
+    }
+
+    public DataDevelopmentSqlExecutor(EncryptionService encryptionService,
+                                      DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+                                      ManagedRuntimeFileResolver managedRuntimeFileResolver) {
         this.encryptionService = encryptionService;
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
     }
 
     public boolean supports(DataSourceDefinition datasource) {
@@ -108,9 +116,13 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL script content is empty");
         }
 
-        BaseDataSourceDTO dataSourceDTO = toBaseDataSourceDTO(datasource);
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> managedFiles = resolveDatasource(
+                datasource, "DATA_DEVELOPMENT_SQL");
+        DataSourceDefinition runtimeDatasource = managedFiles == null ? datasource : managedFiles.getValue();
+        BaseDataSourceDTO dataSourceDTO = toBaseDataSourceDTO(runtimeDatasource);
         long startedAt = System.currentTimeMillis();
-        try (PluginClassLoaderCloseable loader =
+        try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = managedFiles;
+             PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractDataSourcePlugin plugin = loader.loadPlugin();
             Connection connection = resolveJdbcConnection(plugin, dataSourceDTO);
@@ -192,9 +204,13 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
         if (sql == null || sql.trim().isEmpty()) {
             throw new StudioException(StudioErrorCode.BAD_REQUEST, "SQL script content is empty");
         }
-        BaseDataSourceDTO dataSourceDTO = toBaseDataSourceDTO(datasource);
+        ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> managedFiles = resolveDatasource(
+                datasource, "DATA_DEVELOPMENT_PREPARED_SQL");
+        DataSourceDefinition runtimeDatasource = managedFiles == null ? datasource : managedFiles.getValue();
+        BaseDataSourceDTO dataSourceDTO = toBaseDataSourceDTO(runtimeDatasource);
         long startedAt = System.currentTimeMillis();
-        try (PluginClassLoaderCloseable loader =
+        try (ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> ignored = managedFiles;
+             PluginClassLoaderCloseable loader =
                      PluginClassLoaderCloseable.newCurrentThreadClassLoaderSwapper(SourcePluginType.SOURCE, datasource.getTypeCode())) {
             AbstractDataSourcePlugin plugin = loader.loadPlugin();
             Connection connection = resolveJdbcConnection(plugin, dataSourceDTO);
@@ -463,6 +479,14 @@ public class DataDevelopmentSqlExecutor implements DataDevelopmentScriptExecutor
             return "(BLOB) " + ((byte[]) value).length + " bytes";
         }
         return value;
+    }
+
+    private ManagedRuntimeFileResolver.Resolution<DataSourceDefinition> resolveDatasource(
+            DataSourceDefinition datasource, String consumerType) {
+        if (managedRuntimeFileResolver == null) return null;
+        String datasourceId = datasource.getId() == null ? "unknown" : String.valueOf(datasource.getId());
+        return managedRuntimeFileResolver.resolveDatasource(datasource, consumerType,
+                datasourceId + ":" + Long.toUnsignedString(System.nanoTime()));
     }
 
     private BaseDataSourceDTO toBaseDataSourceDTO(DataSourceDefinition datasource) {

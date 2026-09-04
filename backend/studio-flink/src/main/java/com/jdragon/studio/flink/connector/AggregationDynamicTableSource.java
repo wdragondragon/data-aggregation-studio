@@ -76,17 +76,21 @@ public class AggregationDynamicTableSource implements ScanTableSource, LookupTab
     @Override
     public Result applyFilters(List<ResolvedExpression> filters) {
         AggregationFlinkTableRuntime runtime = AggregationRuntimeResolver.resolve(runtimeHandle);
-        AggregationFilterPushDownTranslator.Translation translation =
-                AggregationFilterPushDownTranslator.translate(filters, runtime,
-                        AggregationPluginClassifier.classify(pluginName));
-        runtime.setPushedFilters(translation.getPushedFilterSql());
-        runtime.setRemainingFilters(translation.getRemainingFilterSql());
-        runtime.setPathContextFilters(translation.getPathContextFilters());
-        runtime.setHttpPushdownFilters(translation.getHttpPushdownFilters());
-        runtime.setHttpFilterAlwaysFalse(translation.isHttpFilterAlwaysFalse());
-        AggregationRuntimeResolver.captureRuntimeState(runtimeHandle, runtime);
-        AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
-        return Result.of(translation.getAcceptedFilters(), translation.getRemainingFilters());
+        try {
+            AggregationFilterPushDownTranslator.Translation translation =
+                    AggregationFilterPushDownTranslator.translate(filters, runtime,
+                            AggregationPluginClassifier.classify(pluginName));
+            runtime.setPushedFilters(translation.getPushedFilterSql());
+            runtime.setRemainingFilters(translation.getRemainingFilterSql());
+            runtime.setPathContextFilters(translation.getPathContextFilters());
+            runtime.setHttpPushdownFilters(translation.getHttpPushdownFilters());
+            runtime.setHttpFilterAlwaysFalse(translation.isHttpFilterAlwaysFalse());
+            AggregationRuntimeResolver.captureRuntimeState(runtimeHandle, runtime);
+            AggregationRuntimeResolver.updateAudit(runtimeHandle, runtime);
+            return Result.of(translation.getAcceptedFilters(), translation.getRemainingFilters());
+        } finally {
+            runtime.closeRuntimeResource();
+        }
     }
 
     private boolean isUnbounded() {

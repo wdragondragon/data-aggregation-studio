@@ -12,15 +12,21 @@ final class AggregationRuntimeResolver {
         if (handle.isLocal()) {
             runtime = copyWithoutRuntimeState(AggregationFlinkRuntimeRegistry.required(handle.getRuntimeRef()));
         } else if (handle.isRemote()) {
-            runtime = copyWithoutRuntimeState(
-                    AggregationRemoteRuntimeClient.resolve(handle.getRuntimeEndpoint(), handle.getRuntimeToken()));
+            runtime = AggregationRemoteRuntimeClient.resolve(
+                    handle.getRuntimeEndpoint(), handle.getRuntimeToken());
+            clearRuntimeState(runtime);
             runtime.setPluginRuntimeEndpoint(handle.getRuntimeEndpoint());
             runtime.setPluginRuntimeToken(handle.getRuntimeToken());
         } else {
             throw new IllegalStateException("DataAggregation Flink runtime ref or endpoint/token is required");
         }
-        handle.applyRuntimeState(runtime);
-        return runtime;
+        try {
+            handle.applyRuntimeState(runtime);
+            return runtime;
+        } catch (RuntimeException ex) {
+            runtime.closeRuntimeResource();
+            throw ex;
+        }
     }
 
     static void captureRuntimeState(AggregationRuntimeHandle handle, AggregationFlinkTableRuntime runtime) {
@@ -45,6 +51,11 @@ final class AggregationRuntimeResolver {
 
     private static AggregationFlinkTableRuntime copyWithoutRuntimeState(AggregationFlinkTableRuntime source) {
         AggregationFlinkTableRuntime runtime = AggregationFlinkTableRuntimePayload.fromRuntime(source).toRuntime();
+        clearRuntimeState(runtime);
+        return runtime;
+    }
+
+    private static void clearRuntimeState(AggregationFlinkTableRuntime runtime) {
         runtime.setPushedFilters(null);
         runtime.setRemainingFilters(null);
         runtime.setPathContextFilters(null);
@@ -52,6 +63,5 @@ final class AggregationRuntimeResolver {
         runtime.setHttpFilterAlwaysFalse(false);
         runtime.setResolvedSourceSql(null);
         runtime.setResolvedFilePaths(null);
-        return runtime;
     }
 }

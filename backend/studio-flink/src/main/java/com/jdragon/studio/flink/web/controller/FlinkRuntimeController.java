@@ -38,6 +38,8 @@ import java.util.zip.ZipOutputStream;
 public class FlinkRuntimeController {
     private static final String PLUGIN_IDENTITY_HEADER = "X-DataAggregation-Plugin-Identity";
     private static final String PLUGIN_COORDINATE_HEADER = "X-DataAggregation-Plugin-Coordinate";
+    private static final String MANAGED_FILE_SHA256_HEADER = "X-Studio-Managed-File-Sha256";
+    private static final String MANAGED_FILE_SIZE_HEADER = "X-Studio-Managed-File-Size";
 
     @Operation(summary = "Resolve short-lived DataAggregation runtime for remote Flink connector")
     @PostMapping("/resolve")
@@ -77,6 +79,22 @@ public class FlinkRuntimeController {
             try (ZipOutputStream archive = new ZipOutputStream(response.getOutputStream())) {
                 writePluginDirectory(plugin.getDirectory(), archive);
             }
+        }
+    }
+
+    @Operation(summary = "Download a task-scoped managed file for a remote Flink connector")
+    @GetMapping(value = "/managed-file", produces = MediaType.APPLICATION_OCTET_STREAM_VALUE)
+    public void managedFile(
+            @RequestHeader(AggregationFlinkRuntimeRegistry.CAPABILITY_TOKEN_HEADER) String token,
+            @RequestParam("id") Long fileId,
+            HttpServletResponse response) throws IOException {
+        Path path = AggregationFlinkRuntimeRegistry.requiredManagedFile(token, fileId);
+        response.setContentType(MediaType.APPLICATION_OCTET_STREAM_VALUE);
+        response.setHeader(MANAGED_FILE_SHA256_HEADER, sha256(path));
+        response.setHeader(MANAGED_FILE_SIZE_HEADER, String.valueOf(Files.size(path)));
+        response.setContentLengthLong(Files.size(path));
+        try (InputStream input = Files.newInputStream(path)) {
+            input.transferTo(response.getOutputStream());
         }
     }
 
@@ -155,6 +173,22 @@ public class FlinkRuntimeController {
             result.append(String.format("%02x", item));
         }
         return result.toString();
+    }
+
+    private String sha256(Path path) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            try (InputStream input = Files.newInputStream(path)) {
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    digest.update(buffer, 0, read);
+                }
+            }
+            return hex(digest.digest());
+        } catch (java.security.NoSuchAlgorithmException ex) {
+            throw new IllegalStateException("SHA-256 is unavailable", ex);
+        }
     }
 
     public static class RuntimeAuditRequest {

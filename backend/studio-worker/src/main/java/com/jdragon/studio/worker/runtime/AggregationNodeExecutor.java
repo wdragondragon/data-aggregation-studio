@@ -13,6 +13,7 @@ import com.jdragon.aggregation.core.statistics.communication.CommunicationTool;
 import com.jdragon.aggregation.core.statistics.communication.RunStatus;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.CollectionTaskAssemblerService;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -27,6 +28,7 @@ public class AggregationNodeExecutor implements NodeExecutor {
 
     private final DatasourceTypeCapabilityService datasourceTypeCapabilityService;
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
+    private ManagedRuntimeFileResolver managedRuntimeFileResolver;
 
     public AggregationNodeExecutor() {
         this.datasourceTypeCapabilityService = null;
@@ -38,6 +40,11 @@ public class AggregationNodeExecutor implements NodeExecutor {
                                    CollectionTaskAssemblerService collectionTaskAssemblerService) {
         this.datasourceTypeCapabilityService = datasourceTypeCapabilityService;
         this.collectionTaskAssemblerService = collectionTaskAssemblerService;
+    }
+
+    @Autowired(required = false)
+    public void setManagedRuntimeFileResolver(ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
     }
 
     @Override
@@ -58,6 +65,19 @@ public class AggregationNodeExecutor implements NodeExecutor {
         if (definition.getNodeType() == NodeType.CONSISTENCY && collectionTaskAssemblerService != null) {
             config = collectionTaskAssemblerService.assembleConsistency(config);
         }
+        ManagedRuntimeFileResolver.Resolution<Map<String, Object>> resolution = resolveManagedFiles(
+                config, runtimeContext, definition);
+        if (resolution != null) {
+            try (ManagedRuntimeFileResolver.Resolution<Map<String, Object>> ignored = resolution) {
+                return executeResolved(definition, runtimeContext, resolution.getValue());
+            }
+        }
+        return executeResolved(definition, runtimeContext, config);
+    }
+
+    private Map<String, Object> executeResolved(WorkflowNodeDefinition definition,
+                                                Map<String, Object> runtimeContext,
+                                                Map<String, Object> config) {
         validateDatasourceCapabilities(config);
         long startedAt = System.currentTimeMillis();
         JobContainer container = createJobContainer(config);
@@ -106,6 +126,28 @@ public class AggregationNodeExecutor implements NodeExecutor {
         }
         result.put("summary", buildSummary(config, communication, runStatus, jobState));
         return result;
+    }
+
+    private ManagedRuntimeFileResolver.Resolution<Map<String, Object>> resolveManagedFiles(
+            Map<String, Object> config, Map<String, Object> runtimeContext,
+            WorkflowNodeDefinition definition) {
+        if (managedRuntimeFileResolver == null || !managedRuntimeFileResolver.containsManagedFiles(config)) {
+            return null;
+        }
+        String tenantId = runtimeContext == null ? null : asString(runtimeContext.get("tenantId"));
+        Long projectId = runtimeContext == null ? null : asLong(runtimeContext.get("projectId"));
+        String consumerId = runtimeContext == null ? null : firstNonBlank(
+                runtimeContext.get("runRecordId"), runtimeContext.get("runId"), definition.getNodeCode());
+        return managedRuntimeFileResolver.resolveMap(config, tenantId, projectId,
+                "AGGREGATION_JOB", consumerId);
+    }
+
+    private Long asLong(Object value) {
+        if (value instanceof Number) return ((Number) value).longValue();
+        String text = asString(value);
+        if (text == null) return null;
+        try { return Long.valueOf(text); }
+        catch (NumberFormatException e) { return null; }
     }
 
     @SuppressWarnings("unchecked")

@@ -55,18 +55,34 @@ public final class DataIngestionExecutionSupport {
 
     private final CollectionTaskAssemblerService collectionTaskAssemblerService;
     private final ObjectMapper objectMapper;
+    private final ManagedRuntimeFileResolver managedRuntimeFileResolver;
     private final long writeSlowThresholdMs;
 
     public DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
                                          ObjectMapper objectMapper) {
-        this(collectionTaskAssemblerService, objectMapper, DEFAULT_WRITE_SLOW_THRESHOLD_MS);
+        this(collectionTaskAssemblerService, objectMapper, null, DEFAULT_WRITE_SLOW_THRESHOLD_MS);
+    }
+
+    public DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
+                                         ObjectMapper objectMapper,
+                                         ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        this(collectionTaskAssemblerService, objectMapper, managedRuntimeFileResolver,
+                DEFAULT_WRITE_SLOW_THRESHOLD_MS);
     }
 
     DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
                                   ObjectMapper objectMapper,
                                   long writeSlowThresholdMs) {
+        this(collectionTaskAssemblerService, objectMapper, null, writeSlowThresholdMs);
+    }
+
+    DataIngestionExecutionSupport(CollectionTaskAssemblerService collectionTaskAssemblerService,
+                                  ObjectMapper objectMapper,
+                                  ManagedRuntimeFileResolver managedRuntimeFileResolver,
+                                  long writeSlowThresholdMs) {
         this.collectionTaskAssemblerService = collectionTaskAssemblerService;
         this.objectMapper = objectMapper;
+        this.managedRuntimeFileResolver = managedRuntimeFileResolver;
         this.writeSlowThresholdMs = writeSlowThresholdMs;
     }
 
@@ -170,6 +186,7 @@ public final class DataIngestionExecutionSupport {
                 @Override
                 public IndexedSourceResult call() {
                     DataIngestionSourceInvokeResult sourceResult = executeBinding(preparedBinding,
+                            service,
                             headers,
                             query,
                             form,
@@ -259,6 +276,7 @@ public final class DataIngestionExecutionSupport {
     }
 
     private DataIngestionSourceInvokeResult executeBinding(PreparedSourceBinding preparedBinding,
+                                                           DataIngestionServiceView service,
                                                            Map<String, Object> headers,
                                                            Map<String, Object> query,
                                                            Map<String, Object> form,
@@ -298,10 +316,20 @@ public final class DataIngestionExecutionSupport {
                 reader.put("config", new LinkedHashMap<String, Object>());
                 jobConfig.put("reader", reader);
                 jobConfig.put("writer", writer);
-                container = new JobContainer(Configuration.from(jobConfig));
-                container.setRunContext("jobId", jobId);
-                container.addConsumerPlugin(PluginType.READER, new InMemoryRecordReader(writerRows, targetFields, mappings));
-                startAndAssertJob(container, requestId, jobId, logCaptureId);
+                ManagedRuntimeFileResolver.Resolution<Map<String, Object>> managedFiles =
+                        managedRuntimeFileResolver == null ? null : managedRuntimeFileResolver.resolveMap(
+                                jobConfig, service.getTenantId(), service.getProjectId(),
+                                "DATA_INGESTION", String.valueOf(jobId));
+                try {
+                    Map<String, Object> runtimeConfig = managedFiles == null ? jobConfig : managedFiles.getValue();
+                    container = new JobContainer(Configuration.from(runtimeConfig));
+                    container.setRunContext("jobId", jobId);
+                    container.addConsumerPlugin(PluginType.READER,
+                            new InMemoryRecordReader(writerRows, targetFields, mappings));
+                    startAndAssertJob(container, requestId, jobId, logCaptureId);
+                } finally {
+                    if (managedFiles != null) managedFiles.close();
+                }
             }
             sourceResult.setPluginRevisions(pluginRevisions(container));
             sourceResult.setReceivedCount(Long.valueOf(receivedCount));

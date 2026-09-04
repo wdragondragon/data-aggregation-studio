@@ -81,6 +81,18 @@ studio:
     async-request-timeout: ${STUDIO_WEB_ASYNC_REQUEST_TIMEOUT:300000}
   aggregation-home: ${STUDIO_AGGREGATION_HOME:}
   encryption-secret: ${STUDIO_ENCRYPTION_SECRET:}
+  managed-file:
+    enabled: ${STUDIO_MANAGED_FILE_ENABLED:false}
+    object-prefix: ${STUDIO_MANAGED_FILE_OBJECT_PREFIX:studio/managed-files}
+    cache-dir: ${STUDIO_MANAGED_FILE_CACHE_DIR:./runtime/managed-files}
+    cache-max-bytes: ${STUDIO_MANAGED_FILE_CACHE_MAX_BYTES:1073741824}
+    cache-idle-hours: ${STUDIO_MANAGED_FILE_CACHE_IDLE_HOURS:24}
+    unbound-retention-hours: ${STUDIO_MANAGED_FILE_UNBOUND_RETENTION_HOURS:24}
+    lease-ttl-seconds: ${STUDIO_MANAGED_FILE_LEASE_TTL_SECONDS:300}
+    lease-heartbeat-seconds: ${STUDIO_MANAGED_FILE_LEASE_HEARTBEAT_SECONDS:60}
+    audit-retention-days: ${STUDIO_MANAGED_FILE_AUDIT_RETENTION_DAYS:30}
+    gc-interval-millis: ${STUDIO_MANAGED_FILE_GC_INTERVAL_MILLIS:300000}
+    gc-batch-size: ${STUDIO_MANAGED_FILE_GC_BATCH_SIZE:100}
   instance-id: ${STUDIO_INSTANCE_ID:${POD_UID:${HOSTNAME:studio-flink-local}}}
   pod-name: ${POD_NAME:${HOSTNAME:studio-flink-local}}
   node-name: ${NODE_NAME:}

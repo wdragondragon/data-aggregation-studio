@@ -23,6 +23,7 @@ public class AggregationFlinkTableRuntime implements Serializable {
     // Only populated from the existing task-scoped capability, never serialized into audit payloads.
     private transient String pluginRuntimeEndpoint;
     private transient String pluginRuntimeToken;
+    private transient AutoCloseable runtimeResource;
     private DataType producedDataType;
     private List<String> fieldNames = new ArrayList<String>();
     private BaseDataSourceDTO dataSourceDTO;
@@ -123,6 +124,21 @@ public class AggregationFlinkTableRuntime implements Serializable {
 
     public void setPluginRuntimeToken(String pluginRuntimeToken) {
         this.pluginRuntimeToken = pluginRuntimeToken;
+    }
+
+    void setRuntimeResource(AutoCloseable runtimeResource) {
+        this.runtimeResource = runtimeResource;
+    }
+
+    void closeRuntimeResource() {
+        AutoCloseable resource = runtimeResource;
+        runtimeResource = null;
+        if (resource == null) return;
+        try {
+            resource.close();
+        } catch (Exception ignored) {
+            // Runtime cleanup must not hide the original query result or failure.
+        }
     }
 
     public DataType getProducedDataType() {

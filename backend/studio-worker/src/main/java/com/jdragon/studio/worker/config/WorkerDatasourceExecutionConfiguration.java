@@ -12,6 +12,7 @@ import com.jdragon.studio.infra.service.DatasourceClusterBindingService;
 import com.jdragon.studio.infra.service.DatasourceTypeCapabilityService;
 import com.jdragon.studio.infra.service.EncryptionService;
 import com.jdragon.studio.infra.service.JavaDataDevelopmentExecutor;
+import com.jdragon.studio.infra.service.ManagedRuntimeFileResolver;
 import com.jdragon.studio.infra.service.PythonDataDevelopmentExecutor;
 import com.jdragon.studio.infra.service.QualityTaskExecutionPlanService;
 import com.jdragon.studio.infra.service.QualityTaskExecutionService;
@@ -60,15 +61,19 @@ public class WorkerDatasourceExecutionConfiguration {
     @Bean
     public DataDevelopmentSqlExecutor dataDevelopmentSqlExecutor(
             EncryptionService encryptionService,
-            DatasourceTypeCapabilityService datasourceTypeCapabilityService) {
-        return new DataDevelopmentSqlExecutor(encryptionService, datasourceTypeCapabilityService);
+            DatasourceTypeCapabilityService datasourceTypeCapabilityService,
+            ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        return new DataDevelopmentSqlExecutor(
+                encryptionService, datasourceTypeCapabilityService, managedRuntimeFileResolver);
     }
 
     @Bean
     public DataIngestionExecutionSupport dataIngestionExecutionSupport(
             CollectionTaskAssemblerService collectionTaskAssemblerService,
-            ObjectMapper objectMapper) {
-        return new DataIngestionExecutionSupport(collectionTaskAssemblerService, objectMapper);
+            ObjectMapper objectMapper,
+            ManagedRuntimeFileResolver managedRuntimeFileResolver) {
+        return new DataIngestionExecutionSupport(
+                collectionTaskAssemblerService, objectMapper, managedRuntimeFileResolver);
     }
 
     @Bean
@@ -116,10 +121,11 @@ public class WorkerDatasourceExecutionConfiguration {
             StudioPlatformProperties properties,
             EncryptionService encryptionService,
             BusinessMetaModelMetadataService businessMetaModelMetadataService,
+            ManagedRuntimeFileResolver managedRuntimeFileResolver,
             ObjectProvider<ObjectStoragePluginRuntimeResolver> pluginRuntimeResolverProvider) {
         pluginRuntimeResolverProvider.getIfAvailable();
         return new AggregationSourceCapabilityProvider(
-                properties, encryptionService, businessMetaModelMetadataService);
+                properties, encryptionService, businessMetaModelMetadataService, managedRuntimeFileResolver);
     }
 
     @Bean
