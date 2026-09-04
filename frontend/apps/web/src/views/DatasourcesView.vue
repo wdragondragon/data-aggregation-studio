@@ -224,6 +224,7 @@
           :fields="technicalFields"
           :model-value="form.technicalMetadata"
           :saved-sensitive-field-keys="form.savedSensitiveFieldKeys"
+          :managed-file-client="studioApi.managedFiles"
           @update:model-value="form.technicalMetadata = $event"
         />
       </SectionCard>
@@ -568,8 +569,8 @@ const fallbackTechnicalFields = computed<MetadataFieldDefinition[]>(() => {
       { fieldKey: "password", fieldName: t("web.login.passwordLabel"), scope: "TECHNICAL", componentType: "PASSWORD", valueType: "STRING", sensitive: true },
       { fieldKey: "kerberos", fieldName: "启用 Kerberos", scope: "TECHNICAL", componentType: "SWITCH", valueType: "BOOLEAN", defaultValue: "false" },
       { fieldKey: "principal", fieldName: "Kerberos Principal", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
-      { fieldKey: "kerberosKeytabFilePath", fieldName: "Keytab 路径", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
-      { fieldKey: "krb5Conf", fieldName: "krb5.conf 路径", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
+      { fieldKey: "kerberosKeytabFilePath", fieldName: "Keytab 文件", scope: "TECHNICAL", componentType: "MANAGED_FILE", valueType: "STRING", filePolicyCode: "KERBEROS_KEYTAB" },
+      { fieldKey: "krb5Conf", fieldName: "krb5.conf 文件", scope: "TECHNICAL", componentType: "MANAGED_FILE", valueType: "STRING", filePolicyCode: "KERBEROS_KRB5_CONF" },
       { fieldKey: "kerberosDomain", fieldName: "Kerberos 域", scope: "TECHNICAL", componentType: "INPUT", valueType: "STRING" },
     ];
   }
@@ -1341,6 +1342,9 @@ async function handleDatasourcePageSizeChange(pageSize: number) {
 }
 
 async function saveDatasource(options: { closeAfterSave?: boolean } = {}) {
+  if (!validateManagedFileFields()) {
+    return;
+  }
   if (runtimeClusters.value.length > 0 && form.applicableClusterIds.length === 0) {
     ElMessage.warning(t("web.datasources.applicableClustersRequired"));
     return;
@@ -1493,6 +1497,9 @@ async function testDatasource(item: DataSourceListView) {
 }
 
 async function testCurrent() {
+  if (!validateManagedFileFields()) {
+    return;
+  }
   if (!testRuntimeClusterId.value) {
     ElMessage.warning(t("web.datasources.testRuntimeClusterPlaceholder"));
     return;
@@ -1520,6 +1527,9 @@ async function testCurrent() {
 }
 
 async function testAllApplicableClusters() {
+  if (!validateManagedFileFields()) {
+    return;
+  }
   const sequence = ++allClustersTestSequence;
   const clusters = [...applicableRuntimeClusters.value];
   const payload = cloneDeep(form);
@@ -1549,6 +1559,56 @@ async function testAllApplicableClusters() {
   const aggregate = aggregateConnectionResults(clusterTestResults.value.map((item) => item.result));
   testResult.value = aggregate;
   showConnectionTestMessage(aggregate);
+}
+
+function validateManagedFileFields() {
+  const requiredKeys = new Set<string>();
+  for (const field of technicalFields.value) {
+    if (field.componentType === "MANAGED_FILE" && field.required) requiredKeys.add(field.fieldKey);
+  }
+  if (form.typeCode === "kafka" && asBooleanFlag(form.technicalMetadata.kerberos)) {
+    requiredKeys.add("kerberosKeytabFilePath");
+    requiredKeys.add("krb5Conf");
+  }
+  if (["tbds-hdfs", "tbds-hdfs3"].includes(form.typeCode) && hadoopKerberosEnabled()) {
+    requiredKeys.add("kerberosKeytabFilePath");
+    requiredKeys.add("krb5Conf");
+  }
+  for (const field of technicalFields.value.filter((item) => item.componentType === "MANAGED_FILE")) {
+    const value = String(form.technicalMetadata[field.fieldKey] ?? "").trim();
+    if (!value && requiredKeys.has(field.fieldKey)) {
+      ElMessage.warning(t("metaForm.managedFileRequired", { field: field.fieldName }));
+      return false;
+    }
+    if (value && !/^managed-file:\/\/[1-9][0-9]*$/.test(value)) {
+      ElMessage.warning(t("metaForm.managedFileInvalid", { field: field.fieldName }));
+      return false;
+    }
+  }
+  return true;
+}
+
+function asBooleanFlag(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") return value !== 0;
+  return ["true", "1", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
+}
+
+function hadoopKerberosEnabled() {
+  const configured = form.technicalMetadata.hadoopConfig;
+  if (configured && typeof configured === "object") {
+    return String((configured as Record<string, unknown>)["hadoop.security.authentication"] ?? "")
+      .trim().toLowerCase() === "kerberos";
+  }
+  if (typeof configured === "string") {
+    try {
+      const parsed = JSON.parse(configured) as Record<string, unknown>;
+      return String(parsed["hadoop.security.authentication"] ?? "").trim().toLowerCase() === "kerberos";
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function aggregateConnectionResults(results: ConnectionTestResult[]) {

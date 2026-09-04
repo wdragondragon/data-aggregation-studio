@@ -142,6 +142,10 @@ import type {
   LoginRequest,
   LoginResponse,
   MetadataSchemaDefinition,
+  ManagedFileAuditView,
+  ManagedFileMigrationIssueView,
+  ManagedFileReferenceView,
+  ManagedFileView,
   ModelSyncRequest,
   ModelDiscoveryOptionResult,
   ModelDiscoveryResult,
@@ -515,6 +519,53 @@ export function createStudioApi(options: StudioApiOptions = {}) {
     dashboard: {
       overview() {
         return request<StudioDashboardView>({ url: "/dashboard/overview", method: "GET" });
+      },
+    },
+    managedFiles: {
+      upload(file: File, policyCode: string, onProgress?: (percentage: number) => void) {
+        const data = new FormData();
+        data.append("file", file);
+        data.append("policyCode", policyCode);
+        return request<ManagedFileView>({
+          url: "/managed-files/upload",
+          method: "POST",
+          data,
+          timeout: 0,
+          onUploadProgress: (event) => {
+            const total = event.total ?? file.size;
+            onProgress?.(total > 0 ? Math.min(100, Math.round((event.loaded / total) * 100)) : 100);
+          },
+        });
+      },
+      queryPage(params?: { pageNum?: number; pageSize?: number; policyCode?: string; status?: string }) {
+        return requestPage<ManagedFileView>(
+          { url: "/managed-files/queryPage", method: "POST", params },
+          { pageNo: params?.pageNum, pageSize: params?.pageSize },
+        );
+      },
+      get(id: EntityId) {
+        return request<ManagedFileView>({ url: `/managed-files/${id}`, method: "GET" });
+      },
+      references(id: EntityId) {
+        return request<ManagedFileReferenceView[]>({ url: `/managed-files/${id}/references`, method: "GET" });
+      },
+      download(id: EntityId) {
+        return requestBlob({ url: `/managed-files/${id}/download`, method: "GET", timeout: 0 });
+      },
+      delete(id: EntityId) {
+        return request<void>({ url: `/managed-files/${id}`, method: "DELETE" });
+      },
+      queryAudits(params?: { pageNum?: number; pageSize?: number; fileId?: EntityId }) {
+        return requestPage<ManagedFileAuditView>(
+          { url: "/managed-files/audits/queryPage", method: "POST", params },
+          { pageNo: params?.pageNum, pageSize: params?.pageSize },
+        );
+      },
+      migrationIssues() {
+        return request<ManagedFileMigrationIssueView[]>({
+          url: "/managed-files/migration-issues",
+          method: "GET",
+        });
       },
     },
     assistant: {

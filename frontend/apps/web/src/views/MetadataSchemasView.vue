@@ -225,6 +225,7 @@
       <MetadataSchemaFieldsSection
         :fields="form.fields"
         :component-types="componentTypes"
+        :file-policy-codes="filePolicyCodes"
         :value-types="valueTypes"
         :query-operator-options="queryOperatorOptions"
         :field-actions="fieldSectionActions"
@@ -289,7 +290,14 @@ interface SchemaDraftForm {
   fields: MetadataFieldDefinition[];
 }
 
-const componentTypes = ["INPUT", "PASSWORD", "NUMBER", "TEXTAREA", "SELECT", "SWITCH", "JSON_EDITOR", "SQL_EDITOR", "CODE_EDITOR", "CRON"];
+const componentTypes = ["INPUT", "PASSWORD", "NUMBER", "TEXTAREA", "SELECT", "SWITCH", "JSON_EDITOR", "SQL_EDITOR", "CODE_EDITOR", "CRON", "MANAGED_FILE"];
+const filePolicyCodes = [
+  "KERBEROS_KEYTAB",
+  "KERBEROS_KRB5_CONF",
+  "HADOOP_SITE_XML",
+  "GENERAL_CONFIG",
+  "GENERAL_ATTACHMENT",
+];
 const valueTypes = ["STRING", "BOOLEAN", "INTEGER", "LONG", "DECIMAL", "ARRAY", "OBJECT", "JSON"];
 const queryOperatorOptions = ["EQ", "LIKE", "IN", "GT", "GE", "LT", "LE", "BETWEEN"];
 const requiredTechnicalMetaModels = [

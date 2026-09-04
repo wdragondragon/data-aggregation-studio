@@ -19,8 +19,16 @@
             :required="field.required"
             :class="{ 'meta-form__item--dynamic': isDynamicFunctionField(field) }"
           >
+            <ManagedFileField
+              v-if="field.componentType === 'MANAGED_FILE'"
+              :model-value="fieldValue(field.fieldKey)"
+              :policy-code="field.filePolicyCode"
+              :client="managedFileClient"
+              :disabled="disabled"
+              @update:model-value="updateField(field.fieldKey, $event)"
+            />
             <el-select
-              v-if="field.componentType === 'SELECT'"
+              v-else-if="field.componentType === 'SELECT'"
               :key="`${field.fieldKey}:${field.valueType}`"
               :model-value="fieldValue(field.fieldKey)"
               :multiple="isArraySelectField(field)"
@@ -154,6 +162,8 @@ import { useI18n } from "vue-i18n";
 import type { MetadataFieldDefinition } from "@studio/api-sdk";
 import { dynamicFunctionCatalog, type DynamicFunctionParamSchema, type DynamicFunctionSchema } from "./dynamicFunctions";
 import { formatJsonEditorValue } from "./jsonEditorValue";
+import ManagedFileField from "./ManagedFileField.vue";
+import type { ManagedFileClient } from "./managedFile";
 
 interface DynamicInputRef {
   input?: HTMLInputElement;
@@ -168,6 +178,7 @@ const props = withDefaults(
     modelValue: Record<string, unknown>;
     dynamicFunctionFields?: string[];
     savedSensitiveFieldKeys?: string[];
+    managedFileClient?: ManagedFileClient;
     disabled?: boolean;
   }>(),
   {
@@ -175,6 +186,7 @@ const props = withDefaults(
     modelValue: () => ({}),
     dynamicFunctionFields: () => [],
     savedSensitiveFieldKeys: () => [],
+    managedFileClient: undefined,
     disabled: false,
   },
 );

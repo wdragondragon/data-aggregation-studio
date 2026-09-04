@@ -147,7 +147,15 @@ export type FieldComponentType =
   | "JSON_EDITOR"
   | "SQL_EDITOR"
   | "CODE_EDITOR"
-  | "CRON";
+  | "CRON"
+  | "MANAGED_FILE";
+export type ManagedFileStatus =
+  | "UPLOADING"
+  | "READY"
+  | "UPLOAD_FAILED"
+  | "DELETE_PENDING"
+  | "DELETE_FAILED"
+  | "DELETED";
 export type SchemaStatus = "DRAFT" | "PUBLISHED";
 export type ModelKind = "TABLE" | "VIEW" | "FILE" | "TOPIC" | "MEASUREMENT" | "DATASET";
 export type NodeType = "COLLECTION_TASK" | "QUALITY_TASK" | "FILE_TRANSFER" | "DATA_SCRIPT" | "ETL_SINGLE" | "FUSION" | "CONSISTENCY" | "HTTP" | "SHELL";
@@ -214,6 +222,52 @@ export interface MetadataFieldDefinition {
   sortable?: boolean;
   queryOperators?: QueryOperator[] | string[];
   queryDefaultOperator?: QueryOperator | string;
+  filePolicyCode?: string;
+}
+
+export interface ManagedFileView extends BaseRecord {
+  fileName: string;
+  policyCode: string;
+  contentType?: string;
+  sizeBytes?: number;
+  sha256?: string;
+  sha256Summary?: string;
+  status: ManagedFileStatus | string;
+  uploadedAt?: string;
+  expiresAt?: string;
+  uploadedBy?: EntityId;
+  referenceCount?: number;
+  referenced?: boolean;
+  downloadable?: boolean;
+  deletable?: boolean;
+  errorMessage?: string;
+}
+
+export interface ManagedFileReferenceView extends BaseRecord {
+  fileId: EntityId;
+  ownerType: string;
+  ownerId: EntityId;
+  fieldKey: string;
+  ordinal?: number;
+}
+
+export interface ManagedFileAuditView extends BaseRecord {
+  fileId: EntityId;
+  action: string;
+  outcome: string;
+  actorUserId?: EntityId;
+  actorName?: string;
+  ownerType?: string;
+  ownerId?: EntityId;
+  fieldKey?: string;
+  detail?: string;
+}
+
+export interface ManagedFileMigrationIssueView {
+  datasourceId: EntityId;
+  datasourceName: string;
+  datasourceTypeCode: string;
+  fieldKeys: string[];
 }
 
 export interface MetadataSchemaDefinition extends BaseRecord {

@@ -4,7 +4,7 @@
       <el-button type="primary" plain @click="fieldActions.appendField">{{ t("common.addField") }}</el-button>
     </template>
 
-    <StudioTableShell min-width="1840px">
+    <StudioTableShell min-width="2040px">
       <el-table :data="fields" border>
         <el-table-column :label="t('web.metadata.fieldKey')" min-width="150">
           <template #default="{ row }">
@@ -29,6 +29,18 @@
             <el-select v-model="row.componentType">
               <el-option v-for="item in componentTypes" :key="item" :label="item" :value="item" />
             </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('web.metadata.filePolicy')" width="200">
+          <template #default="{ row }">
+            <el-select
+              v-if="row.componentType === 'MANAGED_FILE'"
+              v-model="row.filePolicyCode"
+              :placeholder="t('web.metadata.filePolicyPlaceholder')"
+            >
+              <el-option v-for="item in filePolicyCodes" :key="item" :label="item" :value="item" />
+            </el-select>
+            <span v-else class="muted-text">-</span>
           </template>
         </el-table-column>
         <el-table-column :label="t('web.metadata.valueType')" width="150">
@@ -138,6 +150,7 @@ interface FieldSectionActions {
 defineProps<{
   fields: MetadataFieldDefinition[];
   componentTypes: string[];
+  filePolicyCodes: string[];
   valueTypes: string[];
   queryOperatorOptions: string[];
   fieldActions: FieldSectionActions;
