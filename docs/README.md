@@ -11,6 +11,7 @@
     - [统一告警中心使用指南](./使用/功能模块/13-统一告警中心.md)：九类告警、状态流转、通知投递、权限和安全边界的图文操作说明。
     - [Studio 界面接口文档](./使用/接口/README.md)：按界面模块拆分的接口、DTO、Controller 对照和 cURL 调用链模板。
     - [Studio 非结构化文件传输接口联调指南](./使用/接口/15-file-transfer.md)：单集群文件浏览、即时队列、预设任务、运行、非结构化管理、ACL 和指标接口契约。
+    - [Studio 托管文件接口](./使用/接口/16-managed-files.md)：认证文件上传、引用、下载、删除、审计和历史路径迁移检查。
     - [studio-user-whitepaper.md](./使用/studio-user-whitepaper.md)
     - [studio-user-whitepaper.docx](./使用/studio-user-whitepaper.docx)
 
@@ -63,6 +64,7 @@
       - [data-service-test-result-20260416-二轮复测.md](./测试/数据服务/data-service-test-result-20260416-%E4%BA%8C%E8%BD%AE%E5%A4%8D%E6%B5%8B.md)
     - 数据资产：
       - [datasource-connection-status-test-cases.md](./测试/数据资产/datasource-connection-status-test-cases.md)
+      - [托管文件生命周期测试用例](./测试/数据资产/managed-file-lifecycle-test-cases-20260902.md)
     - 数据采集：
       - [指标监控数据源选项回归记录（2026-08-09）](./测试/数据采集/run-metrics-datasource-options-regression-20260809.md)
       - [Studio Native Kafka 长期运行验收用例](./测试/数据采集/studio-native-kafka-streaming-test-cases-20260827.md)
@@ -83,6 +85,7 @@
     - [alert-center-upgrade.md](./数据库/alert-center-upgrade.md)：统一告警中心增量升级、核验和回滚说明。
     - [runtime-cluster-upgrade.md](./数据库/runtime-cluster-upgrade.md)：多运行集群和数据源适用范围增量升级、回填和回滚说明。
     - [Studio 非结构化文件传输数据库升级指南](./数据库/studio-file-transfer-upgrade.md)：MySQL/SQLite 表、列、索引、增量脚本和回滚边界。
+    - [Studio 托管文件数据库升级说明](./数据库/studio-managed-file-upgrade.md)：托管认证文件表、发布顺序、对象存储与灰度兼容说明。
 
 - `规范/`
   - 文档规范、归档约定、模板和团队协作标准。
@@ -107,6 +110,7 @@
 | 统一告警中心 | [11-alert-center.md](./使用/接口/11-alert-center.md) |
 | 运行集群与数据源适用范围 | [12-runtime-clusters.md](./使用/接口/12-runtime-clusters.md) |
 | Studio 非结构化文件传输 | [15-file-transfer.md](./使用/接口/15-file-transfer.md) |
+| Studio 托管文件 | [16-managed-files.md](./使用/接口/16-managed-files.md) |
 
 ## 功能模块文档
 

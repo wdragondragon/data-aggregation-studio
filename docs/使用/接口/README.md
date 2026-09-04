@@ -44,6 +44,7 @@ PROJECT_ID="<从 /auth/me 或 /auth/login 的 data.projects 中选择>"
 | [运行调用幂等保护](./13-runtime-invocation-idempotency.md) | 0（公共写入口增量） | 0（既有入口增量） |
 | [业务接口运行集群 ID 下推分析](./14-runtime-cluster-id-pushdown-analysis.md) | 0（分析记录） | 0（既有接口分析） |
 | [Studio 非结构化文件传输接口](./15-file-transfer.md) | 21 | 21 |
+| [Studio 托管文件接口](./16-managed-files.md) | 8 | 8 |
 
 ## 界面路由覆盖
 
